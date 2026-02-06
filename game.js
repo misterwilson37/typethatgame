@@ -1,9 +1,9 @@
-// v1.2.6 - Syntax Fix & Stable Smart Timer
+// v1.2.6.1 - Syntax Fix & Stable Smart Timer
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.2.6";
+const VERSION = "1.2.6.1";
 const SESSION_LIMIT = 30; 
 const IDLE_THRESHOLD = 2000; // 2 seconds
 
@@ -26,6 +26,9 @@ let modalActionCallback = null;
 // Smart Timer State
 let lastInputTime = 0;
 let timeAccumulator = 0; // Tracks milliseconds for precision
+
+// Add this with the other let variables at the top
+let wpmHistory = []; // Stores timestamps of recent keystrokes
 
 // Letter Status
 let currentLetterStatus = 'clean'; 
@@ -130,11 +133,14 @@ function startGame() {
     timeAccumulator = 0;
     lastInputTime = Date.now(); 
     
+    // RESET WPM HISTORY
+    wpmHistory = []; 
+    wpmDisplay.innerText = "0"; // Start at 0
+    
     timerDisplay.style.color = 'white'; 
     timerDisplay.style.opacity = '1';
 
     if (timerInterval) clearInterval(timerInterval);
-    // Run loop every 100ms for responsiveness
     timerInterval = setInterval(gameTick, 100); 
 
     highlightCurrentChar();
@@ -169,8 +175,8 @@ function updateTimerUI() {
     const secs = (activeSeconds % 60).toString().padStart(2, '0');
     timerDisplay.innerText = `${mins}:${secs}`;
 
-    const wpm = Math.round((currentCharIndex / 5) / (activeSeconds / 60)) || 0;
-    wpmDisplay.innerText = wpm;
+    // REMOVED WPM CALCULATION FROM HERE
+    // It is now handled by updateRunningWPM() on keypress
 
     if (sprintSeconds >= SESSION_LIMIT) {
         isOvertime = true;
@@ -245,6 +251,8 @@ document.addEventListener('keydown', (e) => {
         currentCharIndex++;
         currentLetterStatus = 'clean'; 
 
+        updateRunningWPM();
+        
         // 4. STOP LOGIC (Quotes aware)
         if (isOvertime) {
             // Case A: Typed Punctuation (. ! ?)
@@ -329,6 +337,29 @@ function updateAccuracy() {
     const total = currentCharIndex + mistakes;
     const acc = total === 0 ? 100 : Math.round((currentCharIndex / total) * 100);
     accDisplay.innerText = acc + "%";
+}
+
+function updateRunningWPM() {
+    const now = Date.now();
+    wpmHistory.push(now);
+
+    // Keep only the last 15 keystrokes
+    if (wpmHistory.length > 15) {
+        wpmHistory.shift();
+    }
+
+    // We need at least 2 keystrokes to measure a time difference
+    if (wpmHistory.length > 1) {
+        const timeDiffMs = now - wpmHistory[0];
+        const timeDiffMin = timeDiffMs / 60000;
+        const chars = wpmHistory.length; 
+        
+        // Standard WPM formula: (Chars / 5) / Minutes
+        // We use the actual count of keys in buffer, not just 15, for early accuracy
+        const wpm = Math.round((chars / 5) / timeDiffMin);
+        
+        wpmDisplay.innerText = wpm;
+    }
 }
 
 function finishChapter() {
