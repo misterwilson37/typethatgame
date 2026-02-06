@@ -1,9 +1,9 @@
-// v1.2.6.1 - Syntax Fix & Stable Smart Timer
+// v1.2.6.2 - Syntax Fix & Stable Smart Timer
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.2.6.1";
+const VERSION = "1.2.6.2";
 const SESSION_LIMIT = 30; 
 const IDLE_THRESHOLD = 2000; // 2 seconds
 
@@ -343,8 +343,8 @@ function updateRunningWPM() {
     const now = Date.now();
     wpmHistory.push(now);
 
-    // Keep only the last 15 keystrokes
-    if (wpmHistory.length > 15) {
+    // Increased buffer to 20 for smoother average
+    if (wpmHistory.length > 20) {
         wpmHistory.shift();
     }
 
@@ -352,13 +352,17 @@ function updateRunningWPM() {
     if (wpmHistory.length > 1) {
         const timeDiffMs = now - wpmHistory[0];
         const timeDiffMin = timeDiffMs / 60000;
-        const chars = wpmHistory.length; 
         
-        // Standard WPM formula: (Chars / 5) / Minutes
-        // We use the actual count of keys in buffer, not just 15, for early accuracy
-        const wpm = Math.round((chars / 5) / timeDiffMin);
+        // FIX: The Fencepost Error
+        // We have 'length' timestamps, but that measures 'length - 1' intervals.
+        // If we typed 20 chars, the timer measures the duration of the last 19 transitions.
+        const chars = wpmHistory.length - 1; 
         
-        wpmDisplay.innerText = wpm;
+        // Prevent division by zero or negative time
+        if (timeDiffMin > 0) {
+            const wpm = Math.round((chars / 5) / timeDiffMin);
+            wpmDisplay.innerText = wpm;
+        }
     }
 }
 
