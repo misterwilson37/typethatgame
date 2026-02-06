@@ -1,4 +1,4 @@
-/* v1.2.5.2 - Stable Spaces & Smart Timer UI */
+/* v1.4.0 - Unified HUD & Login System */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -24,18 +24,62 @@ body {
     -webkit-user-select: none;
 }
 
+/* --- UNIFIED HUD SECTION --- */
 #hud {
-    padding: 15px 20px;
+    height: 60px; /* Fixed height for stability */
+    padding: 0 20px;
     background: var(--black);
     color: white;
     display: flex;
     justify-content: space-between;
+    align-items: center;
     font-weight: bold;
     border-bottom: 4px solid var(--carolina-blue);
     flex-shrink: 0; 
     z-index: 10;
+    box-sizing: border-box;
 }
 
+/* Three columns for the HUD */
+.hud-section {
+    flex: 1; /* Takes equal width */
+    display: flex;
+    align-items: center;
+}
+.hud-section.left { justify-content: flex-start; }
+.hud-section.center { justify-content: center; font-size: 1.1em; }
+.hud-section.right { justify-content: flex-end; gap: 15px; font-size: 14px; }
+
+/* HUD Buttons (Auth) */
+.action-btn {
+    background: var(--carolina-blue);
+    color: white;
+    border: none;
+    padding: 6px 14px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: inherit;
+    font-weight: bold;
+    font-size: 13px;
+    transition: background 0.2s;
+}
+.action-btn:hover { background: #4a90e2; }
+
+.text-btn {
+    background: none;
+    border: none;
+    color: #999;
+    text-decoration: underline;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+    padding: 0;
+}
+.text-btn:hover { color: white; }
+
+#user-name { color: white; margin-right: 5px; }
+
+/* --- GAME AREA --- */
 #game-container {
     flex-grow: 1;
     position: relative;
@@ -61,31 +105,32 @@ body {
     color: #ccc; 
 }
 
-/* UNIFIED LETTER STYLING (Fixes the Jump) */
+/* UNIFIED LETTER STYLING */
 .letter {
-    display: inline-block;       /* Makes all chars behave like boxes */
-    vertical-align: bottom;      /* Aligns them perfectly on the line */
-    min-width: 14.4px;           /* Approx 1ch for Courier 24px */
-    padding: 2px 0;              /* Consistent padding for all */
-    line-height: 1.2;            /* Tightens the box to text */
+    display: inline-block;       
+    vertical-align: bottom;      
+    min-width: 14.4px;           
+    padding: 2px 0;              
+    line-height: 1.2;            
     position: relative;
     color: #ccc;
 }
 
-.letter.space {
-    min-width: 14.4px;           /* Ensure space is same width as letters */
-}
+.letter.space { min-width: 14.4px; }
 
-/* Maintain your color states */
+/* Letter States */
 .letter.active { background-color: var(--carolina-blue); color: white !important; border-radius: 2px; }
 .letter.active.error-state { background-color: var(--error-bg); color: black !important; }
+
 .letter.done-perfect { color: var(--black); } 
 .letter.done-fixed { color: var(--corrected-color); font-weight: bold; } 
 .letter.done-dirty { color: var(--brute-force-color); } 
+
 .letter.space.done-perfect { background: transparent; }
 .letter.space.done-fixed { background-color: var(--fixed-bg); }
 .letter.space.done-dirty { background-color: var(--error-bg); }
 
+/* --- KEYBOARD --- */
 #virtual-keyboard {
     height: 260px;
     background: var(--accent-grey);
@@ -103,7 +148,7 @@ body {
 .key.wide { width: 80px; font-size: 12px; }
 .key.shift-active { background-color: #ffd700; color: black; } 
 
-/* MODAL */
+/* --- MODAL --- */
 .modal {
     position: fixed; top: 0; left: 0; width: 100%; height: 100%;
     background: rgba(255, 255, 255, 0.1); 
@@ -113,7 +158,7 @@ body {
 .modal-content {
     pointer-events: auto; background: white; width: 100%;
     border-top: 6px solid var(--carolina-blue); padding: 30px; 
-    padding-bottom: 50px; /* Extra padding for footer visibility if needed */
+    padding-bottom: 50px; 
     text-align: center;
     box-shadow: 0 -10px 30px rgba(0,0,0,0.2); animation: slideUp 0.3s ease-out;
 }
@@ -131,6 +176,8 @@ body {
     border-radius: 4px; box-shadow: 0 4px 0 #2b7ca8;
 }
 .modal-btn:active { transform: translateY(2px); box-shadow: 0 2px 0 #2b7ca8; }
+
+/* --- EXTRAS --- */
 .hidden { display: none !important; }
 
 #image-panel {
@@ -139,62 +186,11 @@ body {
 }
 #image-panel img { width: 100%; border: 4px solid var(--black); }
 
-/* FOOTER Z-INDEX FIX */
 footer {
     position: fixed; bottom: 5px; right: 10px; font-size: 0.7em; color: #666; 
     pointer-events: none; 
     background: rgba(255,255,255,0.8);
-    z-index: 101; /* Above modal */
+    z-index: 101; 
     padding: 2px 5px;
     border-radius: 3px;
-}
-
-/* AUTH HUD */
-#auth-hud {
-    position: fixed;
-    top: 20px;
-    right: 20px;
-    z-index: 1000;
-    font-family: 'Courier New', monospace;
-    font-size: 14px;
-    display: flex;
-    align-items: center;
-    gap: 15px;
-}
-
-.hidden {
-    display: none !important;
-}
-
-.action-btn {
-    background: var(--carolina-blue);
-    color: white;
-    border: none;
-    padding: 8px 16px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-family: inherit;
-    font-weight: bold;
-    transition: background 0.2s;
-}
-
-.action-btn:hover {
-    background: #4a90e2;
-}
-
-.text-btn {
-    background: none;
-    border: none;
-    color: #888;
-    text-decoration: underline;
-    cursor: pointer;
-    font-family: inherit;
-    font-size: 12px;
-}
-
-.text-btn:hover { color: white; }
-
-#user-name {
-    color: white;
-    margin-right: 5px;
 }
