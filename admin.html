@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>TypeThatBook Admin v1.0.0</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body style="overflow: auto;">
+
+    <div id="hud">
+        <div>TypeThatBook: ADMIN PANEL</div>
+        <div><a href="index.html" style="color:white">Go to Game</a></div>
+    </div>
+
+    <div class="admin-container">
+        <h1>Library Management</h1>
+        
+        <div class="admin-card">
+            <h2>Wizard of Oz: Chapter 1</h2>
+            <p>Status: <span id="oz-status">Checking...</span></p>
+            <p>Click below to reset or upload the default Chapter 1 text.</p>
+            <button id="uploadBtn" style="padding: 10px 20px; background: black; color: white; cursor: pointer;">
+                Seed/Reset Chapter 1
+            </button>
+            <div id="console-output" style="margin-top: 15px; font-family: monospace;"></div>
+        </div>
+    </div>
+
+    <footer>v1.0.0 (admin.js)</footer>
+
+    <script type="module" src="admin.js"></script>
+</body>
+</html>
