@@ -1,4 +1,4 @@
-// v1.5.1 - Sentence-Based Save & Permission Fixes
+// v1.5.2 - Robust Saving & Image Fixes
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,7 +9,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.5.1";
+const VERSION = "1.5.2";
 const BOOK_ID = "wizard_of_oz"; 
 const SESSION_LIMIT = 30; 
 const IDLE_THRESHOLD = 2000; 
@@ -62,6 +62,12 @@ async function init() {
     const footer = document.querySelector('footer');
     if(footer) footer.innerText = `JS: v${VERSION}`;
     
+    // IMAGE FIX: Hide panel if image fails to load
+    storyImg.onerror = function() {
+        imgPanel.style.display = 'none';
+        console.log("Image not found, hiding panel.");
+    };
+
     createKeyboard();
     setupAuthListeners();
     
@@ -127,8 +133,7 @@ async function loadUserProgress() {
         lastSavedIndex = savedCharIndex; 
         loadChapter(currentChapterNum);
     } catch (e) {
-        console.error("Load Progress Error (Check Console for Permissions):", e);
-        // Fallback so the game still works even if load fails
+        console.error("Load Progress Error:", e);
         loadChapter(1);
     }
 }
@@ -182,11 +187,8 @@ function setupGame() {
     }
 }
 
-// --- SENTENCE-BASED SAVING ---
 async function saveProgress() {
     if (!currentUser) return;
-    
-    // Safety check: Don't save if we somehow went backwards or didn't move
     if (currentCharIndex <= lastSavedIndex) return;
 
     try {
@@ -198,10 +200,9 @@ async function saveProgress() {
         }, { merge: true });
         
         lastSavedIndex = indexToSave;
-        console.log("Sentence saved. Cloud synced at index:", lastSavedIndex);
+        console.log("Cloud Saved at:", lastSavedIndex);
     } catch (e) {
-        // Silent fail in UI, log in console
-        console.warn("Save failed (likely permissions):", e);
+        console.warn("Save failed:", e);
     }
 }
 
@@ -317,8 +318,7 @@ function updateRunningAccuracy(isCorrect) {
 function pauseGameForBreak() {
     isGameActive = false;
     clearInterval(timerInterval); 
-    
-    saveProgress(); // Force save on manual break
+    saveProgress(); 
 
     const charsTyped = currentCharIndex - sprintCharStart;
     const minutes = sprintSeconds / 60;
@@ -364,25 +364,27 @@ document.addEventListener('keydown', (e) => {
         currentCharIndex++;
         currentLetterStatus = 'clean'; 
         
-        // --- NEW: Smart Save Logic ---
-        // Save if we just typed a space that follows punctuation
+        // --- IMPROVED SMART SAVE LOGIC ---
+        // 1. Save on Space following punctuation (Hello. )
         if (targetChar === ' ' && currentCharIndex >= 2) {
              const prevChar = fullText[currentCharIndex - 2];
-             if (['.', '!', '?'].includes(prevChar)) {
-                 saveProgress();
-             }
-             // Handle quotes: "Hello." (space) -> prevChar is quote, char before that is dot
+             if (['.', '!', '?'].includes(prevChar)) saveProgress();
+             // Handle quotes: "Hello." (space)
              else if (['"', "'"].includes(prevChar) && currentCharIndex >= 3) {
                  const prePrevChar = fullText[currentCharIndex - 3];
-                 if (['.', '!', '?'].includes(prePrevChar)) {
-                     saveProgress();
-                 }
+                 if (['.', '!', '?'].includes(prePrevChar)) saveProgress();
              }
+        }
+        // 2. Save on Quote following punctuation (Hello.")
+        else if (['"', "'"].includes(targetChar) && currentCharIndex >= 2) {
+            const prevChar = fullText[currentCharIndex - 2];
+            if (['.', '!', '?'].includes(prevChar)) saveProgress();
         }
 
         updateRunningWPM();
         updateRunningAccuracy(true);
 
+        // --- OVERTIME / SPRINT END LOGIC ---
         if (isOvertime) {
             if (['.', '!', '?'].includes(targetChar)) {
                 const nextChar = fullText[currentCharIndex]; 
@@ -438,13 +440,22 @@ function highlightCurrentChar() {
 }
 
 function updateImageDisplay() {
+    // If the panel was hidden due to error, reset it for new potential images
+    // but only if we have a new source.
     const progress = currentCharIndex / fullText.length;
     const segmentIndex = Math.floor(progress * bookData.segments.length);
     const segment = bookData.segments[segmentIndex];
+    
     if (segment && segment.image) {
-        storyImg.src = segment.image;
-        imgPanel.style.display = 'block';
-    } 
+        // Only change source if it's different to avoid reloading loop
+        const currentSrc = storyImg.getAttribute('src');
+        if (currentSrc !== segment.image) {
+            storyImg.src = segment.image;
+            imgPanel.style.display = 'block';
+        }
+    } else {
+        imgPanel.style.display = 'none';
+    }
 }
 
 function finishChapter() {
