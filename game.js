@@ -1,4 +1,4 @@
-// v1.4.0 - Login & Save System
+// v1.4.0.1 - Login & Save System
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,7 +9,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.4.0";
+const VERSION = "1.4.0.1";
 const BOOK_ID = "wizard_of_oz"; 
 const SESSION_LIMIT = 30; 
 const IDLE_THRESHOLD = 2000; 
@@ -180,9 +180,14 @@ function setupGame() {
     highlightCurrentChar(); 
     centerView(); 
     
-    // Only show modal if we aren't already active (prevents double modals on login swap)
+    let btnLabel = "Resume Reading (ENTER)";
+    if (currentChapterNum === 1 && savedCharIndex === 0) {
+        btnLabel = "Start Reading (ENTER)";
+    }
+
+    // Only show modal if we aren't already active
     if (!isGameActive) {
-        showModal(`Chapter ${currentChapterNum}`, null, "Resume Reading (ENTER)", startGame);
+        showModal(`Chapter ${currentChapterNum}`, null, btnLabel, startGame);
     }
 }
 
