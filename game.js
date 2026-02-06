@@ -1,10 +1,11 @@
-// v1.2.4 - Enter Key Only & Robust Stop Logic
+// v1.2.5 - Smart Timer, Quote Fix, Clean Start
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.2.4";
+const VERSION = "1.2.5";
 const SESSION_LIMIT = 30; 
+const IDLE_THRESHOLD = 2000; // 2 seconds before timer pauses
 
 // STATE
 let currentUser = null;
@@ -21,6 +22,9 @@ let isGameActive = false;
 let isOvertime = false;
 let isModalOpen = false;
 let modalActionCallback = null;
+
+// Idle Logic
+let lastInputTime = 0;
 
 let currentLetterStatus = 'clean'; 
 
@@ -62,8 +66,8 @@ function setupGame() {
     fullText = fullText.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
     renderText();
     updateImageDisplay();
-    // Use Enter explicitly in instructions
-    showModal("Ready?", { time: 0, wpm: 0, acc: 100 }, "Start (ENTER)", startGame);
+    // Pass 'null' for stats to hide them
+    showModal("Ready?", null, "Start (ENTER)", startGame);
 }
 
 function renderText() {
@@ -103,42 +107,93 @@ function startGame() {
     sprintMistakes = 0;
     sprintCharStart = currentCharIndex;
     
-    timerDisplay.style.color = 'white'; 
+    // Reset Idle Timer so it starts counting immediately
+    lastInputTime = Date.now(); 
     
-    if (timerInterval) clearInterval(timerInterval);
-    timerInterval = setInterval(gameTick, 1000);
+    timerDisplay.style.color = 'white'; 
+    timerDisplay.style.opacity = '1';
 
-    highlightCurrentChar();
-    centerView();
+    if (timerInterval) clearInterval(timerInterval);
+    timerInterval = setInterval(gameTick, 100); // Faster tick for smooth idle check
 }
 
 function gameTick() {
     if (!isGameActive) return;
 
-    activeSeconds++;
-    sprintSeconds++;
+    const now = Date.now();
+    
+    // SMART TIMER LOGIC: Only count if last input was recent
+    if (now - lastInputTime < IDLE_THRESHOLD) {
+        // We add 0.1s (100ms) because interval is 100ms
+        // But to keep simple integers for display, we'll use a fractional counter
+        // or just simpler:
+    } else {
+        // Idle
+        timerDisplay.style.opacity = '0.5'; // Dim timer to show it's paused
+        return; 
+    }
+    
+    timerDisplay.style.opacity = '1';
 
-    // Timer Update
+    // Since we are ticking every 100ms, we need to handle seconds carefully.
+    // Let's use a simpler approach: 
+    // We only update the seconds counter if 1 second has actually passed in "active time"
+    // But that requires floating math.
+    
+    // Easier approach for 'gameTick' running at 1s intervals:
+    // We revert setInterval to 1000ms, but we check the timestamp in the callback.
+    // No, 1s resolution is too chunky for idle checks.
+    
+    // Let's stick to the 1s interval but check the condition.
+}
+
+// REDOING TIMER FOR CLARITY
+// We will use a standard 1s interval, but we will maintain an 'accumulatedTime'
+// driven by the keydown events? No, that's messy.
+// Let's use the 100ms interval approach for precision.
+
+let fractionalSeconds = 0;
+
+function gameTick() {
+    if (!isGameActive) return;
+    
+    const now = Date.now();
+    if (now - lastInputTime < IDLE_THRESHOLD) {
+        fractionalSeconds += 0.1;
+        timerDisplay.style.opacity = '1';
+        
+        if (fractionalSeconds >= 1) {
+            activeSeconds++;
+            sprintSeconds++;
+            fractionalSeconds = 0;
+            
+            // Update UI
+            updateTimerUI();
+        }
+    } else {
+         timerDisplay.style.opacity = '0.5';
+    }
+}
+
+function updateTimerUI() {
     const mins = Math.floor(activeSeconds / 60).toString().padStart(2, '0');
     const secs = (activeSeconds % 60).toString().padStart(2, '0');
     timerDisplay.innerText = `${mins}:${secs}`;
 
-    // WPM Update
     const wpm = Math.round((currentCharIndex / 5) / (activeSeconds / 60)) || 0;
     wpmDisplay.innerText = wpm;
 
-    // Overtime Check
     if (sprintSeconds >= SESSION_LIMIT) {
         isOvertime = true;
         timerDisplay.style.color = '#FFA500'; 
     }
 }
 
+
 function pauseGameForBreak() {
     isGameActive = false;
-    clearInterval(timerInterval); // CRITICAL: Stops the tick
+    clearInterval(timerInterval); 
     
-    // Sprint Stats Calculation
     const charsTyped = currentCharIndex - sprintCharStart;
     const minutes = sprintSeconds / 60;
     const sprintWPM = (minutes > 0) ? Math.round((charsTyped / 5) / minutes) : 0;
@@ -159,7 +214,6 @@ function pauseGameForBreak() {
 
 // --- INPUT ---
 document.addEventListener('keydown', (e) => {
-    // 1. MODAL: ENTER ONLY
     if (isModalOpen) {
         if (e.key === "Enter") {
             e.preventDefault();
@@ -173,10 +227,13 @@ document.addEventListener('keydown', (e) => {
     if (["Shift", "Control", "Alt", "Meta", "CapsLock", "Tab"].includes(e.key)) return;
     if (e.key === " ") e.preventDefault(); 
 
+    // UPDATE IDLE TIMER
+    lastInputTime = Date.now();
+    timerDisplay.style.opacity = '1';
+
     const targetChar = fullText[currentCharIndex];
     const currentEl = document.getElementById(`char-${currentCharIndex}`);
 
-    // 2. BACKSPACE
     if (e.key === "Backspace") {
         if (currentLetterStatus === 'error') {
             currentLetterStatus = 'fixed';
@@ -185,7 +242,6 @@ document.addEventListener('keydown', (e) => {
         return;
     }
 
-    // 3. CORRECT KEY
     if (e.key === targetChar) {
         currentEl.classList.remove('active');
         currentEl.classList.remove('error-state');
@@ -197,35 +253,27 @@ document.addEventListener('keydown', (e) => {
         currentCharIndex++;
         currentLetterStatus = 'clean'; 
 
-        // 4. OVERTIME STOP LOGIC (Refined)
+        // --- SMART QUOTE STOP LOGIC ---
         if (isOvertime) {
-            // Did we type a sentence terminator?
+            // 1. If we just typed punctuation...
             if (['.', '!', '?'].includes(targetChar)) {
-                
-                // PEEK AHEAD: Is the NEXT character a closing quote?
-                const nextChar = fullText[currentCharIndex]; // index already incremented
+                // Peek next: Is it a quote?
+                const nextChar = fullText[currentCharIndex]; 
                 if (nextChar === '"' || nextChar === "'") {
-                    // Do NOT stop yet. Let them type the quote.
-                    return; 
+                    // It's a quote! Let them type it. Don't stop.
+                } else {
+                    // Regular end of sentence
+                    triggerStop();
+                    return;
                 }
-
-                // Otherwise, perform visual update and STOP
-                updateImageDisplay();
-                highlightCurrentChar();
-                centerView();
-                pauseGameForBreak();
-                return;
             }
             
-            // Also stop if we just typed a closing quote that finished a sentence
-            // (e.g. we just typed " and the previous char was .)
+            // 2. If we just typed a quote...
             if (['"', "'"].includes(targetChar)) {
-                 const prevChar = fullText[currentCharIndex - 2]; // -2 because index incremented
+                // Check if previous char was punctuation
+                 const prevChar = fullText[currentCharIndex - 2]; 
                  if (['.', '!', '?'].includes(prevChar)) {
-                    updateImageDisplay();
-                    highlightCurrentChar();
-                    centerView();
-                    pauseGameForBreak();
+                    triggerStop();
                     return;
                  }
             }
@@ -240,7 +288,6 @@ document.addEventListener('keydown', (e) => {
         centerView();
         updateImageDisplay();
     } 
-    // 5. MISTAKE
     else {
         mistakes++;
         sprintMistakes++;
@@ -251,6 +298,13 @@ document.addEventListener('keydown', (e) => {
     
     updateAccuracy();
 });
+
+function triggerStop() {
+    updateImageDisplay();
+    highlightCurrentChar();
+    centerView();
+    pauseGameForBreak();
+}
 
 document.addEventListener('keyup', (e) => {
     if (e.key === "Shift") toggleKeyboardCase(false);
@@ -304,6 +358,7 @@ function showModal(title, stats, btnText, action) {
     document.getElementById('modal-title').innerText = title;
     
     let bodyHtml = '';
+    // Only show stats if stats object is passed (not null)
     if (stats) {
         bodyHtml = `
             <div class="stat-row">
@@ -327,6 +382,10 @@ function closeModal() {
     modal.classList.add('hidden');
     isModalOpen = false;
     modalActionCallback = null;
+    
+    // Reset Idle on Close
+    lastInputTime = Date.now();
+    timerDisplay.style.opacity = '1';
 }
 
 // --- KEYBOARD ---
