@@ -1,9 +1,9 @@
-// v1.1.1 - Fixes & Image Fill-Down
+// v1.1.2 - Robust Centering, Timer Fix, Strict Colors
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.1.1";
+const VERSION = "1.1.2";
 const SESSION_LIMIT = 30; 
 
 // STATE
@@ -59,10 +59,9 @@ function setupGame() {
     fullText = fullText.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
     renderText();
     
-    // Check image immediately (Fill Down Logic)
+    // Initial Image Load
     updateImageDisplay();
 
-    // Show start modal
     showModal("Ready?", "You will read in 30-second bursts.", "Start Reading", startGame);
 }
 
@@ -92,7 +91,9 @@ function renderText() {
 }
 
 function startGame() {
-    document.getElementById('modal').classList.add('hidden');
+    const modal = document.getElementById('modal');
+    if(modal) modal.classList.add('hidden');
+
     isGameActive = true;
     startTime = Date.now();
     lastActivityTime = Date.now();
@@ -100,10 +101,11 @@ function startGame() {
     
     focusOnCurrentChar();
     
-    // Force center immediately
-    centerView();
-    // Force center again after layout settles
-    setTimeout(centerView, 50);
+    // Force center with new engine
+    // We delay slightly to ensure modal is gone and layout is recalculated
+    setTimeout(() => {
+        centerView();
+    }, 100);
 
     if (timerInterval) clearInterval(timerInterval);
     timerInterval = setInterval(gameTick, 1000);
@@ -112,7 +114,9 @@ function startGame() {
 function gameTick() {
     if (!isGameActive) return;
 
-    if (Date.now() - lastActivityTime <= 3000) {
+    // Check if user has typed in the last 5 seconds (increased buffer)
+    const now = Date.now();
+    if (now - lastActivityTime <= 5000) {
         activeSeconds++;
         sessionSeconds++;
         
@@ -126,9 +130,9 @@ function gameTick() {
 
         if (activeSeconds % 10 === 0) saveProgress();
     }
-
-    const timeMins = (Date.now() - startTime) / 60000;
-    const wpm = Math.round((currentCharIndex / 5) / timeMins) || 0;
+    // WPM always updates
+    const timeMins = (now - startTime) / 60000;
+    const wpm = (timeMins > 0) ? Math.round((currentCharIndex / 5) / timeMins) : 0;
     document.getElementById('wpm-display').innerText = wpm;
 }
 
@@ -143,23 +147,28 @@ document.addEventListener('keydown', (e) => {
     if (e.key === "Shift") toggleKeyboardCase(true);
     
     if (!isGameActive) return;
-    if (e.key === "Shift" || e.key === "Control" || e.key === "Alt") return;
+    if (e.key === "Shift" || e.key === "Control" || e.key === "Alt" || e.key === "Meta") return;
     if (e.key === " ") e.preventDefault();
 
     const targetChar = fullText[currentCharIndex];
     const letterEls = document.querySelectorAll('.letter');
     const currentEl = letterEls[currentCharIndex];
 
-    lastActivityTime = Date.now();
+    lastActivityTime = Date.now(); // Reset idle timer
 
     if (e.key === targetChar) {
-        // Correct
+        // CORRECT
         currentEl.classList.remove('active');
-        currentEl.classList.remove('incorrect');
+        currentEl.classList.remove('incorrect'); // Clear red if it was there
         
-        if (currentLetterHasError) currentEl.classList.add('fixed');
-        else currentEl.classList.add('correct');
+        // Decide: Blue (Fixed) or Black (Perfect)
+        if (currentLetterHasError) {
+            currentEl.classList.add('fixed');
+        } else {
+            currentEl.classList.add('correct');
+        }
 
+        // Reset error flag for NEXT char
         currentLetterHasError = false;
         currentCharIndex++;
         
@@ -170,14 +179,14 @@ document.addEventListener('keydown', (e) => {
 
         letterEls[currentCharIndex].classList.add('active');
         updateAccuracy();
-        updateImageDisplay(); // Check for new image
+        updateImageDisplay();
         focusOnCurrentChar();
         centerView();
     } else {
-        // Mistake
+        // MISTAKE
         mistakes++;
-        currentLetterHasError = true;
-        currentEl.classList.add('incorrect');
+        currentLetterHasError = true; // Flag this letter as "tainted"
+        currentEl.classList.add('incorrect'); // Turn Red
         flashKey(e.key);
         updateAccuracy();
     }
@@ -187,23 +196,32 @@ document.addEventListener('keyup', (e) => {
     if (e.key === "Shift") toggleKeyboardCase(false);
 });
 
-// --- HELPERS ---
+// --- NEW CENTERING ENGINE ---
 function centerView() {
     const currentEl = document.querySelectorAll('.letter')[currentCharIndex];
     if (!currentEl) return;
     
     const container = document.getElementById('game-container');
-    // Place active letter in the exact vertical center
-    const offset = (container.offsetHeight / 2) - currentEl.offsetTop - 20; 
+    const containerRect = container.getBoundingClientRect();
+    const letterRect = currentEl.getBoundingClientRect();
     
-    textStream.style.transform = `translateY(${offset}px)`;
+    // We want the letter's center to match the container's center
+    // Current Transform (approximate)
+    const currentTransform = textStream.style.transform || 'translateY(0px)';
+    const currentY = parseFloat(currentTransform.replace('translateY(', '').replace('px)', '')) || 0;
+    
+    // The visual difference between where the letter IS and where we WANT it
+    const targetY = containerRect.top + (containerRect.height / 2);
+    const actualY = letterRect.top + (letterRect.height / 2);
+    const diff = targetY - actualY;
+    
+    // Apply the difference to the existing transform
+    const newY = currentY + diff;
+    
+    textStream.style.transform = `translateY(${newY}px)`;
 }
 
 function updateImageDisplay() {
-    // Logic: Look at current segment. If it has an image, show it.
-    // If it has NO image, do nothing (keep the previous one showing).
-    // This creates the "Fill Down" effect.
-    
     const progress = currentCharIndex / fullText.length;
     const segmentIndex = Math.floor(progress * bookData.segments.length);
     const segment = bookData.segments[segmentIndex];
@@ -212,7 +230,6 @@ function updateImageDisplay() {
         storyImg.src = segment.image;
         imgPanel.style.display = 'block';
     } 
-    // If segment.image is null, we just leave the previous image there.
 }
 
 function updateAccuracy() {
@@ -238,8 +255,7 @@ function finishChapter() {
 
 function showModal(title, body, btnText, action) {
     const modal = document.getElementById('modal');
-    if (!modal) return; // Safety check
-    
+    if (!modal) return;
     document.getElementById('modal-title').innerText = title;
     document.getElementById('modal-body').innerText = body;
     const btn = document.getElementById('action-btn');
@@ -248,7 +264,7 @@ function showModal(title, body, btnText, action) {
     modal.classList.remove('hidden');
 }
 
-// --- KEYBOARD ---
+// --- KEYBOARD ENGINE (Unchanged) ---
 const keyMap = {
     row1: "`1234567890-=",
     row1_s: "~!@#$%^&*()_+",
