@@ -1,4 +1,4 @@
-// v1.5.0 - Auto-Save System
+// v1.5.1 - Sentence-Based Save & Permission Fixes
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,7 +9,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.5.0";
+const VERSION = "1.5.1";
 const BOOK_ID = "wizard_of_oz"; 
 const SESSION_LIMIT = 30; 
 const IDLE_THRESHOLD = 2000; 
@@ -20,7 +20,7 @@ let bookData = null;
 let fullText = "";
 let currentCharIndex = 0;
 let savedCharIndex = 0; 
-let lastSavedIndex = 0; // Track what is currently in the cloud
+let lastSavedIndex = 0; 
 let currentChapterNum = 1;
 
 // Stats
@@ -30,7 +30,6 @@ let activeSeconds = 0;
 let sprintSeconds = 0; 
 let sprintCharStart = 0; 
 let timerInterval = null;
-let autoSaveInterval = null; // New: Handle for the save timer
 let isGameActive = false;
 let isOvertime = false;
 let isModalOpen = false;
@@ -66,13 +65,6 @@ async function init() {
     createKeyboard();
     setupAuthListeners();
     
-    // Safety Net: Try to save if the user suddenly closes the tab
-    window.addEventListener('beforeunload', () => {
-        if (isGameActive && currentCharIndex > lastSavedIndex) {
-            saveProgress();
-        }
-    });
-
     onAuthStateChanged(auth, async (user) => {
         if (user) {
             currentUser = user;
@@ -97,8 +89,6 @@ function setupAuthListeners() {
 
     logoutBtn.addEventListener('click', async () => {
         try {
-            // Save before logging out
-            if (currentCharIndex > lastSavedIndex) await saveProgress();
             await signOut(auth);
             location.reload(); 
         } catch (error) {
@@ -134,10 +124,11 @@ async function loadUserProgress() {
             savedCharIndex = 0;
         }
         
-        lastSavedIndex = savedCharIndex; // Sync local tracker
+        lastSavedIndex = savedCharIndex; 
         loadChapter(currentChapterNum);
     } catch (e) {
-        console.error("Load Progress Error:", e);
+        console.error("Load Progress Error (Check Console for Permissions):", e);
+        // Fallback so the game still works even if load fails
         loadChapter(1);
     }
 }
@@ -191,15 +182,15 @@ function setupGame() {
     }
 }
 
-// --- NEW: Auto-Save Functionality ---
+// --- SENTENCE-BASED SAVING ---
 async function saveProgress() {
     if (!currentUser) return;
     
-    // Don't save if we haven't moved forward
+    // Safety check: Don't save if we somehow went backwards or didn't move
     if (currentCharIndex <= lastSavedIndex) return;
 
     try {
-        const indexToSave = currentCharIndex; // Snapshot value
+        const indexToSave = currentCharIndex; 
         await setDoc(doc(db, "users", currentUser.uid, "progress", BOOK_ID), {
             chapter: currentChapterNum,
             charIndex: indexToSave,
@@ -207,9 +198,10 @@ async function saveProgress() {
         }, { merge: true });
         
         lastSavedIndex = indexToSave;
-        console.log("Auto-Saved at index:", lastSavedIndex);
+        console.log("Sentence saved. Cloud synced at index:", lastSavedIndex);
     } catch (e) {
-        console.error("Save failed:", e);
+        // Silent fail in UI, log in console
+        console.warn("Save failed (likely permissions):", e);
     }
 }
 
@@ -263,12 +255,6 @@ function startGame() {
 
     if (timerInterval) clearInterval(timerInterval);
     timerInterval = setInterval(gameTick, 100); 
-
-    // --- NEW: Start Auto-Save Loop (Every 5 seconds) ---
-    if (autoSaveInterval) clearInterval(autoSaveInterval);
-    autoSaveInterval = setInterval(() => {
-        if (isGameActive) saveProgress();
-    }, 5000);
 
     highlightCurrentChar();
     centerView();
@@ -331,9 +317,8 @@ function updateRunningAccuracy(isCorrect) {
 function pauseGameForBreak() {
     isGameActive = false;
     clearInterval(timerInterval); 
-    clearInterval(autoSaveInterval); // Stop auto-saving while paused
     
-    saveProgress(); // Force one last save immediately
+    saveProgress(); // Force save on manual break
 
     const charsTyped = currentCharIndex - sprintCharStart;
     const minutes = sprintSeconds / 60;
@@ -379,6 +364,22 @@ document.addEventListener('keydown', (e) => {
         currentCharIndex++;
         currentLetterStatus = 'clean'; 
         
+        // --- NEW: Smart Save Logic ---
+        // Save if we just typed a space that follows punctuation
+        if (targetChar === ' ' && currentCharIndex >= 2) {
+             const prevChar = fullText[currentCharIndex - 2];
+             if (['.', '!', '?'].includes(prevChar)) {
+                 saveProgress();
+             }
+             // Handle quotes: "Hello." (space) -> prevChar is quote, char before that is dot
+             else if (['"', "'"].includes(prevChar) && currentCharIndex >= 3) {
+                 const prePrevChar = fullText[currentCharIndex - 3];
+                 if (['.', '!', '?'].includes(prePrevChar)) {
+                     saveProgress();
+                 }
+             }
+        }
+
         updateRunningWPM();
         updateRunningAccuracy(true);
 
@@ -449,7 +450,6 @@ function updateImageDisplay() {
 function finishChapter() {
     isGameActive = false;
     clearInterval(timerInterval);
-    clearInterval(autoSaveInterval);
     saveProgress();
     showModal("Chapter Complete!", { time: activeSeconds, wpm: parseInt(wpmDisplay.innerText), acc: parseInt(accDisplay.innerText) }, "Play Again (ENTER)", () => location.reload());
 }
