@@ -1,10 +1,10 @@
-// v1.1.0 - Corrections, Dynamic Keyboard, 30s Intervals
+// v1.1.1 - Fixes & Image Fill-Down
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.1.0";
-const SESSION_LIMIT = 30; // Seconds before a break
+const VERSION = "1.1.1";
+const SESSION_LIMIT = 30; 
 
 // STATE
 let currentUser = null;
@@ -14,11 +14,11 @@ let currentCharIndex = 0;
 let mistakes = 0;
 let startTime = null;
 let activeSeconds = 0;
-let sessionSeconds = 0; // Tracks the current 30s block
+let sessionSeconds = 0;
 let lastActivityTime = 0;
 let timerInterval = null;
 let isGameActive = false;
-let currentLetterHasError = false; // Tracks if current letter was missed once
+let currentLetterHasError = false;
 
 // DOM
 const textStream = document.getElementById('text-stream');
@@ -59,8 +59,11 @@ function setupGame() {
     fullText = fullText.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
     renderText();
     
+    // Check image immediately (Fill Down Logic)
+    updateImageDisplay();
+
     // Show start modal
-    showModal("Ready to Read?", "You will read in 30-second bursts.", "Start Reading", startGame);
+    showModal("Ready?", "You will read in 30-second bursts.", "Start Reading", startGame);
 }
 
 function renderText() {
@@ -88,18 +91,19 @@ function renderText() {
     });
 }
 
-// --- GAME LOOP ---
 function startGame() {
-    document.getElementById('modal').classList.add('hidden'); // Hide modal
+    document.getElementById('modal').classList.add('hidden');
     isGameActive = true;
     startTime = Date.now();
     lastActivityTime = Date.now();
     sessionSeconds = 0;
     
     focusOnCurrentChar();
-    checkForImageUpdate(); // FIX: Check for image immediately on load
+    
+    // Force center immediately
     centerView();
-    setTimeout(centerView, 100); 
+    // Force center again after layout settles
+    setTimeout(centerView, 50);
 
     if (timerInterval) clearInterval(timerInterval);
     timerInterval = setInterval(gameTick, 1000);
@@ -116,7 +120,6 @@ function gameTick() {
         const secs = (activeSeconds % 60).toString().padStart(2, '0');
         document.getElementById('timer-display').innerText = `${mins}:${secs}`;
         
-        // 30 SECOND CHECK
         if (sessionSeconds >= SESSION_LIMIT) {
              pauseGameForBreak();
         }
@@ -132,11 +135,11 @@ function gameTick() {
 function pauseGameForBreak() {
     isGameActive = false;
     clearInterval(timerInterval);
-    showModal("Great Job!", "You've completed a 30-second reading sprint.", "Continue", startGame);
+    showModal("Great Job!", "30-second sprint complete.", "Continue", startGame);
 }
 
+// --- TYPING LOGIC ---
 document.addEventListener('keydown', (e) => {
-    // SHIFT LOGIC (Global)
     if (e.key === "Shift") toggleKeyboardCase(true);
     
     if (!isGameActive) return;
@@ -150,18 +153,13 @@ document.addEventListener('keydown', (e) => {
     lastActivityTime = Date.now();
 
     if (e.key === targetChar) {
-        // CORRECT
+        // Correct
         currentEl.classList.remove('active');
         currentEl.classList.remove('incorrect');
         
-        // Blue vs Black logic
-        if (currentLetterHasError) {
-            currentEl.classList.add('fixed'); // Was wrong, now right
-        } else {
-            currentEl.classList.add('correct'); // Perfect
-        }
+        if (currentLetterHasError) currentEl.classList.add('fixed');
+        else currentEl.classList.add('correct');
 
-        // Reset for next char
         currentLetterHasError = false;
         currentCharIndex++;
         
@@ -172,14 +170,13 @@ document.addEventListener('keydown', (e) => {
 
         letterEls[currentCharIndex].classList.add('active');
         updateAccuracy();
-        checkForImageUpdate();
+        updateImageDisplay(); // Check for new image
         focusOnCurrentChar();
         centerView();
     } else {
-        // MISTAKE
+        // Mistake
         mistakes++;
-        currentLetterHasError = true; // Mark this specific letter as "tainted"
-        
+        currentLetterHasError = true;
         currentEl.classList.add('incorrect');
         flashKey(e.key);
         updateAccuracy();
@@ -190,17 +187,23 @@ document.addEventListener('keyup', (e) => {
     if (e.key === "Shift") toggleKeyboardCase(false);
 });
 
-// --- UI HELPERS ---
+// --- HELPERS ---
 function centerView() {
     const currentEl = document.querySelectorAll('.letter')[currentCharIndex];
     if (!currentEl) return;
+    
     const container = document.getElementById('game-container');
-    const offset = (container.offsetHeight / 2) - currentEl.offsetTop - 20;
+    // Place active letter in the exact vertical center
+    const offset = (container.offsetHeight / 2) - currentEl.offsetTop - 20; 
+    
     textStream.style.transform = `translateY(${offset}px)`;
 }
 
-function checkForImageUpdate() {
-    // Determine segment based on progress % (Simple approximation for now)
+function updateImageDisplay() {
+    // Logic: Look at current segment. If it has an image, show it.
+    // If it has NO image, do nothing (keep the previous one showing).
+    // This creates the "Fill Down" effect.
+    
     const progress = currentCharIndex / fullText.length;
     const segmentIndex = Math.floor(progress * bookData.segments.length);
     const segment = bookData.segments[segmentIndex];
@@ -208,9 +211,8 @@ function checkForImageUpdate() {
     if (segment && segment.image) {
         storyImg.src = segment.image;
         imgPanel.style.display = 'block';
-    } else {
-        imgPanel.style.display = 'none';
-    }
+    } 
+    // If segment.image is null, we just leave the previous image there.
 }
 
 function updateAccuracy() {
@@ -231,13 +233,13 @@ function finishChapter() {
     isGameActive = false;
     clearInterval(timerInterval);
     saveProgress();
-    showModal("Chapter Complete!", `Total active time: ${activeSeconds}s.`, "Play Again", () => location.reload());
+    showModal("Chapter Complete!", `Total time: ${activeSeconds}s.`, "Play Again", () => location.reload());
 }
 
 function showModal(title, body, btnText, action) {
-    // Note: Ensure your index.html has a generic modal structure or create it here
-    // Re-using existing modal elements from index.html
     const modal = document.getElementById('modal');
+    if (!modal) return; // Safety check
+    
     document.getElementById('modal-title').innerText = title;
     document.getElementById('modal-body').innerText = body;
     const btn = document.getElementById('action-btn');
@@ -246,7 +248,7 @@ function showModal(title, body, btnText, action) {
     modal.classList.remove('hidden');
 }
 
-// --- KEYBOARD ENGINE ---
+// --- KEYBOARD ---
 const keyMap = {
     row1: "`1234567890-=",
     row1_s: "~!@#$%^&*()_+",
@@ -283,10 +285,10 @@ function createRow(chars, shiftChars, leftSpecial, rightSpecial) {
     for (let i = 0; i < chars.length; i++) {
         const k = document.createElement('div');
         k.className = 'key';
-        k.dataset.char = chars[i]; // Lowercase
-        k.dataset.shift = shiftChars[i]; // Symbol/Upper
+        k.dataset.char = chars[i]; 
+        k.dataset.shift = shiftChars[i];
         k.id = `key-${chars[i]}`; 
-        k.innerText = chars[i]; // Default to Lowercase
+        k.innerText = chars[i]; 
         row.appendChild(k);
     }
     if (rightSpecial) addSpecialKey(row, rightSpecial);
@@ -315,13 +317,11 @@ function toggleKeyboardCase(isShift) {
 
 function highlightKey(char) {
     document.querySelectorAll('.key').forEach(k => k.classList.remove('target'));
-
     let targetId = '';
     let needsShift = false;
 
     if (char === ' ') targetId = 'key- ';
     else {
-        // Find key by either char or shift-char
         const keyEl = Array.from(document.querySelectorAll('.key')).find(k => 
             k.dataset.char === char || k.dataset.shift === char
         );
@@ -336,21 +336,13 @@ function highlightKey(char) {
     
     if (needsShift) {
         document.querySelectorAll('#key-SHIFT').forEach(s => s.classList.add('target'));
-        toggleKeyboardCase(true); // Visually shift the keyboard for the user
+        toggleKeyboardCase(true);
     } else {
         toggleKeyboardCase(false);
     }
 }
 
-function focusOnCurrentChar() {
-    const char = fullText[currentCharIndex] || ' ';
-    highlightKey(char);
-}
-
 function flashKey(char) {
-    // Simple flash helper
-    // Note: A robust implementation maps keys accurately; 
-    // for MVP we just try to find the lowercase ID
     let id = `key-${char.toLowerCase()}`;
     const el = document.getElementById(id);
     if (el) {
