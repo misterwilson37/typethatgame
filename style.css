@@ -1,4 +1,4 @@
-/* v1.2.5.1 - Stable Spaces & Smart Timer UI */
+/* v1.2.5.2 - Stable Spaces & Smart Timer UI */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -147,4 +147,54 @@ footer {
     z-index: 101; /* Above modal */
     padding: 2px 5px;
     border-radius: 3px;
+}
+
+/* AUTH HUD */
+#auth-hud {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 1000;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.hidden {
+    display: none !important;
+}
+
+.action-btn {
+    background: var(--carolina-blue);
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: inherit;
+    font-weight: bold;
+    transition: background 0.2s;
+}
+
+.action-btn:hover {
+    background: #4a90e2;
+}
+
+.text-btn {
+    background: none;
+    border: none;
+    color: #888;
+    text-decoration: underline;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+}
+
+.text-btn:hover { color: white; }
+
+#user-name {
+    color: white;
+    margin-right: 5px;
 }
