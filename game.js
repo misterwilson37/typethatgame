@@ -1,10 +1,16 @@
-// v1.3.0 - Save System & Fixed Start Center
+// v1.4.0 - Login & Save System
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-import { signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+import { 
+    signInAnonymously, 
+    onAuthStateChanged, 
+    GoogleAuthProvider, 
+    signInWithPopup, 
+    signOut 
+} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.3.0";
-const BOOK_ID = "wizard_of_oz"; // We can make this dynamic later
+const VERSION = "1.4.0";
+const BOOK_ID = "wizard_of_oz"; 
 const SESSION_LIMIT = 30; 
 const IDLE_THRESHOLD = 2000; 
 
@@ -13,7 +19,7 @@ let currentUser = null;
 let bookData = null;
 let fullText = "";
 let currentCharIndex = 0;
-let savedCharIndex = 0; // Where we resumed from
+let savedCharIndex = 0; 
 let currentChapterNum = 1;
 
 // Stats
@@ -44,27 +50,73 @@ const timerDisplay = document.getElementById('timer-display');
 const accDisplay = document.getElementById('acc-display');
 const wpmDisplay = document.getElementById('wpm-display');
 
+// Auth DOM
+const loginBtn = document.getElementById('login-btn');
+const logoutBtn = document.getElementById('logout-btn');
+const userInfo = document.getElementById('user-info');
+const userNameDisplay = document.getElementById('user-name');
+
 async function init() {
     console.log("Initializing JS v" + VERSION);
     const footer = document.querySelector('footer');
     if(footer) footer.innerText = `JS: v${VERSION}`;
     
     createKeyboard();
+    setupAuthListeners();
     
-    try {
-        await signInAnonymously(auth);
-        onAuthStateChanged(auth, async (user) => {
-            if (user) {
-                currentUser = user;
-                await loadUserProgress(); // Load save file first
-            }
-        });
-    } catch (e) {
-        console.error("Auth Failed:", e);
+    // Auth State Listener
+    onAuthStateChanged(auth, async (user) => {
+        if (user) {
+            currentUser = user;
+            updateAuthUI(true);
+            await loadUserProgress(); 
+        } else {
+            // If no user, default to Anonymous so they can still play
+            console.log("No user, signing in anonymously...");
+            signInAnonymously(auth);
+        }
+    });
+}
+
+function setupAuthListeners() {
+    loginBtn.addEventListener('click', async () => {
+        const provider = new GoogleAuthProvider();
+        try {
+            await signInWithPopup(auth, provider);
+            // onAuthStateChanged will handle the rest
+        } catch (error) {
+            console.error("Login failed", error);
+            alert("Login failed: " + error.message);
+        }
+    });
+
+    logoutBtn.addEventListener('click', async () => {
+        try {
+            await signOut(auth);
+            location.reload(); // Refresh to reset state cleanly
+        } catch (error) {
+            console.error("Logout failed", error);
+        }
+    });
+}
+
+function updateAuthUI(isLoggedIn) {
+    if (isLoggedIn && !currentUser.isAnonymous) {
+        // Real User
+        loginBtn.classList.add('hidden');
+        userInfo.classList.remove('hidden');
+        userNameDisplay.innerText = currentUser.displayName || "Reader";
+    } else {
+        // Guest (Anonymous)
+        loginBtn.classList.remove('hidden');
+        userInfo.classList.add('hidden');
     }
 }
 
 async function loadUserProgress() {
+    // Reset game state visually while loading
+    textStream.innerHTML = "Loading progress...";
+    
     try {
         const docRef = doc(db, "users", currentUser.uid, "progress", BOOK_ID);
         const docSnap = await getDoc(docRef);
@@ -75,7 +127,7 @@ async function loadUserProgress() {
             savedCharIndex = data.charIndex || 0;
             console.log(`Resuming Chapter ${currentChapterNum} at index ${savedCharIndex}`);
         } else {
-            console.log("New user: Starting Chapter 1");
+            console.log("New user/save: Starting Chapter 1");
             currentChapterNum = 1;
             savedCharIndex = 0;
         }
@@ -94,10 +146,11 @@ async function loadChapter(chapterNum) {
             bookData = docSnap.data();
             setupGame();
         } else {
-            textStream.innerText = "Chapter not found. You might have finished the book!";
+            textStream.innerText = "Chapter not found.";
         }
     } catch (e) {
         console.error("Load Chapter Failed:", e);
+        textStream.innerHTML = "Error loading chapter.";
     }
 }
 
@@ -108,32 +161,31 @@ function setupGame() {
     
     renderText();
     
-    // 2. Resume Logic: Fast-forward to saved spot
+    // 2. Resume Logic
     currentCharIndex = savedCharIndex;
     if (currentCharIndex > 0) {
-        // Mark previous letters as "done" visually so they look typed
         for (let i = 0; i < currentCharIndex; i++) {
             const el = document.getElementById(`char-${i}`);
             if (el) {
                 el.classList.remove('active');
-                if (el.classList.contains('space')) {
-                   // Optional: spaces don't really show color unless we want them to
-                } else {
+                if (!el.classList.contains('space')) {
                    el.classList.add('done-perfect');
                 }
             }
         }
     }
 
-    // 3. Initial Visual Setup (The "Jump" Fix)
+    // 3. Visual Setup
     updateImageDisplay();
-    highlightCurrentChar(); // Highlight the letter we are actually on
-    centerView();           // Force center immediately!
+    highlightCurrentChar(); 
+    centerView(); 
     
-    showModal(`Chapter ${currentChapterNum}`, null, "Resume Reading (ENTER)", startGame);
+    // Only show modal if we aren't already active (prevents double modals on login swap)
+    if (!isGameActive) {
+        showModal(`Chapter ${currentChapterNum}`, null, "Resume Reading (ENTER)", startGame);
+    }
 }
 
-// Save Progress to Firestore
 async function saveProgress() {
     if (!currentUser) return;
     try {
@@ -180,10 +232,9 @@ function startGame() {
     isGameActive = true;
     isOvertime = false;
     
-    // Reset Stats for this specific sprint
     sprintSeconds = 0;
     sprintMistakes = 0;
-    sprintCharStart = currentCharIndex; // Start measuring from HERE
+    sprintCharStart = currentCharIndex; 
     
     activeSeconds = 0; 
     timeAccumulator = 0;
@@ -200,14 +251,12 @@ function startGame() {
     if (timerInterval) clearInterval(timerInterval);
     timerInterval = setInterval(gameTick, 100); 
 
-    // Ensure view is robust
     highlightCurrentChar();
     centerView();
 }
 
 function gameTick() {
     if (!isGameActive) return;
-
     const now = Date.now();
     if (now - lastInputTime < IDLE_THRESHOLD) {
         timeAccumulator += 100;
@@ -229,9 +278,6 @@ function updateTimerUI() {
     const mins = Math.floor(activeSeconds / 60).toString().padStart(2, '0');
     const secs = (activeSeconds % 60).toString().padStart(2, '0');
     timerDisplay.innerText = `${mins}:${secs}`;
-    
-    // WPM is now handled by updateRunningWPM, so we don't calculate it here.
-
     if (sprintSeconds >= SESSION_LIMIT) {
         isOvertime = true;
         timerDisplay.style.color = '#FFA500'; 
@@ -266,15 +312,11 @@ function updateRunningAccuracy(isCorrect) {
 function pauseGameForBreak() {
     isGameActive = false;
     clearInterval(timerInterval); 
-    
-    // Save data when the sprint ends
     saveProgress();
 
     const charsTyped = currentCharIndex - sprintCharStart;
     const minutes = sprintSeconds / 60;
     const sprintWPM = (minutes > 0) ? Math.round((charsTyped / 5) / minutes) : 0;
-    
-    // Note: This acc is "Session Accuracy" for the report, not "Rolling Accuracy"
     const totalSprintKeystrokes = charsTyped + sprintMistakes;
     const sprintAcc = (totalSprintKeystrokes > 0) ? Math.round((charsTyped / totalSprintKeystrokes) * 100) : 100;
 
@@ -282,7 +324,6 @@ function pauseGameForBreak() {
     showModal("Sprint Complete", stats, "Continue (ENTER)", startGame);
 }
 
-// --- INPUT ---
 document.addEventListener('keydown', (e) => {
     if (isModalOpen) {
         if (e.key === "Enter") { e.preventDefault(); if (modalActionCallback) modalActionCallback(); }
@@ -387,15 +428,10 @@ function updateImageDisplay() {
 function finishChapter() {
     isGameActive = false;
     clearInterval(timerInterval);
-    saveProgress(); // Save completion
-    
-    // Future: Increment Chapter Number here and load next?
-    // For now, reload.
-    
+    saveProgress();
     showModal("Chapter Complete!", { time: activeSeconds, wpm: parseInt(wpmDisplay.innerText), acc: parseInt(accDisplay.innerText) }, "Play Again (ENTER)", () => location.reload());
 }
 
-// ... (Rest of Modal and Keyboard functions remain unchanged) ...
 function showModal(title, stats, btnText, action) {
     const modal = document.getElementById('modal');
     isModalOpen = true;
@@ -425,7 +461,6 @@ function closeModal() {
     timerDisplay.style.opacity = '1';
 }
 
-// Helper: Keyboard creation (same as before, ensure it's in the file)
 const keyMap = { row1: "`1234567890-=", row1_s: "~!@#$%^&*()_+", row2: "qwertyuiop[]\\", row2_s: "QWERTYUIOP{}|", row3: "asdfghjkl;'", row3_s: "ASDFGHJKL:\"", row4: "zxcvbnm,./", row4_s: "ZXCVBNM<>?" };
 function createKeyboard() { keyboardDiv.innerHTML = ''; createRow(keyMap.row1, keyMap.row1_s); createRow(keyMap.row2, keyMap.row2_s, "TAB"); createRow(keyMap.row3, keyMap.row3_s, "CAPS", "ENTER"); createRow(keyMap.row4, keyMap.row4_s, "SHIFT", "SHIFT"); const spaceRow = document.createElement('div'); spaceRow.className = 'kb-row'; const space = document.createElement('div'); space.className = 'key space'; space.id = 'key- '; space.innerText = "SPACE"; spaceRow.appendChild(space); keyboardDiv.appendChild(spaceRow); }
 function createRow(chars, shiftChars, leftSpecial, rightSpecial) { const row = document.createElement('div'); row.className = 'kb-row'; if (leftSpecial) addSpecialKey(row, leftSpecial); for (let i = 0; i < chars.length; i++) { const k = document.createElement('div'); k.className = 'key'; k.dataset.char = chars[i]; k.dataset.shift = shiftChars[i]; k.id = `key-${chars[i]}`; k.innerText = chars[i]; row.appendChild(k); } if (rightSpecial) addSpecialKey(row, rightSpecial); keyboardDiv.appendChild(row); }
