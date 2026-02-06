@@ -1,9 +1,9 @@
-// v1.2.6.2 - Syntax Fix & Stable Smart Timer
+// v1.2.6.3 - Syntax Fix & Stable Smart Timer
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.2.6.2";
+const VERSION = "1.2.6.3";
 const SESSION_LIMIT = 30; 
 const IDLE_THRESHOLD = 2000; // 2 seconds
 
@@ -27,8 +27,8 @@ let modalActionCallback = null;
 let lastInputTime = 0;
 let timeAccumulator = 0; // Tracks milliseconds for precision
 
-// Add this with the other let variables at the top
 let wpmHistory = []; // Stores timestamps of recent keystrokes
+let accuracyHistory = []; // Stores 1 (hit) or 0 (miss) for recent keys
 
 // Letter Status
 let currentLetterStatus = 'clean'; 
@@ -135,6 +135,7 @@ function startGame() {
     
     // RESET WPM HISTORY
     wpmHistory = []; 
+    accuracyHistory = [];
     wpmDisplay.innerText = "0"; // Start at 0
     
     timerDisplay.style.color = 'white'; 
@@ -252,6 +253,7 @@ document.addEventListener('keydown', (e) => {
         currentLetterStatus = 'clean'; 
 
         updateRunningWPM();
+        updateRunningAccuracy(true);
         
         // 4. STOP LOGIC (Quotes aware)
         if (isOvertime) {
@@ -286,13 +288,14 @@ document.addEventListener('keydown', (e) => {
     // 5. MISTAKE
     else {
         mistakes++;
-        sprintMistakes++;
+        sprintMistakes++; // Keep tracking these for the final report!
+        
         if (currentLetterStatus === 'clean') currentLetterStatus = 'error';
         currentEl.classList.add('error-state'); 
         flashKey(e.key);
+        
+        updateRunningAccuracy(false); // <--- NEW: Record a Miss (0)
     }
-    
-    updateAccuracy();
 });
 
 function triggerStop() {
@@ -366,10 +369,39 @@ function updateRunningWPM() {
     }
 }
 
+function updateRunningAccuracy(isCorrect) {
+    // 1 = Correct, 0 = Mistake
+    accuracyHistory.push(isCorrect ? 1 : 0);
+
+    // Keep last 50 keystrokes
+    if (accuracyHistory.length > 50) {
+        accuracyHistory.shift();
+    }
+
+    const correctCount = accuracyHistory.filter(val => val === 1).length;
+    const total = accuracyHistory.length;
+    
+    if (total > 0) {
+        const acc = Math.round((correctCount / total) * 100);
+        accDisplay.innerText = acc + "%";
+    } else {
+        accDisplay.innerText = "100%";
+    }
+}
+
 function finishChapter() {
     isGameActive = false;
     clearInterval(timerInterval);
-    showModal("Chapter Complete!", { time: activeSeconds, wpm: parseInt(wpmDisplay.innerText), acc: parseInt(accDisplay.innerText) }, "Play Again (ENTER)", () => location.reload());
+    
+    // Calculate global accuracy for the final report
+    const totalKeystrokes = currentCharIndex + mistakes;
+    const finalAcc = totalKeystrokes === 0 ? 100 : Math.round((currentCharIndex / totalKeystrokes) * 100);
+
+    showModal("Chapter Complete!", { 
+        time: activeSeconds, 
+        wpm: parseInt(wpmDisplay.innerText), // Ending speed
+        acc: finalAcc                        // Total Session Accuracy
+    }, "Play Again (ENTER)", () => location.reload());
 }
 
 // --- MODAL ---
