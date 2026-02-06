@@ -2,14 +2,21 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>TypeThatBook v1.1.0</title>
+    <title>TypeThatBook v1.1.0.1</title>
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
 </head>
 <body>
 
+    <div id="auth-hud">
+        <div id="user-info" class="hidden">
+            <span id="user-name">Guest</span>
+            <button id="logout-btn" class="text-btn">(Logout)</button>
+        </div>
+        <button id="login-btn" class="action-btn">Sign In with Google</button>
+    </div>
+    
     <div id="hud">
-        <div id="user-info">Guest</div>
         <div>Active: <span id="timer-display">00:00</span></div>
         <div>WPM: <span id="wpm-display">0</span> | Acc: <span id="acc-display">100%</span></div>
     </div>
