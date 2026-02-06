@@ -1,4 +1,4 @@
-/* v1.2.5 - Stable Spaces & Smart Timer UI */
+/* v1.2.5.1 - Stable Spaces & Smart Timer UI */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -61,20 +61,27 @@ body {
     color: #ccc; 
 }
 
-.letter { position: relative; padding: 2px 0; color: #ccc; }
+/* UNIFIED LETTER STYLING (Fixes the Jump) */
+.letter {
+    display: inline-block;       /* Makes all chars behave like boxes */
+    vertical-align: bottom;      /* Aligns them perfectly on the line */
+    min-width: 14.4px;           /* Approx 1ch for Courier 24px */
+    padding: 2px 0;              /* Consistent padding for all */
+    line-height: 1.2;            /* Tightens the box to text */
+    position: relative;
+    color: #ccc;
+}
+
+.letter.space {
+    min-width: 14.4px;           /* Ensure space is same width as letters */
+}
+
+/* Maintain your color states */
 .letter.active { background-color: var(--carolina-blue); color: white !important; border-radius: 2px; }
 .letter.active.error-state { background-color: var(--error-bg); color: black !important; }
 .letter.done-perfect { color: var(--black); } 
 .letter.done-fixed { color: var(--corrected-color); font-weight: bold; } 
 .letter.done-dirty { color: var(--brute-force-color); } 
-
-/* FIXED SPACEBAR JUMP */
-/* vertical-align: baseline ensures it sits on the same line as text */
-.letter.space { 
-    display: inline-block; 
-    min-width: 12px; 
-    vertical-align: baseline; 
-}
 .letter.space.done-perfect { background: transparent; }
 .letter.space.done-fixed { background-color: var(--fixed-bg); }
 .letter.space.done-dirty { background-color: var(--error-bg); }
