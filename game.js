@@ -1,4 +1,4 @@
-// v1.5.2 - Robust Saving & Image Fixes
+// v1.5.3 - Smart Resume & Time Stats
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,7 +9,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.5.2";
+const VERSION = "1.5.3";
 const BOOK_ID = "wizard_of_oz"; 
 const SESSION_LIMIT = 30; 
 const IDLE_THRESHOLD = 2000; 
@@ -23,7 +23,16 @@ let savedCharIndex = 0;
 let lastSavedIndex = 0; 
 let currentChapterNum = 1;
 
-// Stats
+// Time Stats State
+let statsData = {
+    secondsToday: 0,
+    secondsWeek: 0,
+    lastDate: "",
+    weekStart: 0
+};
+let sessionSecondsAdded = 0; // Tracks seconds added in THIS active session for easier saving
+
+// Game State
 let mistakes = 0; 
 let sprintMistakes = 0; 
 let activeSeconds = 0; 
@@ -62,10 +71,8 @@ async function init() {
     const footer = document.querySelector('footer');
     if(footer) footer.innerText = `JS: v${VERSION}`;
     
-    // IMAGE FIX: Hide panel if image fails to load
     storyImg.onerror = function() {
         imgPanel.style.display = 'none';
-        console.log("Image not found, hiding panel.");
     };
 
     createKeyboard();
@@ -75,7 +82,7 @@ async function init() {
         if (user) {
             currentUser = user;
             updateAuthUI(true);
-            await loadUserProgress(); 
+            await Promise.all([loadUserProgress(), loadUserStats()]);
         } else {
             signInAnonymously(auth);
         }
@@ -114,6 +121,58 @@ function updateAuthUI(isLoggedIn) {
     }
 }
 
+// --- STATS SYSTEM ---
+async function loadUserStats() {
+    try {
+        const today = new Date();
+        const dateStr = today.toISOString().split('T')[0]; // YYYY-MM-DD
+        const weekStart = getWeekStart(today); // Timestamp of last Saturday
+
+        const docRef = doc(db, "users", currentUser.uid, "stats", "time_tracking");
+        const docSnap = await getDoc(docRef);
+
+        if (docSnap.exists()) {
+            const data = docSnap.data();
+            
+            // Check Daily Reset
+            if (data.lastDate === dateStr) {
+                statsData.secondsToday = data.secondsToday || 0;
+            } else {
+                statsData.secondsToday = 0; // New day, reset
+            }
+
+            // Check Weekly Reset
+            if (data.weekStart === weekStart) {
+                statsData.secondsWeek = data.secondsWeek || 0;
+            } else {
+                statsData.secondsWeek = 0; // New week, reset
+            }
+        } else {
+            // New User
+            statsData.secondsToday = 0;
+            statsData.secondsWeek = 0;
+        }
+
+        statsData.lastDate = dateStr;
+        statsData.weekStart = weekStart;
+
+    } catch (e) {
+        console.warn("Stats Load Error:", e);
+    }
+}
+
+function getWeekStart(date) {
+    // Returns timestamp of the most recent Saturday (or today if it is Saturday)
+    const d = new Date(date);
+    const day = d.getDay(); // 0=Sun, 1=Mon, ... 5=Fri, 6=Sat
+    // We want Saturday to be the start. 
+    // If Sat(6), diff is 0. Sun(0), diff is 1. Fri(5), diff is 6.
+    const diff = (day + 1) % 7; 
+    d.setDate(d.getDate() - diff);
+    d.setHours(0,0,0,0);
+    return d.getTime();
+}
+
 async function loadUserProgress() {
     textStream.innerHTML = "Loading progress...";
     try {
@@ -124,7 +183,6 @@ async function loadUserProgress() {
             const data = docSnap.data();
             currentChapterNum = data.chapter || 1;
             savedCharIndex = data.charIndex || 0;
-            console.log(`Resuming Chapter ${currentChapterNum} at index ${savedCharIndex}`);
         } else {
             currentChapterNum = 1;
             savedCharIndex = 0;
@@ -161,6 +219,12 @@ function setupGame() {
     renderText();
     
     currentCharIndex = savedCharIndex;
+    
+    // --- SMART RESUME: Skip leading space ---
+    if (fullText[currentCharIndex] === ' ') {
+        currentCharIndex++;
+    }
+
     if (currentCharIndex > 0) {
         for (let i = 0; i < currentCharIndex; i++) {
             const el = document.getElementById(`char-${i}`);
@@ -189,18 +253,28 @@ function setupGame() {
 
 async function saveProgress() {
     if (!currentUser) return;
-    if (currentCharIndex <= lastSavedIndex) return;
 
     try {
-        const indexToSave = currentCharIndex; 
-        await setDoc(doc(db, "users", currentUser.uid, "progress", BOOK_ID), {
-            chapter: currentChapterNum,
-            charIndex: indexToSave,
-            lastUpdated: new Date()
+        // 1. Save Book Location
+        if (currentCharIndex > lastSavedIndex) {
+            await setDoc(doc(db, "users", currentUser.uid, "progress", BOOK_ID), {
+                chapter: currentChapterNum,
+                charIndex: currentCharIndex,
+                lastUpdated: new Date()
+            }, { merge: true });
+            lastSavedIndex = currentCharIndex;
+        }
+
+        // 2. Save Time Stats
+        await setDoc(doc(db, "users", currentUser.uid, "stats", "time_tracking"), {
+            secondsToday: statsData.secondsToday,
+            secondsWeek: statsData.secondsWeek,
+            lastDate: statsData.lastDate,
+            weekStart: statsData.weekStart
         }, { merge: true });
-        
-        lastSavedIndex = indexToSave;
-        console.log("Cloud Saved at:", lastSavedIndex);
+
+        console.log("Saved. Loc:", lastSavedIndex, "Today:", statsData.secondsToday, "s");
+
     } catch (e) {
         console.warn("Save failed:", e);
     }
@@ -268,8 +342,14 @@ function gameTick() {
         timeAccumulator += 100;
         timerDisplay.style.opacity = '1';
         if (timeAccumulator >= 1000) {
+            // Second tick
             activeSeconds++;
             sprintSeconds++;
+            
+            // Update Stats Accumulators
+            statsData.secondsToday++;
+            statsData.secondsWeek++;
+            
             timeAccumulator -= 1000;
             updateTimerUI();
         }
@@ -315,6 +395,12 @@ function updateRunningAccuracy(isCorrect) {
     }
 }
 
+function formatTime(seconds) {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}m ${s}s`;
+}
+
 function pauseGameForBreak() {
     isGameActive = false;
     clearInterval(timerInterval); 
@@ -326,7 +412,14 @@ function pauseGameForBreak() {
     const totalSprintKeystrokes = charsTyped + sprintMistakes;
     const sprintAcc = (totalSprintKeystrokes > 0) ? Math.round((charsTyped / totalSprintKeystrokes) * 100) : 100;
 
-    const stats = { time: sprintSeconds, wpm: sprintWPM, acc: sprintAcc };
+    const stats = { 
+        time: sprintSeconds, 
+        wpm: sprintWPM, 
+        acc: sprintAcc,
+        today: formatTime(statsData.secondsToday),
+        week: formatTime(statsData.secondsWeek)
+    };
+    
     showModal("Sprint Complete", stats, "Continue (ENTER)", startGame);
 }
 
@@ -364,18 +457,11 @@ document.addEventListener('keydown', (e) => {
         currentCharIndex++;
         currentLetterStatus = 'clean'; 
         
-        // --- IMPROVED SMART SAVE LOGIC ---
-        // 1. Save on Space following punctuation (Hello. )
-        if (targetChar === ' ' && currentCharIndex >= 2) {
-             const prevChar = fullText[currentCharIndex - 2];
-             if (['.', '!', '?'].includes(prevChar)) saveProgress();
-             // Handle quotes: "Hello." (space)
-             else if (['"', "'"].includes(prevChar) && currentCharIndex >= 3) {
-                 const prePrevChar = fullText[currentCharIndex - 3];
-                 if (['.', '!', '?'].includes(prePrevChar)) saveProgress();
-             }
-        }
-        // 2. Save on Quote following punctuation (Hello.")
+        // --- NEW SAVE LOGIC ---
+        // Save on End Punctuation OR Closing Quote immediately
+        if (['.', '!', '?'].includes(targetChar)) {
+             saveProgress();
+        } 
         else if (['"', "'"].includes(targetChar) && currentCharIndex >= 2) {
             const prevChar = fullText[currentCharIndex - 2];
             if (['.', '!', '?'].includes(prevChar)) saveProgress();
@@ -440,14 +526,10 @@ function highlightCurrentChar() {
 }
 
 function updateImageDisplay() {
-    // If the panel was hidden due to error, reset it for new potential images
-    // but only if we have a new source.
     const progress = currentCharIndex / fullText.length;
     const segmentIndex = Math.floor(progress * bookData.segments.length);
     const segment = bookData.segments[segmentIndex];
-    
     if (segment && segment.image) {
-        // Only change source if it's different to avoid reloading loop
         const currentSrc = storyImg.getAttribute('src');
         if (currentSrc !== segment.image) {
             storyImg.src = segment.image;
@@ -462,7 +544,13 @@ function finishChapter() {
     isGameActive = false;
     clearInterval(timerInterval);
     saveProgress();
-    showModal("Chapter Complete!", { time: activeSeconds, wpm: parseInt(wpmDisplay.innerText), acc: parseInt(accDisplay.innerText) }, "Play Again (ENTER)", () => location.reload());
+    showModal("Chapter Complete!", { 
+        time: activeSeconds, 
+        wpm: parseInt(wpmDisplay.innerText), 
+        acc: parseInt(accDisplay.innerText),
+        today: formatTime(statsData.secondsToday),
+        week: formatTime(statsData.secondsWeek)
+    }, "Play Again (ENTER)", () => location.reload());
 }
 
 function showModal(title, stats, btnText, action) {
@@ -474,9 +562,12 @@ function showModal(title, stats, btnText, action) {
     if (stats) {
         bodyHtml = `
             <div class="stat-row">
-                <div class="stat-item"><span>${stats.time}s</span>Sprint Time</div>
-                <div class="stat-item"><span>${stats.wpm}</span>Sprint WPM</div>
-                <div class="stat-item"><span>${stats.acc}%</span>Accuracy</div>
+                <div class="stat-item"><span>${stats.time}s</span>Sprint</div>
+                <div class="stat-item"><span>${stats.wpm}</span>WPM</div>
+                <div class="stat-item"><span>${stats.acc}%</span>Acc</div>
+            </div>
+            <div style="margin-top:20px; font-size: 0.9em; color:#555;">
+                <p>Today: <b>${stats.today}</b> | This Week: <b>${stats.week}</b></p>
             </div>`;
     }
     document.getElementById('modal-body').innerHTML = bodyHtml;
