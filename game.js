@@ -197,17 +197,37 @@ document.addEventListener('keydown', (e) => {
         currentCharIndex++;
         currentLetterStatus = 'clean'; 
 
-        // 4. OVERTIME STOP LOGIC
-        // We stop if we are in overtime AND we just typed a period, exclamation, or question mark.
+        // 4. OVERTIME STOP LOGIC (Refined)
         if (isOvertime) {
+            // Did we type a sentence terminator?
             if (['.', '!', '?'].includes(targetChar)) {
-                // Perform one last visual update so the user sees the character
+                
+                // PEEK AHEAD: Is the NEXT character a closing quote?
+                const nextChar = fullText[currentCharIndex]; // index already incremented
+                if (nextChar === '"' || nextChar === "'") {
+                    // Do NOT stop yet. Let them type the quote.
+                    return; 
+                }
+
+                // Otherwise, perform visual update and STOP
                 updateImageDisplay();
                 highlightCurrentChar();
                 centerView();
-                // Then Stop
                 pauseGameForBreak();
                 return;
+            }
+            
+            // Also stop if we just typed a closing quote that finished a sentence
+            // (e.g. we just typed " and the previous char was .)
+            if (['"', "'"].includes(targetChar)) {
+                 const prevChar = fullText[currentCharIndex - 2]; // -2 because index incremented
+                 if (['.', '!', '?'].includes(prevChar)) {
+                    updateImageDisplay();
+                    highlightCurrentChar();
+                    centerView();
+                    pauseGameForBreak();
+                    return;
+                 }
             }
         }
 
