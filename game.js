@@ -1,4 +1,4 @@
-// v1.0.0 - Game Engine
+// v1.0.1 - Game Engine
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
@@ -86,8 +86,16 @@ function startGame() {
     isGameActive = true;
     startTime = Date.now();
     lastActivityTime = Date.now();
+    
     focusOnCurrentChar();
     
+    // --- New in 1.0.1 ---
+    // Force the view to center on the cursor immediately
+    setTimeout(centerView, 50); 
+    // We use a tiny timeout to let the browser 'paint' the text first 
+    // so we can calculate the position correctly.
+    // ---------------------
+
     if (timerInterval) clearInterval(timerInterval);
     timerInterval = setInterval(gameTick, 1000);
 }
