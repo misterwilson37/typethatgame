@@ -1,4 +1,4 @@
-/* v1.0.0 - School Theme */
+/* v1.0.1 - School Theme */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -33,24 +33,25 @@ body {
 }
 
 /* --- TYPING AREA --- */
+/* --- Updated for 1.0.1 --- */
 #game-container {
     flex-grow: 1;
     position: relative;
     overflow: hidden;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    display: block; /* WAS flex */
     background: #fafafa;
 }
 
 #text-stream {
     position: absolute;
+    top: 0; /* Force it to start at the top, we will push it down with JS */
+    left: 10%; /* Center horizontally with a simple margin */
     width: 80%;
     max-width: 800px;
-    transition: transform 0.1s ease-out;
+    transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94); /* Smoother slide */
     will-change: transform;
 }
-
+/* --- End update for 1.0.1 --- */
 .word {
     display: inline-block;
     margin-right: 10px;
