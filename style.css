@@ -1,16 +1,18 @@
+/* v1.0.0 - School Theme */
 :root {
-    --bg-color: #fdf6e3; /* Solarized Light theme - easy on eyes */
-    --text-color: #657b83;
-    --highlight-color: #2aa198; /* Cyan for current letter */
-    --error-color: #dc322f;
-    --keyboard-bg: #eee8d5;
-    --key-bg: #fff;
+    --bg-color: #ffffff;
+    --text-color: #333333;
+    --carolina-blue: #4B9CD3; 
+    --highlight-color: #4B9CD3; /* Active letter */
+    --error-color: #D32F2F;     /* Red for errors */
+    --accent-grey: #e0e0e0;
+    --black: #000000;
 }
 
 body {
     background-color: var(--bg-color);
     color: var(--text-color);
-    font-family: 'Courier Prime', 'Courier New', monospace; /* Monospace is crucial for typing games */
+    font-family: 'Courier Prime', 'Courier New', monospace;
     margin: 0;
     height: 100vh;
     display: flex;
@@ -20,26 +22,27 @@ body {
 
 /* --- HUD --- */
 #hud {
-    padding: 10px 20px;
-    background: #eee8d5;
+    padding: 15px 20px;
+    background: var(--black);
+    color: white;
     display: flex;
     justify-content: space-between;
     font-weight: bold;
-    border-bottom: 2px solid #d33682;
+    border-bottom: 4px solid var(--carolina-blue);
     z-index: 10;
 }
 
-/* --- TYPING AREA (The complex part) --- */
+/* --- TYPING AREA --- */
 #game-container {
     flex-grow: 1;
     position: relative;
-    overflow: hidden; /* Hide text that scrolls off screen */
+    overflow: hidden;
     display: flex;
-    align-items: center; /* Vertically center the "focus" line */
+    align-items: center;
     justify-content: center;
+    background: #fafafa;
 }
 
-/* This is the container we move up/down */
 #text-stream {
     position: absolute;
     width: 80%;
@@ -52,96 +55,82 @@ body {
     display: inline-block;
     margin-right: 10px;
     white-space: pre;
-    line-height: 2.5em; /* Generous spacing */
+    line-height: 2.5em;
     font-size: 24px;
+    color: #999; /* Future text is grey */
 }
 
-.letter {
-    position: relative;
-}
+.letter { position: relative; }
 
 /* The Cursor */
 .letter.active {
-    background-color: var(--highlight-color);
+    background-color: var(--carolina-blue);
     color: white;
-    border-radius: 4px;
+    border-radius: 2px;
 }
 
-.letter.active::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: -5px;
-    width: 2px;
-    height: 120%;
-    background: #d33682;
-    animation: blink 1s infinite;
-}
-
-.letter.correct { color: #859900; } /* Green */
+.letter.correct { color: var(--black); }
 .letter.incorrect { color: var(--error-color); text-decoration: underline; }
 
-/* --- IMAGE PANEL --- */
+/* --- IMAGES --- */
 #image-panel {
     position: absolute;
     right: 20px;
     top: 50%;
     transform: translateY(-50%);
     width: 250px;
-    opacity: 0.8;
-    transition: opacity 0.5s;
-    display: none; /* Hidden until image loads */
+    display: none; 
 }
 #image-panel img {
     width: 100%;
-    border: 5px solid white;
-    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    border: 4px solid var(--black);
+    box-shadow: 5px 5px 0px var(--carolina-blue);
 }
 
 /* --- KEYBOARD --- */
 #virtual-keyboard {
-    height: 180px;
-    background: var(--keyboard-bg);
+    height: 200px;
+    background: var(--accent-grey);
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 5px;
-    padding-bottom: 20px;
-    border-top: 2px solid #93a1a1;
+    gap: 6px;
+    border-top: 4px solid var(--black);
 }
 
-.kb-row { display: flex; gap: 5px; }
+.kb-row { display: flex; gap: 6px; }
 
 .key {
-    width: 40px;
-    height: 40px;
-    background: var(--key-bg);
+    width: 45px; height: 45px;
+    background: white;
+    border: 1px solid #999;
     border-radius: 4px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    display: flex; align-items: center; justify-content: center;
     font-weight: bold;
-    box-shadow: 0 2px 0 #ccc;
-    font-size: 14px;
-    transition: all 0.1s;
+    box-shadow: 0 3px 0 #ccc;
+    font-size: 16px;
+    color: var(--black);
 }
 
-.key.hit { transform: translateY(2px); box-shadow: none; }
-.key.target { background-color: var(--highlight-color); color: white; }
-.key.space { width: 200px; }
-
-@keyframes blink { 50% { opacity: 0; } }
-
-/* --- MODALS --- */
-.modal {
-    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-    background: rgba(0,0,0,0.8);
-    display: flex; justify-content: center; align-items: center;
-    z-index: 100;
+.key.target { 
+    background-color: var(--carolina-blue); 
+    color: white; 
+    border-color: #2b7ca8;
 }
-.modal-content {
-    background: white; padding: 40px; border-radius: 8px; text-align: center;
-    max-width: 500px;
+.key.space { width: 250px; }
+
+/* --- ADMIN --- */
+.admin-container { padding: 40px; max-width: 800px; margin: 0 auto; }
+.admin-card { 
+    border: 2px solid var(--black); 
+    padding: 20px; 
+    margin-bottom: 20px;
+    box-shadow: 5px 5px 0px var(--accent-grey);
 }
-.hidden { display: none !important; }
+
+/* --- FOOTER --- */
+footer {
+    position: fixed; bottom: 5px; right: 10px;
+    font-size: 0.7em; color: #aaa; pointer-events: none;
+}
