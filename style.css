@@ -1,10 +1,10 @@
-/* v1.0.1 - School Theme */
+/* v1.0.2 - Keyboard Expansion */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
     --carolina-blue: #4B9CD3; 
-    --highlight-color: #4B9CD3; /* Active letter */
-    --error-color: #D32F2F;     /* Red for errors */
+    --highlight-color: #4B9CD3;
+    --error-color: #D32F2F;
     --accent-grey: #e0e0e0;
     --black: #000000;
 }
@@ -20,7 +20,6 @@ body {
     overflow: hidden;
 }
 
-/* --- HUD --- */
 #hud {
     padding: 15px 20px;
     background: var(--black);
@@ -32,48 +31,42 @@ body {
     z-index: 10;
 }
 
-/* --- TYPING AREA --- */
-/* --- Updated for 1.0.1 --- */
 #game-container {
     flex-grow: 1;
     position: relative;
     overflow: hidden;
-    display: block; /* WAS flex */
+    display: block;
     background: #fafafa;
 }
 
 #text-stream {
     position: absolute;
-    top: 0; /* Force it to start at the top, we will push it down with JS */
-    left: 10%; /* Center horizontally with a simple margin */
+    top: 0; 
+    left: 10%;
     width: 80%;
     max-width: 800px;
-    transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94); /* Smoother slide */
+    transition: transform 0.2s ease-out; /* Slightly faster for typing responsiveness */
     will-change: transform;
 }
-/* --- End update for 1.0.1 --- */
+
 .word {
     display: inline-block;
     margin-right: 10px;
     white-space: pre;
     line-height: 2.5em;
     font-size: 24px;
-    color: #999; /* Future text is grey */
+    color: #bbb; /* Make future text lighter to help focus */
 }
 
 .letter { position: relative; }
-
-/* The Cursor */
 .letter.active {
     background-color: var(--carolina-blue);
     color: white;
     border-radius: 2px;
 }
-
 .letter.correct { color: var(--black); }
 .letter.incorrect { color: var(--error-color); text-decoration: underline; }
 
-/* --- IMAGES --- */
 #image-panel {
     position: absolute;
     right: 20px;
@@ -81,57 +74,59 @@ body {
     transform: translateY(-50%);
     width: 250px;
     display: none; 
+    z-index: 5;
 }
 #image-panel img {
     width: 100%;
     border: 4px solid var(--black);
     box-shadow: 5px 5px 0px var(--carolina-blue);
+    background: white;
 }
 
-/* --- KEYBOARD --- */
+/* --- ADVANCED KEYBOARD --- */
 #virtual-keyboard {
-    height: 200px;
+    height: 260px; /* Taller for numbers */
     background: var(--accent-grey);
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 6px;
+    gap: 5px;
     border-top: 4px solid var(--black);
+    padding: 10px 0;
 }
 
-.kb-row { display: flex; gap: 6px; }
+.kb-row { display: flex; gap: 5px; }
 
 .key {
-    width: 45px; height: 45px;
+    min-width: 40px; height: 40px; /* Slightly smaller to fit numbers */
     background: white;
     border: 1px solid #999;
     border-radius: 4px;
     display: flex; align-items: center; justify-content: center;
     font-weight: bold;
-    box-shadow: 0 3px 0 #ccc;
-    font-size: 16px;
+    box-shadow: 0 2px 0 #bbb;
+    font-size: 14px;
     color: var(--black);
+    padding: 0 5px;
+    transition: transform 0.1s;
 }
 
 .key.target { 
     background-color: var(--carolina-blue); 
     color: white; 
     border-color: #2b7ca8;
-}
-.key.space { width: 250px; }
-
-/* --- ADMIN --- */
-.admin-container { padding: 40px; max-width: 800px; margin: 0 auto; }
-.admin-card { 
-    border: 2px solid var(--black); 
-    padding: 20px; 
-    margin-bottom: 20px;
-    box-shadow: 5px 5px 0px var(--accent-grey);
+    transform: translateY(2px);
 }
 
-/* --- FOOTER --- */
+.key.space { width: 300px; }
+.key.wide { width: 80px; font-size: 12px; } /* Shift, Enter, Backspace */
+.key.shift-active { background-color: #ffd700; color: black; } /* Gold for Shift Hold */
+
 footer {
     position: fixed; bottom: 5px; right: 10px;
-    font-size: 0.7em; color: #aaa; pointer-events: none;
+    font-size: 0.7em; color: #666; pointer-events: none;
+    background: rgba(255,255,255,0.8);
+    padding: 2px 5px;
+    border-radius: 4px;
 }
