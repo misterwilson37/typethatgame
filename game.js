@@ -1,28 +1,27 @@
-// v1.2.3 - Space Logic, Stats, & Overtime Fix
+// v1.2.4 - Enter Key Only & Robust Stop Logic
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.2.3";
-const SESSION_LIMIT = 30; // Seconds
+const VERSION = "1.2.4";
+const SESSION_LIMIT = 30; 
 
 // STATE
 let currentUser = null;
 let bookData = null;
 let fullText = "";
 let currentCharIndex = 0;
-let mistakes = 0; // Total
-let sprintMistakes = 0; // Current sprint
-let activeSeconds = 0; // Total
-let sprintSeconds = 0; // Current sprint
-let sprintCharStart = 0; // Where this sprint started
+let mistakes = 0; 
+let sprintMistakes = 0; 
+let activeSeconds = 0; 
+let sprintSeconds = 0; 
+let sprintCharStart = 0; 
 let timerInterval = null;
 let isGameActive = false;
 let isOvertime = false;
 let isModalOpen = false;
 let modalActionCallback = null;
 
-// Letter Status
 let currentLetterStatus = 'clean'; 
 
 // DOM
@@ -63,8 +62,8 @@ function setupGame() {
     fullText = fullText.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
     renderText();
     updateImageDisplay();
-    // Use a custom object for the initial stats to show zeroes
-    showModal("Ready to Read?", { time: 0, wpm: 0, acc: 100 }, "Start (Space)", startGame);
+    // Use Enter explicitly in instructions
+    showModal("Ready?", { time: 0, wpm: 0, acc: 100 }, "Start (ENTER)", startGame);
 }
 
 function renderText() {
@@ -85,7 +84,7 @@ function renderText() {
             charCount++;
         }
         const spaceSpan = document.createElement('span');
-        spaceSpan.className = 'letter space'; // Added 'space' class
+        spaceSpan.className = 'letter space';
         spaceSpan.innerText = ' '; 
         spaceSpan.id = `char-${charCount}`;
         wordSpan.appendChild(spaceSpan);
@@ -99,14 +98,13 @@ function startGame() {
     isGameActive = true;
     isOvertime = false;
     
-    // Reset Sprint Stats
+    // Reset Sprint
     sprintSeconds = 0;
     sprintMistakes = 0;
     sprintCharStart = currentCharIndex;
     
     timerDisplay.style.color = 'white'; 
     
-    // Safety clear
     if (timerInterval) clearInterval(timerInterval);
     timerInterval = setInterval(gameTick, 1000);
 
@@ -120,27 +118,27 @@ function gameTick() {
     activeSeconds++;
     sprintSeconds++;
 
-    // Format Total Time
+    // Timer Update
     const mins = Math.floor(activeSeconds / 60).toString().padStart(2, '0');
     const secs = (activeSeconds % 60).toString().padStart(2, '0');
     timerDisplay.innerText = `${mins}:${secs}`;
 
-    // Live WPM (Total Average)
+    // WPM Update
     const wpm = Math.round((currentCharIndex / 5) / (activeSeconds / 60)) || 0;
     wpmDisplay.innerText = wpm;
 
     // Overtime Check
     if (sprintSeconds >= SESSION_LIMIT) {
         isOvertime = true;
-        timerDisplay.style.color = '#FFA500'; // Orange
+        timerDisplay.style.color = '#FFA500'; 
     }
 }
 
 function pauseGameForBreak() {
     isGameActive = false;
-    clearInterval(timerInterval); // STOP THE CLOCK
+    clearInterval(timerInterval); // CRITICAL: Stops the tick
     
-    // Calculate Sprint Stats
+    // Sprint Stats Calculation
     const charsTyped = currentCharIndex - sprintCharStart;
     const minutes = sprintSeconds / 60;
     const sprintWPM = (minutes > 0) ? Math.round((charsTyped / 5) / minutes) : 0;
@@ -156,14 +154,14 @@ function pauseGameForBreak() {
         acc: sprintAcc
     };
     
-    showModal("Sprint Complete", stats, "Continue (Space)", startGame);
+    showModal("Sprint Complete", stats, "Continue (ENTER)", startGame);
 }
 
 // --- INPUT ---
 document.addEventListener('keydown', (e) => {
-    // MODAL CONTROL
+    // 1. MODAL: ENTER ONLY
     if (isModalOpen) {
-        if (e.key === " " || e.key === "Enter") {
+        if (e.key === "Enter") {
             e.preventDefault();
             if (modalActionCallback) modalActionCallback();
         }
@@ -178,7 +176,7 @@ document.addEventListener('keydown', (e) => {
     const targetChar = fullText[currentCharIndex];
     const currentEl = document.getElementById(`char-${currentCharIndex}`);
 
-    // BACKSPACE
+    // 2. BACKSPACE
     if (e.key === "Backspace") {
         if (currentLetterStatus === 'error') {
             currentLetterStatus = 'fixed';
@@ -187,26 +185,27 @@ document.addEventListener('keydown', (e) => {
         return;
     }
 
-    // CORRECT
+    // 3. CORRECT KEY
     if (e.key === targetChar) {
         currentEl.classList.remove('active');
         currentEl.classList.remove('error-state');
 
-        // Color Logic
         if (currentLetterStatus === 'clean') currentEl.classList.add('done-perfect'); 
-        else if (currentLetterStatus === 'fixed') currentEl.classList.add('done-fixed'); // Blue
-        else currentEl.classList.add('done-dirty'); // Red
+        else if (currentLetterStatus === 'fixed') currentEl.classList.add('done-fixed'); 
+        else currentEl.classList.add('done-dirty'); 
 
         currentCharIndex++;
         currentLetterStatus = 'clean'; 
 
-        // OVERTIME STOP LOGIC
+        // 4. OVERTIME STOP LOGIC
+        // We stop if we are in overtime AND we just typed a period, exclamation, or question mark.
         if (isOvertime) {
-            // Check if the character we JUST typed was punctuation
             if (['.', '!', '?'].includes(targetChar)) {
+                // Perform one last visual update so the user sees the character
                 updateImageDisplay();
                 highlightCurrentChar();
                 centerView();
+                // Then Stop
                 pauseGameForBreak();
                 return;
             }
@@ -221,7 +220,7 @@ document.addEventListener('keydown', (e) => {
         centerView();
         updateImageDisplay();
     } 
-    // MISTAKE
+    // 5. MISTAKE
     else {
         mistakes++;
         sprintMistakes++;
@@ -273,7 +272,7 @@ function updateAccuracy() {
 function finishChapter() {
     isGameActive = false;
     clearInterval(timerInterval);
-    showModal("Chapter Complete!", { time: activeSeconds, wpm: parseInt(wpmDisplay.innerText), acc: parseInt(accDisplay.innerText) }, "Play Again", () => location.reload());
+    showModal("Chapter Complete!", { time: activeSeconds, wpm: parseInt(wpmDisplay.innerText), acc: parseInt(accDisplay.innerText) }, "Play Again (ENTER)", () => location.reload());
 }
 
 // --- MODAL ---
@@ -284,14 +283,13 @@ function showModal(title, stats, btnText, action) {
     
     document.getElementById('modal-title').innerText = title;
     
-    // Construct Stats HTML
     let bodyHtml = '';
     if (stats) {
         bodyHtml = `
             <div class="stat-row">
-                <div class="stat-item"><span>${stats.time}s</span>Time</div>
-                <div class="stat-item"><span>${stats.wpm}</span>WPM</div>
-                <div class="stat-item"><span>${stats.acc}%</span>Acc</div>
+                <div class="stat-item"><span>${stats.time}s</span>Sprint Time</div>
+                <div class="stat-item"><span>${stats.wpm}</span>Sprint WPM</div>
+                <div class="stat-item"><span>${stats.acc}%</span>Accuracy</div>
             </div>
         `;
     }
