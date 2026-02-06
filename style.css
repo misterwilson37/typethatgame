@@ -1,11 +1,10 @@
-/* v1.2.0 - Core Fixes */
+/* v1.2.2 - Bottom Modal & Review Mode */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
     --carolina-blue: #4B9CD3; 
-    --corrected-color: #0047AB; /* BLUE: Fixed via Backspace */
-    --brute-force-color: #D32F2F; /* RED: Hammered through */
-    --cursor-highlight: #4B9CD3;
+    --corrected-color: #0047AB; 
+    --brute-force-color: #D32F2F; 
     --error-bg: #ffcccc; 
     --accent-grey: #e0e0e0;
     --black: #000000;
@@ -20,7 +19,7 @@ body {
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    user-select: none; /* CRITICAL: Prevents "Greying out" / text selection */
+    user-select: none;
     -webkit-user-select: none;
 }
 
@@ -39,7 +38,7 @@ body {
 #game-container {
     flex-grow: 1;
     position: relative;
-    overflow: hidden; /* Text slides inside this */
+    overflow: hidden; 
     background: #fafafa;
 }
 
@@ -49,7 +48,7 @@ body {
     left: 10%;
     width: 80%;
     max-width: 800px;
-    transition: transform 0.2s ease-out; /* Smooth scrolling */
+    transition: transform 0.2s ease-out; 
 }
 
 .word {
@@ -61,31 +60,13 @@ body {
     color: #ccc; 
 }
 
-.letter { 
-    position: relative; 
-    padding: 2px 0;
-    color: #ccc;
-}
-
-/* CURSOR: The letter you are currently trying to type */
-.letter.active {
-    background-color: var(--carolina-blue);
-    color: white !important;
-    border-radius: 2px;
-}
-
-/* ERROR STATE: You hit the wrong key on the active letter */
-.letter.active.error-state {
-    background-color: var(--error-bg); 
-    color: black !important;
-}
-
-/* PAST TENSE: Letters you have finished */
+.letter { position: relative; padding: 2px 0; color: #ccc; }
+.letter.active { background-color: var(--carolina-blue); color: white !important; border-radius: 2px; }
+.letter.active.error-state { background-color: var(--error-bg); color: black !important; }
 .letter.done-perfect { color: var(--black); } 
-.letter.done-fixed { color: var(--corrected-color); font-weight: bold; } /* Blue */
-.letter.done-dirty { color: var(--brute-force-color); } /* Red */
+.letter.done-fixed { color: var(--corrected-color); font-weight: bold; } 
+.letter.done-dirty { color: var(--brute-force-color); } 
 
-/* KEYBOARD & UI */
 #virtual-keyboard {
     height: 260px;
     background: var(--accent-grey);
@@ -103,16 +84,52 @@ body {
 .key.wide { width: 80px; font-size: 12px; }
 .key.shift-active { background-color: #ffd700; color: black; } 
 
+/* NEW MODAL STYLES */
 .modal {
-    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-    background: rgba(0,0,0,0.85);
-    display: flex; justify-content: center; align-items: center;
+    position: fixed; 
+    top: 0; left: 0; width: 100%; height: 100%;
+    /* Transparent background so you can see the text behind */
+    background: rgba(255, 255, 255, 0.1); 
+    display: flex; 
+    flex-direction: column;
+    justify-content: flex-end; /* Push content to bottom */
     z-index: 100;
+    pointer-events: none; /* Let clicks pass through to text if needed, but we capture keys */
 }
+
 .modal-content {
-    background: white; padding: 40px; border-radius: 8px; text-align: center;
-    max-width: 500px; border: 4px solid var(--carolina-blue);
+    pointer-events: auto;
+    background: white; 
+    width: 100%;
+    max-width: 100%;
+    border-top: 6px solid var(--carolina-blue);
+    padding: 30px; 
+    text-align: center;
+    box-shadow: 0 -10px 30px rgba(0,0,0,0.2);
+    animation: slideUp 0.3s ease-out;
 }
+
+@keyframes slideUp {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+}
+
+.modal h2 { margin-top: 0; color: var(--black); }
+.modal p { font-size: 1.2em; color: #555; }
+
+.modal-btn {
+    padding: 15px 40px; 
+    background: var(--carolina-blue); 
+    color: white; 
+    border: none; 
+    font-size: 18px; 
+    font-weight: bold;
+    cursor: pointer;
+    border-radius: 4px;
+    margin-top: 15px;
+    box-shadow: 0 4px 0 #2b7ca8;
+}
+.modal-btn:active { transform: translateY(2px); box-shadow: 0 2px 0 #2b7ca8; }
 .hidden { display: none !important; }
 
 #image-panel {
