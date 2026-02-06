@@ -1,4 +1,4 @@
-/* v1.2.4 - Enter Key & Stop Logic Fixes */
+/* v1.2.5 - Stable Spaces & Smart Timer UI */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -68,8 +68,13 @@ body {
 .letter.done-fixed { color: var(--corrected-color); font-weight: bold; } 
 .letter.done-dirty { color: var(--brute-force-color); } 
 
-/* SPACEBAR STYLING */
-.letter.space { display: inline-block; min-width: 12px; }
+/* FIXED SPACEBAR JUMP */
+/* vertical-align: baseline ensures it sits on the same line as text */
+.letter.space { 
+    display: inline-block; 
+    min-width: 12px; 
+    vertical-align: baseline; 
+}
 .letter.space.done-perfect { background: transparent; }
 .letter.space.done-fixed { background-color: var(--fixed-bg); }
 .letter.space.done-dirty { background-color: var(--error-bg); }
@@ -91,7 +96,7 @@ body {
 .key.wide { width: 80px; font-size: 12px; }
 .key.shift-active { background-color: #ffd700; color: black; } 
 
-/* MODAL: Bottom Sheet Style */
+/* MODAL */
 .modal {
     position: fixed; top: 0; left: 0; width: 100%; height: 100%;
     background: rgba(255, 255, 255, 0.1); 
@@ -100,7 +105,9 @@ body {
 }
 .modal-content {
     pointer-events: auto; background: white; width: 100%;
-    border-top: 6px solid var(--carolina-blue); padding: 30px; text-align: center;
+    border-top: 6px solid var(--carolina-blue); padding: 30px; 
+    padding-bottom: 50px; /* Extra padding for footer visibility if needed */
+    text-align: center;
     box-shadow: 0 -10px 30px rgba(0,0,0,0.2); animation: slideUp 0.3s ease-out;
 }
 @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
@@ -124,6 +131,13 @@ body {
     width: 250px; display: none; z-index: 5;
 }
 #image-panel img { width: 100%; border: 4px solid var(--black); }
+
+/* FOOTER Z-INDEX FIX */
 footer {
-    position: fixed; bottom: 5px; right: 10px; font-size: 0.7em; color: #666; pointer-events: none; background: rgba(255,255,255,0.8);
+    position: fixed; bottom: 5px; right: 10px; font-size: 0.7em; color: #666; 
+    pointer-events: none; 
+    background: rgba(255,255,255,0.8);
+    z-index: 101; /* Above modal */
+    padding: 2px 5px;
+    border-radius: 3px;
 }
