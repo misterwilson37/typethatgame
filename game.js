@@ -1,17 +1,22 @@
-// v1.2.6.3 - Syntax Fix & Stable Smart Timer
+// v1.3.0 - Save System & Fixed Start Center
 import { db, auth } from "./firebase-config.js";
-import { doc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.2.6.3";
+const VERSION = "1.3.0";
+const BOOK_ID = "wizard_of_oz"; // We can make this dynamic later
 const SESSION_LIMIT = 30; 
-const IDLE_THRESHOLD = 2000; // 2 seconds
+const IDLE_THRESHOLD = 2000; 
 
 // STATE
 let currentUser = null;
 let bookData = null;
 let fullText = "";
 let currentCharIndex = 0;
+let savedCharIndex = 0; // Where we resumed from
+let currentChapterNum = 1;
+
+// Stats
 let mistakes = 0; 
 let sprintMistakes = 0; 
 let activeSeconds = 0; 
@@ -23,17 +28,14 @@ let isOvertime = false;
 let isModalOpen = false;
 let modalActionCallback = null;
 
-// Smart Timer State
+// Timer & Speed
 let lastInputTime = 0;
-let timeAccumulator = 0; // Tracks milliseconds for precision
-
-let wpmHistory = []; // Stores timestamps of recent keystrokes
-let accuracyHistory = []; // Stores 1 (hit) or 0 (miss) for recent keys
-
-// Letter Status
+let timeAccumulator = 0;
+let wpmHistory = [];
+let accuracyHistory = [];
 let currentLetterStatus = 'clean'; 
 
-// DOM
+// DOM Elements
 const textStream = document.getElementById('text-stream');
 const keyboardDiv = document.getElementById('virtual-keyboard');
 const storyImg = document.getElementById('story-img');
@@ -54,41 +56,96 @@ async function init() {
         onAuthStateChanged(auth, async (user) => {
             if (user) {
                 currentUser = user;
-                loadChapter(1);
+                await loadUserProgress(); // Load save file first
             }
         });
     } catch (e) {
         console.error("Auth Failed:", e);
-        textStream.innerText = "Error loading game. Check console.";
+    }
+}
+
+async function loadUserProgress() {
+    try {
+        const docRef = doc(db, "users", currentUser.uid, "progress", BOOK_ID);
+        const docSnap = await getDoc(docRef);
+        
+        if (docSnap.exists()) {
+            const data = docSnap.data();
+            currentChapterNum = data.chapter || 1;
+            savedCharIndex = data.charIndex || 0;
+            console.log(`Resuming Chapter ${currentChapterNum} at index ${savedCharIndex}`);
+        } else {
+            console.log("New user: Starting Chapter 1");
+            currentChapterNum = 1;
+            savedCharIndex = 0;
+        }
+        loadChapter(currentChapterNum);
+    } catch (e) {
+        console.error("Load Progress Error:", e);
+        loadChapter(1);
     }
 }
 
 async function loadChapter(chapterNum) {
     try {
-        const docRef = doc(db, "books", "wizard_of_oz", "chapters", "chapter_" + chapterNum);
+        const docRef = doc(db, "books", BOOK_ID, "chapters", "chapter_" + chapterNum);
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
             bookData = docSnap.data();
             setupGame();
         } else {
-            textStream.innerHTML = "Error: Chapter not found.";
+            textStream.innerText = "Chapter not found. You might have finished the book!";
         }
     } catch (e) {
         console.error("Load Chapter Failed:", e);
-        textStream.innerHTML = "Error loading chapter.";
     }
 }
 
 function setupGame() {
-    // Sanitize text
+    // 1. Prepare Text
     fullText = bookData.segments.map(s => s.text).join(" ");
     fullText = fullText.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
     
     renderText();
-    updateImageDisplay();
     
-    // Initial Modal (No stats passed)
-    showModal("Ready?", null, "Start (ENTER)", startGame);
+    // 2. Resume Logic: Fast-forward to saved spot
+    currentCharIndex = savedCharIndex;
+    if (currentCharIndex > 0) {
+        // Mark previous letters as "done" visually so they look typed
+        for (let i = 0; i < currentCharIndex; i++) {
+            const el = document.getElementById(`char-${i}`);
+            if (el) {
+                el.classList.remove('active');
+                if (el.classList.contains('space')) {
+                   // Optional: spaces don't really show color unless we want them to
+                } else {
+                   el.classList.add('done-perfect');
+                }
+            }
+        }
+    }
+
+    // 3. Initial Visual Setup (The "Jump" Fix)
+    updateImageDisplay();
+    highlightCurrentChar(); // Highlight the letter we are actually on
+    centerView();           // Force center immediately!
+    
+    showModal(`Chapter ${currentChapterNum}`, null, "Resume Reading (ENTER)", startGame);
+}
+
+// Save Progress to Firestore
+async function saveProgress() {
+    if (!currentUser) return;
+    try {
+        await setDoc(doc(db, "users", currentUser.uid, "progress", BOOK_ID), {
+            chapter: currentChapterNum,
+            charIndex: currentCharIndex,
+            lastUpdated: new Date()
+        }, { merge: true });
+        console.log("Progress saved.");
+    } catch (e) {
+        console.error("Save failed:", e);
+    }
 }
 
 function renderText() {
@@ -123,20 +180,19 @@ function startGame() {
     isGameActive = true;
     isOvertime = false;
     
-    // Reset Sprint Stats
+    // Reset Stats for this specific sprint
     sprintSeconds = 0;
     sprintMistakes = 0;
-    sprintCharStart = currentCharIndex;
+    sprintCharStart = currentCharIndex; // Start measuring from HERE
     
-    // Reset Timer Logic
     activeSeconds = 0; 
     timeAccumulator = 0;
     lastInputTime = Date.now(); 
     
-    // RESET WPM HISTORY
     wpmHistory = []; 
     accuracyHistory = [];
-    wpmDisplay.innerText = "0"; // Start at 0
+    accDisplay.innerText = "100%";
+    wpmDisplay.innerText = "0";
     
     timerDisplay.style.color = 'white'; 
     timerDisplay.style.opacity = '1';
@@ -144,6 +200,7 @@ function startGame() {
     if (timerInterval) clearInterval(timerInterval);
     timerInterval = setInterval(gameTick, 100); 
 
+    // Ensure view is robust
     highlightCurrentChar();
     centerView();
 }
@@ -152,13 +209,9 @@ function gameTick() {
     if (!isGameActive) return;
 
     const now = Date.now();
-    
-    // SMART TIMER: Only count if last input was within 2 seconds
     if (now - lastInputTime < IDLE_THRESHOLD) {
-        timeAccumulator += 100; // Add 100ms
+        timeAccumulator += 100;
         timerDisplay.style.opacity = '1';
-
-        // Every 1000ms (1 second), update the actual game clocks
         if (timeAccumulator >= 1000) {
             activeSeconds++;
             sprintSeconds++;
@@ -166,8 +219,9 @@ function gameTick() {
             updateTimerUI();
         }
     } else {
-        // IDLE MODE
         timerDisplay.style.opacity = '0.5';
+        wpmDisplay.innerText = "0"; 
+        wpmHistory = []; 
     }
 }
 
@@ -175,9 +229,8 @@ function updateTimerUI() {
     const mins = Math.floor(activeSeconds / 60).toString().padStart(2, '0');
     const secs = (activeSeconds % 60).toString().padStart(2, '0');
     timerDisplay.innerText = `${mins}:${secs}`;
-
-    // REMOVED WPM CALCULATION FROM HERE
-    // It is now handled by updateRunningWPM() on keypress
+    
+    // WPM is now handled by updateRunningWPM, so we don't calculate it here.
 
     if (sprintSeconds >= SESSION_LIMIT) {
         isOvertime = true;
@@ -185,53 +238,67 @@ function updateTimerUI() {
     }
 }
 
+function updateRunningWPM() {
+    const now = Date.now();
+    wpmHistory.push(now);
+    if (wpmHistory.length > 20) wpmHistory.shift();
+    if (wpmHistory.length > 1) {
+        const timeDiffMs = now - wpmHistory[0];
+        const timeDiffMin = timeDiffMs / 60000;
+        const chars = wpmHistory.length - 1; 
+        if (timeDiffMin > 0) {
+            const wpm = Math.round((chars / 5) / timeDiffMin);
+            wpmDisplay.innerText = wpm;
+        }
+    }
+}
+
+function updateRunningAccuracy(isCorrect) {
+    accuracyHistory.push(isCorrect ? 1 : 0);
+    if (accuracyHistory.length > 50) accuracyHistory.shift();
+    const correctCount = accuracyHistory.filter(val => val === 1).length;
+    const total = accuracyHistory.length;
+    if (total > 0) {
+        accDisplay.innerText = Math.round((correctCount / total) * 100) + "%";
+    }
+}
+
 function pauseGameForBreak() {
     isGameActive = false;
     clearInterval(timerInterval); 
     
-    // Calculate Stats
+    // Save data when the sprint ends
+    saveProgress();
+
     const charsTyped = currentCharIndex - sprintCharStart;
     const minutes = sprintSeconds / 60;
     const sprintWPM = (minutes > 0) ? Math.round((charsTyped / 5) / minutes) : 0;
     
+    // Note: This acc is "Session Accuracy" for the report, not "Rolling Accuracy"
     const totalSprintKeystrokes = charsTyped + sprintMistakes;
-    const sprintAcc = (totalSprintKeystrokes > 0) 
-        ? Math.round((charsTyped / totalSprintKeystrokes) * 100) 
-        : 100;
+    const sprintAcc = (totalSprintKeystrokes > 0) ? Math.round((charsTyped / totalSprintKeystrokes) * 100) : 100;
 
-    const stats = {
-        time: sprintSeconds,
-        wpm: sprintWPM,
-        acc: sprintAcc
-    };
-    
+    const stats = { time: sprintSeconds, wpm: sprintWPM, acc: sprintAcc };
     showModal("Sprint Complete", stats, "Continue (ENTER)", startGame);
 }
 
 // --- INPUT ---
 document.addEventListener('keydown', (e) => {
-    // 1. MODAL CONTROL
     if (isModalOpen) {
-        if (e.key === "Enter") {
-            e.preventDefault();
-            if (modalActionCallback) modalActionCallback();
-        }
+        if (e.key === "Enter") { e.preventDefault(); if (modalActionCallback) modalActionCallback(); }
         return;
     }
-
     if (e.key === "Shift") toggleKeyboardCase(true);
     if (!isGameActive) return;
     if (["Shift", "Control", "Alt", "Meta", "CapsLock", "Tab"].includes(e.key)) return;
     if (e.key === " ") e.preventDefault(); 
 
-    // UPDATE IDLE TIMESTAMP
     lastInputTime = Date.now();
     timerDisplay.style.opacity = '1';
 
     const targetChar = fullText[currentCharIndex];
     const currentEl = document.getElementById(`char-${currentCharIndex}`);
 
-    // 2. BACKSPACE
     if (e.key === "Backspace") {
         if (currentLetterStatus === 'error') {
             currentLetterStatus = 'fixed';
@@ -240,39 +307,27 @@ document.addEventListener('keydown', (e) => {
         return;
     }
 
-    // 3. CORRECT
     if (e.key === targetChar) {
         currentEl.classList.remove('active');
         currentEl.classList.remove('error-state');
-
         if (currentLetterStatus === 'clean') currentEl.classList.add('done-perfect'); 
         else if (currentLetterStatus === 'fixed') currentEl.classList.add('done-fixed'); 
         else currentEl.classList.add('done-dirty'); 
 
         currentCharIndex++;
         currentLetterStatus = 'clean'; 
-
+        
         updateRunningWPM();
         updateRunningAccuracy(true);
-        
-        // 4. STOP LOGIC (Quotes aware)
+
         if (isOvertime) {
-            // Case A: Typed Punctuation (. ! ?)
             if (['.', '!', '?'].includes(targetChar)) {
-                const nextChar = fullText[currentCharIndex];
-                // If next is NOT a quote, stop.
-                if (nextChar !== '"' && nextChar !== "'") {
-                    triggerStop();
-                    return;
-                }
+                const nextChar = fullText[currentCharIndex]; 
+                if (nextChar !== '"' && nextChar !== "'") { triggerStop(); return; }
             }
-            // Case B: Typed Closing Quote (" ')
             if (['"', "'"].includes(targetChar)) {
-                 const prevChar = fullText[currentCharIndex - 2]; // -2 because index moved
-                 if (['.', '!', '?'].includes(prevChar)) {
-                    triggerStop();
-                    return;
-                 }
+                 const prevChar = fullText[currentCharIndex - 2]; 
+                 if (['.', '!', '?'].includes(prevChar)) { triggerStop(); return; }
             }
         }
 
@@ -280,21 +335,17 @@ document.addEventListener('keydown', (e) => {
             finishChapter();
             return;
         }
-
         highlightCurrentChar();
         centerView();
         updateImageDisplay();
     } 
-    // 5. MISTAKE
     else {
         mistakes++;
-        sprintMistakes++; // Keep tracking these for the final report!
-        
+        sprintMistakes++;
         if (currentLetterStatus === 'clean') currentLetterStatus = 'error';
         currentEl.classList.add('error-state'); 
         flashKey(e.key);
-        
-        updateRunningAccuracy(false); // <--- NEW: Record a Miss (0)
+        updateRunningAccuracy(false);
     }
 });
 
@@ -305,11 +356,8 @@ function triggerStop() {
     pauseGameForBreak();
 }
 
-document.addEventListener('keyup', (e) => {
-    if (e.key === "Shift") toggleKeyboardCase(false);
-});
+document.addEventListener('keyup', (e) => { if (e.key === "Shift") toggleKeyboardCase(false); });
 
-// --- CENTERING ---
 function centerView() {
     const currentEl = document.getElementById(`char-${currentCharIndex}`);
     if (!currentEl) return;
@@ -336,82 +384,23 @@ function updateImageDisplay() {
     } 
 }
 
-function updateAccuracy() {
-    const total = currentCharIndex + mistakes;
-    const acc = total === 0 ? 100 : Math.round((currentCharIndex / total) * 100);
-    accDisplay.innerText = acc + "%";
-}
-
-function updateRunningWPM() {
-    const now = Date.now();
-    wpmHistory.push(now);
-
-    // Increased buffer to 20 for smoother average
-    if (wpmHistory.length > 20) {
-        wpmHistory.shift();
-    }
-
-    // We need at least 2 keystrokes to measure a time difference
-    if (wpmHistory.length > 1) {
-        const timeDiffMs = now - wpmHistory[0];
-        const timeDiffMin = timeDiffMs / 60000;
-        
-        // FIX: The Fencepost Error
-        // We have 'length' timestamps, but that measures 'length - 1' intervals.
-        // If we typed 20 chars, the timer measures the duration of the last 19 transitions.
-        const chars = wpmHistory.length - 1; 
-        
-        // Prevent division by zero or negative time
-        if (timeDiffMin > 0) {
-            const wpm = Math.round((chars / 5) / timeDiffMin);
-            wpmDisplay.innerText = wpm;
-        }
-    }
-}
-
-function updateRunningAccuracy(isCorrect) {
-    // 1 = Correct, 0 = Mistake
-    accuracyHistory.push(isCorrect ? 1 : 0);
-
-    // Keep last 50 keystrokes
-    if (accuracyHistory.length > 50) {
-        accuracyHistory.shift();
-    }
-
-    const correctCount = accuracyHistory.filter(val => val === 1).length;
-    const total = accuracyHistory.length;
-    
-    if (total > 0) {
-        const acc = Math.round((correctCount / total) * 100);
-        accDisplay.innerText = acc + "%";
-    } else {
-        accDisplay.innerText = "100%";
-    }
-}
-
 function finishChapter() {
     isGameActive = false;
     clearInterval(timerInterval);
+    saveProgress(); // Save completion
     
-    // Calculate global accuracy for the final report
-    const totalKeystrokes = currentCharIndex + mistakes;
-    const finalAcc = totalKeystrokes === 0 ? 100 : Math.round((currentCharIndex / totalKeystrokes) * 100);
-
-    showModal("Chapter Complete!", { 
-        time: activeSeconds, 
-        wpm: parseInt(wpmDisplay.innerText), // Ending speed
-        acc: finalAcc                        // Total Session Accuracy
-    }, "Play Again (ENTER)", () => location.reload());
+    // Future: Increment Chapter Number here and load next?
+    // For now, reload.
+    
+    showModal("Chapter Complete!", { time: activeSeconds, wpm: parseInt(wpmDisplay.innerText), acc: parseInt(accDisplay.innerText) }, "Play Again (ENTER)", () => location.reload());
 }
 
-// --- MODAL ---
+// ... (Rest of Modal and Keyboard functions remain unchanged) ...
 function showModal(title, stats, btnText, action) {
     const modal = document.getElementById('modal');
     isModalOpen = true;
     modalActionCallback = action;
-    
     document.getElementById('modal-title').innerText = title;
-    
     let bodyHtml = '';
     if (stats) {
         bodyHtml = `
@@ -419,17 +408,11 @@ function showModal(title, stats, btnText, action) {
                 <div class="stat-item"><span>${stats.time}s</span>Sprint Time</div>
                 <div class="stat-item"><span>${stats.wpm}</span>Sprint WPM</div>
                 <div class="stat-item"><span>${stats.acc}%</span>Accuracy</div>
-            </div>
-        `;
+            </div>`;
     }
     document.getElementById('modal-body').innerHTML = bodyHtml;
-    
     const btn = document.getElementById('action-btn');
-    if(btn) {
-        btn.innerText = btnText;
-        btn.onclick = action;
-    }
-    
+    if(btn) { btn.innerText = btnText; btn.onclick = action; }
     modal.classList.remove('hidden');
 }
 
@@ -438,53 +421,17 @@ function closeModal() {
     modal.classList.add('hidden');
     isModalOpen = false;
     modalActionCallback = null;
-    
-    // Reset Idle on Close so timer works immediately
     lastInputTime = Date.now();
     timerDisplay.style.opacity = '1';
 }
 
-// --- KEYBOARD ---
-const keyMap = {
-    row1: "`1234567890-=", row1_s: "~!@#$%^&*()_+",
-    row2: "qwertyuiop[]\\", row2_s: "QWERTYUIOP{}|",
-    row3: "asdfghjkl;'", row3_s: "ASDFGHJKL:\"",
-    row4: "zxcvbnm,./", row4_s: "ZXCVBNM<>?"
-};
-function createKeyboard() {
-    keyboardDiv.innerHTML = ''; 
-    createRow(keyMap.row1, keyMap.row1_s);
-    createRow(keyMap.row2, keyMap.row2_s, "TAB");
-    createRow(keyMap.row3, keyMap.row3_s, "CAPS", "ENTER");
-    createRow(keyMap.row4, keyMap.row4_s, "SHIFT", "SHIFT");
-    const spaceRow = document.createElement('div');
-    spaceRow.className = 'kb-row';
-    const space = document.createElement('div');
-    space.className = 'key space'; space.id = 'key- '; space.innerText = "SPACE";
-    spaceRow.appendChild(space);
-    keyboardDiv.appendChild(spaceRow);
-}
-function createRow(chars, shiftChars, leftSpecial, rightSpecial) {
-    const row = document.createElement('div'); row.className = 'kb-row';
-    if (leftSpecial) addSpecialKey(row, leftSpecial);
-    for (let i = 0; i < chars.length; i++) {
-        const k = document.createElement('div'); k.className = 'key';
-        k.dataset.char = chars[i]; k.dataset.shift = shiftChars[i];
-        k.id = `key-${chars[i]}`; k.innerText = chars[i]; row.appendChild(k);
-    }
-    if (rightSpecial) addSpecialKey(row, rightSpecial);
-    keyboardDiv.appendChild(row);
-}
+// Helper: Keyboard creation (same as before, ensure it's in the file)
+const keyMap = { row1: "`1234567890-=", row1_s: "~!@#$%^&*()_+", row2: "qwertyuiop[]\\", row2_s: "QWERTYUIOP{}|", row3: "asdfghjkl;'", row3_s: "ASDFGHJKL:\"", row4: "zxcvbnm,./", row4_s: "ZXCVBNM<>?" };
+function createKeyboard() { keyboardDiv.innerHTML = ''; createRow(keyMap.row1, keyMap.row1_s); createRow(keyMap.row2, keyMap.row2_s, "TAB"); createRow(keyMap.row3, keyMap.row3_s, "CAPS", "ENTER"); createRow(keyMap.row4, keyMap.row4_s, "SHIFT", "SHIFT"); const spaceRow = document.createElement('div'); spaceRow.className = 'kb-row'; const space = document.createElement('div'); space.className = 'key space'; space.id = 'key- '; space.innerText = "SPACE"; spaceRow.appendChild(space); keyboardDiv.appendChild(spaceRow); }
+function createRow(chars, shiftChars, leftSpecial, rightSpecial) { const row = document.createElement('div'); row.className = 'kb-row'; if (leftSpecial) addSpecialKey(row, leftSpecial); for (let i = 0; i < chars.length; i++) { const k = document.createElement('div'); k.className = 'key'; k.dataset.char = chars[i]; k.dataset.shift = shiftChars[i]; k.id = `key-${chars[i]}`; k.innerText = chars[i]; row.appendChild(k); } if (rightSpecial) addSpecialKey(row, rightSpecial); keyboardDiv.appendChild(row); }
 function addSpecialKey(row, text) { const k = document.createElement('div'); k.className = 'key wide'; k.innerText = text; k.id = `key-${text}`; row.appendChild(k); }
 function toggleKeyboardCase(isShift) { document.querySelectorAll('.key').forEach(k => { if(k.dataset.char) k.innerText = isShift ? k.dataset.shift : k.dataset.char; if(k.id === 'key-SHIFT') isShift ? k.classList.add('shift-active') : k.classList.remove('shift-active'); }); }
-function highlightKey(char) {
-    document.querySelectorAll('.key').forEach(k => k.classList.remove('target'));
-    let targetId = ''; let needsShift = false;
-    if (char === ' ') targetId = 'key- ';
-    else { const keyEl = Array.from(document.querySelectorAll('.key')).find(k => k.dataset.char === char || k.dataset.shift === char); if (keyEl) { targetId = keyEl.id; if (keyEl.dataset.shift === char) needsShift = true; } }
-    const el = document.getElementById(targetId); if (el) el.classList.add('target');
-    needsShift ? toggleKeyboardCase(true) : toggleKeyboardCase(false);
-}
+function highlightKey(char) { document.querySelectorAll('.key').forEach(k => k.classList.remove('target')); let targetId = ''; let needsShift = false; if (char === ' ') targetId = 'key- '; else { const keyEl = Array.from(document.querySelectorAll('.key')).find(k => k.dataset.char === char || k.dataset.shift === char); if (keyEl) { targetId = keyEl.id; if (keyEl.dataset.shift === char) needsShift = true; } } const el = document.getElementById(targetId); if (el) el.classList.add('target'); needsShift ? toggleKeyboardCase(true) : toggleKeyboardCase(false); }
 function flashKey(char) { let id = `key-${char.toLowerCase()}`; const el = document.getElementById(id); if (el) { el.style.backgroundColor = 'var(--brute-force-color)'; setTimeout(() => el.style.backgroundColor = '', 200); } }
 
 init();
