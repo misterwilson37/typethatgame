@@ -1,9 +1,9 @@
-// v1.2.1 - Overtime Mode (Finish Sentence)
+// v1.2.2 - Keyboard Control, Bottom Modal, Continuous Timer
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.2.1";
+const VERSION = "1.2.2";
 const SESSION_LIMIT = 30; 
 
 // STATE
@@ -11,12 +11,15 @@ let currentUser = null;
 let bookData = null;
 let fullText = "";
 let currentCharIndex = 0;
-let mistakes = 0;
-let activeSeconds = 0;
-let sessionSeconds = 0;
+let mistakes = 0; // Total mistakes
+let sprintMistakes = 0; // Mistakes just this sprint
+let activeSeconds = 0; // Total active time
+let sprintSeconds = 0; // Time just this sprint
 let timerInterval = null;
 let isGameActive = false;
-let isOvertime = false; // New Flag
+let isOvertime = false;
+let isModalOpen = false; // Flag to trap keyboard
+let modalActionCallback = null; // Store function to run on Enter/Space
 
 // Logic Flags
 let currentLetterStatus = 'clean'; 
@@ -27,6 +30,8 @@ const keyboardDiv = document.getElementById('virtual-keyboard');
 const storyImg = document.getElementById('story-img');
 const imgPanel = document.getElementById('image-panel');
 const timerDisplay = document.getElementById('timer-display');
+const accDisplay = document.getElementById('acc-display');
+const wpmDisplay = document.getElementById('wpm-display');
 
 async function init() {
     const footer = document.querySelector('footer');
@@ -57,7 +62,8 @@ function setupGame() {
     fullText = fullText.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
     renderText();
     updateImageDisplay();
-    showModal("Ready?", "30-second bursts. Finish your sentence when time is up!", "Start", startGame);
+    // Initial Modal
+    showModal("Ready to Read?", "Type 30s bursts. Finish your sentence.", "Start (Space)", startGame);
 }
 
 function renderText() {
@@ -88,12 +94,12 @@ function renderText() {
 }
 
 function startGame() {
-    document.getElementById('modal').classList.add('hidden');
+    closeModal();
     isGameActive = true;
     isOvertime = false;
-    sessionSeconds = 0;
+    sprintSeconds = 0;
+    sprintMistakes = 0;
     
-    // Reset Timer Visuals
     timerDisplay.style.color = 'white'; 
     
     if (timerInterval) clearInterval(timerInterval);
@@ -107,31 +113,49 @@ function gameTick() {
     if (!isGameActive) return;
 
     activeSeconds++;
-    sessionSeconds++;
+    sprintSeconds++;
 
     const mins = Math.floor(activeSeconds / 60).toString().padStart(2, '0');
     const secs = (activeSeconds % 60).toString().padStart(2, '0');
     timerDisplay.innerText = `${mins}:${secs}`;
 
-    // WPM
+    // Live WPM (Total)
     const wpm = Math.round((currentCharIndex / 5) / (activeSeconds / 60)) || 0;
-    document.getElementById('wpm-display').innerText = wpm;
+    wpmDisplay.innerText = wpm;
 
     // Check for Overtime
-    if (sessionSeconds >= SESSION_LIMIT) {
+    if (sprintSeconds >= SESSION_LIMIT) {
         isOvertime = true;
-        timerDisplay.style.color = '#FFA500'; // Turn Orange
+        timerDisplay.style.color = '#FFA500'; // Orange Warning
     }
 }
 
 function pauseGameForBreak() {
     isGameActive = false;
     clearInterval(timerInterval);
-    showModal("Time's Up!", "Take a breath.", "Continue", startGame);
+    
+    // Calculate Sprint Stats
+    // Assuming 5 chars per word
+    const wpm = Math.round((sprintSeconds > 0) ? (30 / (sprintSeconds / 60)) : 0); // Crude approx, let's just use current WPM
+    
+    showModal("Sprint Complete", 
+              `Time: ${sprintSeconds}s | Mistakes: ${sprintMistakes}`, 
+              "Continue (Space)", 
+              startGame);
 }
 
-// --- CORE TYPING LOGIC ---
+// --- INPUT HANDLING ---
+
 document.addEventListener('keydown', (e) => {
+    // 1. MODAL HANDLING (Priority)
+    if (isModalOpen) {
+        if (e.key === " " || e.key === "Enter") {
+            e.preventDefault();
+            if (modalActionCallback) modalActionCallback();
+        }
+        return; // Block other input
+    }
+
     if (e.key === "Shift") toggleKeyboardCase(true);
     if (!isGameActive) return;
     if (["Shift", "Control", "Alt", "Meta", "CapsLock", "Tab"].includes(e.key)) return;
@@ -140,7 +164,7 @@ document.addEventListener('keydown', (e) => {
     const targetChar = fullText[currentCharIndex];
     const currentEl = document.getElementById(`char-${currentCharIndex}`);
 
-    // 1. BACKSPACE LOGIC
+    // 2. BACKSPACE LOGIC
     if (e.key === "Backspace") {
         if (currentLetterStatus === 'error') {
             currentLetterStatus = 'fixed';
@@ -149,27 +173,20 @@ document.addEventListener('keydown', (e) => {
         return;
     }
 
-    // 2. CORRECT KEY LOGIC
+    // 3. CORRECT KEY LOGIC
     if (e.key === targetChar) {
         currentEl.classList.remove('active');
         currentEl.classList.remove('error-state');
 
-        // Apply Color
-        if (currentLetterStatus === 'clean') {
-            currentEl.classList.add('done-perfect'); 
-        } else if (currentLetterStatus === 'fixed') {
-            currentEl.classList.add('done-fixed'); 
-        } else {
-            currentEl.classList.add('done-dirty'); 
-        }
+        if (currentLetterStatus === 'clean') currentEl.classList.add('done-perfect'); 
+        else if (currentLetterStatus === 'fixed') currentEl.classList.add('done-fixed'); 
+        else currentEl.classList.add('done-dirty'); 
 
         currentCharIndex++;
         currentLetterStatus = 'clean'; 
 
         // CHECK OVERTIME STOP
-        // If we are in overtime AND we just typed a sentence ender
         if (isOvertime && ['.', '!', '?'].includes(targetChar)) {
-            // Update UI one last time before pausing so the user sees the character
             highlightCurrentChar();
             centerView();
             pauseGameForBreak();
@@ -185,12 +202,11 @@ document.addEventListener('keydown', (e) => {
         centerView();
         updateImageDisplay();
     } 
-    // 3. WRONG KEY LOGIC
+    // 4. WRONG KEY LOGIC
     else {
         mistakes++;
-        if (currentLetterStatus === 'clean') {
-            currentLetterStatus = 'error';
-        }
+        sprintMistakes++;
+        if (currentLetterStatus === 'clean') currentLetterStatus = 'error';
         currentEl.classList.add('error-state'); 
         flashKey(e.key);
     }
@@ -210,7 +226,8 @@ function centerView() {
     const container = document.getElementById('game-container');
     const containerHeight = container.clientHeight; 
     const letterTop = currentEl.offsetTop; 
-    const offset = (containerHeight / 2) - letterTop - 20;
+    // Center logic: Place the line slightly above absolute center for better reading flow
+    const offset = (containerHeight / 2) - letterTop - 25; 
 
     textStream.style.transform = `translateY(${offset}px)`;
 }
@@ -237,23 +254,36 @@ function updateImageDisplay() {
 function updateAccuracy() {
     const total = currentCharIndex + mistakes;
     const acc = total === 0 ? 100 : Math.round((currentCharIndex / total) * 100);
-    document.getElementById('acc-display').innerText = acc + "%";
+    accDisplay.innerText = acc + "%";
 }
 
 function finishChapter() {
     isGameActive = false;
     clearInterval(timerInterval);
-    showModal("Chapter Complete!", `Time: ${activeSeconds}s`, "Again", () => location.reload());
+    showModal("Chapter Complete!", `Total Time: ${activeSeconds}s`, "Play Again (Space)", () => location.reload());
 }
 
+// --- MODAL SYSTEM ---
 function showModal(title, body, btnText, action) {
     const modal = document.getElementById('modal');
+    isModalOpen = true;
+    modalActionCallback = action;
+    
     document.getElementById('modal-title').innerText = title;
     document.getElementById('modal-body').innerText = body;
     const btn = document.getElementById('action-btn');
+    btn.className = "modal-btn"; // Reset class
     btn.innerText = btnText;
     btn.onclick = action;
+    
     modal.classList.remove('hidden');
+}
+
+function closeModal() {
+    const modal = document.getElementById('modal');
+    modal.classList.add('hidden');
+    isModalOpen = false;
+    modalActionCallback = null;
 }
 
 // --- KEYBOARD ---
