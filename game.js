@@ -1,9 +1,9 @@
-// v1.2.0 - Stability & Correct Logic
+// v1.2.1 - Overtime Mode (Finish Sentence)
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.2.0";
+const VERSION = "1.2.1";
 const SESSION_LIMIT = 30; 
 
 // STATE
@@ -16,9 +16,9 @@ let activeSeconds = 0;
 let sessionSeconds = 0;
 let timerInterval = null;
 let isGameActive = false;
+let isOvertime = false; // New Flag
 
-// Logic Flags for the current letter
-// Status can be: 'clean' (default), 'error' (wrong key hit), 'fixed' (backspace hit after error)
+// Logic Flags
 let currentLetterStatus = 'clean'; 
 
 // DOM
@@ -26,6 +26,7 @@ const textStream = document.getElementById('text-stream');
 const keyboardDiv = document.getElementById('virtual-keyboard');
 const storyImg = document.getElementById('story-img');
 const imgPanel = document.getElementById('image-panel');
+const timerDisplay = document.getElementById('timer-display');
 
 async function init() {
     const footer = document.querySelector('footer');
@@ -56,7 +57,7 @@ function setupGame() {
     fullText = fullText.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
     renderText();
     updateImageDisplay();
-    showModal("Ready?", "30-second bursts. Good luck!", "Start", startGame);
+    showModal("Ready?", "30-second bursts. Finish your sentence when time is up!", "Start", startGame);
 }
 
 function renderText() {
@@ -71,14 +72,14 @@ function renderText() {
             const span = document.createElement('span');
             span.className = 'letter';
             span.innerText = char;
-            span.id = `char-${charCount}`; // Give every letter an ID for easy lookup
+            span.id = `char-${charCount}`;
             span.dataset.index = charCount;
             wordSpan.appendChild(span);
             charCount++;
         }
         const spaceSpan = document.createElement('span');
         spaceSpan.className = 'letter';
-        spaceSpan.innerText = ' '; // Actual space character
+        spaceSpan.innerText = ' '; 
         spaceSpan.id = `char-${charCount}`;
         wordSpan.appendChild(spaceSpan);
         charCount++;
@@ -89,9 +90,12 @@ function renderText() {
 function startGame() {
     document.getElementById('modal').classList.add('hidden');
     isGameActive = true;
+    isOvertime = false;
     sessionSeconds = 0;
     
-    // Reset Timer Logic
+    // Reset Timer Visuals
+    timerDisplay.style.color = 'white'; 
+    
     if (timerInterval) clearInterval(timerInterval);
     timerInterval = setInterval(gameTick, 1000);
 
@@ -107,13 +111,16 @@ function gameTick() {
 
     const mins = Math.floor(activeSeconds / 60).toString().padStart(2, '0');
     const secs = (activeSeconds % 60).toString().padStart(2, '0');
-    document.getElementById('timer-display').innerText = `${mins}:${secs}`;
+    timerDisplay.innerText = `${mins}:${secs}`;
 
+    // WPM
     const wpm = Math.round((currentCharIndex / 5) / (activeSeconds / 60)) || 0;
     document.getElementById('wpm-display').innerText = wpm;
 
+    // Check for Overtime
     if (sessionSeconds >= SESSION_LIMIT) {
-        pauseGameForBreak();
+        isOvertime = true;
+        timerDisplay.style.color = '#FFA500'; // Turn Orange
     }
 }
 
@@ -125,18 +132,16 @@ function pauseGameForBreak() {
 
 // --- CORE TYPING LOGIC ---
 document.addEventListener('keydown', (e) => {
-    // Global Keys
     if (e.key === "Shift") toggleKeyboardCase(true);
     if (!isGameActive) return;
     if (["Shift", "Control", "Alt", "Meta", "CapsLock", "Tab"].includes(e.key)) return;
-    if (e.key === " ") e.preventDefault(); // Stop scroll
+    if (e.key === " ") e.preventDefault(); 
 
     const targetChar = fullText[currentCharIndex];
     const currentEl = document.getElementById(`char-${currentCharIndex}`);
 
     // 1. BACKSPACE LOGIC
     if (e.key === "Backspace") {
-        // If we are currently in an error state on this letter, backspace "fixes" it
         if (currentLetterStatus === 'error') {
             currentLetterStatus = 'fixed';
             currentEl.classList.remove('error-state');
@@ -146,24 +151,31 @@ document.addEventListener('keydown', (e) => {
 
     // 2. CORRECT KEY LOGIC
     if (e.key === targetChar) {
-        // Remove active class from current
         currentEl.classList.remove('active');
         currentEl.classList.remove('error-state');
 
-        // Apply Color based on Status
+        // Apply Color
         if (currentLetterStatus === 'clean') {
-            currentEl.classList.add('done-perfect'); // Black
+            currentEl.classList.add('done-perfect'); 
         } else if (currentLetterStatus === 'fixed') {
-            currentEl.classList.add('done-fixed'); // Blue
+            currentEl.classList.add('done-fixed'); 
         } else {
-            currentEl.classList.add('done-dirty'); // Red (Hammered)
+            currentEl.classList.add('done-dirty'); 
         }
 
-        // Advance
         currentCharIndex++;
-        currentLetterStatus = 'clean'; // Reset for next letter
+        currentLetterStatus = 'clean'; 
 
-        // End of Chapter Check
+        // CHECK OVERTIME STOP
+        // If we are in overtime AND we just typed a sentence ender
+        if (isOvertime && ['.', '!', '?'].includes(targetChar)) {
+            // Update UI one last time before pausing so the user sees the character
+            highlightCurrentChar();
+            centerView();
+            pauseGameForBreak();
+            return;
+        }
+
         if (currentCharIndex >= fullText.length) {
             finishChapter();
             return;
@@ -176,14 +188,10 @@ document.addEventListener('keydown', (e) => {
     // 3. WRONG KEY LOGIC
     else {
         mistakes++;
-        // If it was clean, it's now an error
         if (currentLetterStatus === 'clean') {
             currentLetterStatus = 'error';
         }
-        // If it was 'fixed' (blue potential), but they missed AGAIN, it becomes 'error' again (red potential)
-        // actually, once you miss, you miss. It stays error unless backspaced.
-        
-        currentEl.classList.add('error-state'); // Adds Red Background
+        currentEl.classList.add('error-state'); 
         flashKey(e.key);
     }
     
@@ -194,19 +202,14 @@ document.addEventListener('keyup', (e) => {
     if (e.key === "Shift") toggleKeyboardCase(false);
 });
 
-// --- CENTERING ENGINE (Restored to v1.0 logic) ---
+// --- CENTERING ENGINE ---
 function centerView() {
     const currentEl = document.getElementById(`char-${currentCharIndex}`);
     if (!currentEl) return;
 
     const container = document.getElementById('game-container');
-    const containerHeight = container.clientHeight; // Height of the white box
-    
-    // Where is the letter relative to the top of the text stream?
+    const containerHeight = container.clientHeight; 
     const letterTop = currentEl.offsetTop; 
-    
-    // We want that letterTop to be at exactly 50% of the container
-    // Formula: TranslateY = (Half Container) - (Letter Position) - (Visual Adjustment)
     const offset = (containerHeight / 2) - letterTop - 20;
 
     textStream.style.transform = `translateY(${offset}px)`;
@@ -216,7 +219,6 @@ function highlightCurrentChar() {
     const el = document.getElementById(`char-${currentCharIndex}`);
     if (el) {
         el.classList.add('active');
-        // Update keyboard highlight
         const char = fullText[currentCharIndex];
         highlightKey(char);
     }
@@ -254,7 +256,7 @@ function showModal(title, body, btnText, action) {
     modal.classList.remove('hidden');
 }
 
-// --- KEYBOARD (Visuals Only) ---
+// --- KEYBOARD ---
 const keyMap = {
     row1: "`1234567890-=", row1_s: "~!@#$%^&*()_+",
     row2: "qwertyuiop[]\\", row2_s: "QWERTYUIOP{}|",
