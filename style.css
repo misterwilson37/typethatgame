@@ -1,4 +1,4 @@
-/* v1.2.3 - Spacebar Colors & Expanded Stats */
+/* v1.2.4 - Enter Key & Stop Logic Fixes */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -6,7 +6,7 @@
     --corrected-color: #0047AB; 
     --brute-force-color: #D32F2F; 
     --error-bg: #ffcccc; 
-    --fixed-bg: #d1e7f7; /* Light Blue for fixed spaces */
+    --fixed-bg: #d1e7f7; 
     --accent-grey: #e0e0e0;
     --black: #000000;
 }
@@ -54,7 +54,7 @@ body {
 
 .word {
     display: inline-block;
-    margin-right: 10px; /* Gap between words */
+    margin-right: 10px;
     white-space: pre;
     line-height: 2.5em;
     font-size: 24px;
@@ -62,28 +62,18 @@ body {
 }
 
 .letter { position: relative; padding: 2px 0; color: #ccc; }
-
-/* ACTIVE CURSOR */
 .letter.active { background-color: var(--carolina-blue); color: white !important; border-radius: 2px; }
 .letter.active.error-state { background-color: var(--error-bg); color: black !important; }
-
-/* COMPLETED LETTERS */
 .letter.done-perfect { color: var(--black); } 
 .letter.done-fixed { color: var(--corrected-color); font-weight: bold; } 
 .letter.done-dirty { color: var(--brute-force-color); } 
 
-/* SPACEBAR SPECIFIC STYLES */
-/* We target the space character specifically for background highlights */
-.letter.space {
-    display: inline-block;
-    min-width: 12px; /* Ensure space has width to show color */
-}
+/* SPACEBAR STYLING */
+.letter.space { display: inline-block; min-width: 12px; }
 .letter.space.done-perfect { background: transparent; }
-.letter.space.done-fixed { background-color: var(--fixed-bg); } /* Light Blue Highlight */
-.letter.space.done-dirty { background-color: var(--error-bg); } /* Light Red Highlight */
+.letter.space.done-fixed { background-color: var(--fixed-bg); }
+.letter.space.done-dirty { background-color: var(--error-bg); }
 
-
-/* KEYBOARD & UI */
 #virtual-keyboard {
     height: 260px;
     background: var(--accent-grey);
@@ -101,7 +91,7 @@ body {
 .key.wide { width: 80px; font-size: 12px; }
 .key.shift-active { background-color: #ffd700; color: black; } 
 
-/* MODAL */
+/* MODAL: Bottom Sheet Style */
 .modal {
     position: fixed; top: 0; left: 0; width: 100%; height: 100%;
     background: rgba(255, 255, 255, 0.1); 
