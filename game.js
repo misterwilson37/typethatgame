@@ -1,11 +1,11 @@
-// v1.2.5 - Smart Timer, Quote Fix, Clean Start
+// v1.2.6 - Syntax Fix & Stable Smart Timer
 import { db, auth } from "./firebase-config.js";
-import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { doc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.2.5";
+const VERSION = "1.2.6";
 const SESSION_LIMIT = 30; 
-const IDLE_THRESHOLD = 2000; // 2 seconds before timer pauses
+const IDLE_THRESHOLD = 2000; // 2 seconds
 
 // STATE
 let currentUser = null;
@@ -23,9 +23,11 @@ let isOvertime = false;
 let isModalOpen = false;
 let modalActionCallback = null;
 
-// Idle Logic
+// Smart Timer State
 let lastInputTime = 0;
+let timeAccumulator = 0; // Tracks milliseconds for precision
 
+// Letter Status
 let currentLetterStatus = 'clean'; 
 
 // DOM
@@ -38,35 +40,51 @@ const accDisplay = document.getElementById('acc-display');
 const wpmDisplay = document.getElementById('wpm-display');
 
 async function init() {
+    console.log("Initializing JS v" + VERSION);
     const footer = document.querySelector('footer');
     if(footer) footer.innerText = `JS: v${VERSION}`;
+    
     createKeyboard();
-    signInAnonymously(auth).catch(console.error);
-    onAuthStateChanged(auth, async (user) => {
-        if (user) {
-            currentUser = user;
-            loadChapter(1);
-        }
-    });
+    
+    try {
+        await signInAnonymously(auth);
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                currentUser = user;
+                loadChapter(1);
+            }
+        });
+    } catch (e) {
+        console.error("Auth Failed:", e);
+        textStream.innerText = "Error loading game. Check console.";
+    }
 }
 
 async function loadChapter(chapterNum) {
-    const docRef = doc(db, "books", "wizard_of_oz", "chapters", "chapter_" + chapterNum);
-    const docSnap = await getDoc(docRef);
-    if (docSnap.exists()) {
-        bookData = docSnap.data();
-        setupGame();
-    } else {
-        textStream.innerHTML = "Error: Chapter not found.";
+    try {
+        const docRef = doc(db, "books", "wizard_of_oz", "chapters", "chapter_" + chapterNum);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+            bookData = docSnap.data();
+            setupGame();
+        } else {
+            textStream.innerHTML = "Error: Chapter not found.";
+        }
+    } catch (e) {
+        console.error("Load Chapter Failed:", e);
+        textStream.innerHTML = "Error loading chapter.";
     }
 }
 
 function setupGame() {
+    // Sanitize text
     fullText = bookData.segments.map(s => s.text).join(" ");
     fullText = fullText.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
+    
     renderText();
     updateImageDisplay();
-    // Pass 'null' for stats to hide them
+    
+    // Initial Modal (No stats passed)
     showModal("Ready?", null, "Start (ENTER)", startGame);
 }
 
@@ -102,19 +120,25 @@ function startGame() {
     isGameActive = true;
     isOvertime = false;
     
-    // Reset Sprint
+    // Reset Sprint Stats
     sprintSeconds = 0;
     sprintMistakes = 0;
     sprintCharStart = currentCharIndex;
     
-    // Reset Idle Timer so it starts counting immediately
+    // Reset Timer Logic
+    activeSeconds = 0; 
+    timeAccumulator = 0;
     lastInputTime = Date.now(); 
     
     timerDisplay.style.color = 'white'; 
     timerDisplay.style.opacity = '1';
 
     if (timerInterval) clearInterval(timerInterval);
-    timerInterval = setInterval(gameTick, 100); // Faster tick for smooth idle check
+    // Run loop every 100ms for responsiveness
+    timerInterval = setInterval(gameTick, 100); 
+
+    highlightCurrentChar();
+    centerView();
 }
 
 function gameTick() {
@@ -122,56 +146,21 @@ function gameTick() {
 
     const now = Date.now();
     
-    // SMART TIMER LOGIC: Only count if last input was recent
+    // SMART TIMER: Only count if last input was within 2 seconds
     if (now - lastInputTime < IDLE_THRESHOLD) {
-        // We add 0.1s (100ms) because interval is 100ms
-        // But to keep simple integers for display, we'll use a fractional counter
-        // or just simpler:
-    } else {
-        // Idle
-        timerDisplay.style.opacity = '0.5'; // Dim timer to show it's paused
-        return; 
-    }
-    
-    timerDisplay.style.opacity = '1';
-
-    // Since we are ticking every 100ms, we need to handle seconds carefully.
-    // Let's use a simpler approach: 
-    // We only update the seconds counter if 1 second has actually passed in "active time"
-    // But that requires floating math.
-    
-    // Easier approach for 'gameTick' running at 1s intervals:
-    // We revert setInterval to 1000ms, but we check the timestamp in the callback.
-    // No, 1s resolution is too chunky for idle checks.
-    
-    // Let's stick to the 1s interval but check the condition.
-}
-
-// REDOING TIMER FOR CLARITY
-// We will use a standard 1s interval, but we will maintain an 'accumulatedTime'
-// driven by the keydown events? No, that's messy.
-// Let's use the 100ms interval approach for precision.
-
-let fractionalSeconds = 0;
-
-function gameTick() {
-    if (!isGameActive) return;
-    
-    const now = Date.now();
-    if (now - lastInputTime < IDLE_THRESHOLD) {
-        fractionalSeconds += 0.1;
+        timeAccumulator += 100; // Add 100ms
         timerDisplay.style.opacity = '1';
-        
-        if (fractionalSeconds >= 1) {
+
+        // Every 1000ms (1 second), update the actual game clocks
+        if (timeAccumulator >= 1000) {
             activeSeconds++;
             sprintSeconds++;
-            fractionalSeconds = 0;
-            
-            // Update UI
+            timeAccumulator -= 1000;
             updateTimerUI();
         }
     } else {
-         timerDisplay.style.opacity = '0.5';
+        // IDLE MODE
+        timerDisplay.style.opacity = '0.5';
     }
 }
 
@@ -189,11 +178,11 @@ function updateTimerUI() {
     }
 }
 
-
 function pauseGameForBreak() {
     isGameActive = false;
     clearInterval(timerInterval); 
     
+    // Calculate Stats
     const charsTyped = currentCharIndex - sprintCharStart;
     const minutes = sprintSeconds / 60;
     const sprintWPM = (minutes > 0) ? Math.round((charsTyped / 5) / minutes) : 0;
@@ -214,6 +203,7 @@ function pauseGameForBreak() {
 
 // --- INPUT ---
 document.addEventListener('keydown', (e) => {
+    // 1. MODAL CONTROL
     if (isModalOpen) {
         if (e.key === "Enter") {
             e.preventDefault();
@@ -227,13 +217,14 @@ document.addEventListener('keydown', (e) => {
     if (["Shift", "Control", "Alt", "Meta", "CapsLock", "Tab"].includes(e.key)) return;
     if (e.key === " ") e.preventDefault(); 
 
-    // UPDATE IDLE TIMER
+    // UPDATE IDLE TIMESTAMP
     lastInputTime = Date.now();
     timerDisplay.style.opacity = '1';
 
     const targetChar = fullText[currentCharIndex];
     const currentEl = document.getElementById(`char-${currentCharIndex}`);
 
+    // 2. BACKSPACE
     if (e.key === "Backspace") {
         if (currentLetterStatus === 'error') {
             currentLetterStatus = 'fixed';
@@ -242,6 +233,7 @@ document.addEventListener('keydown', (e) => {
         return;
     }
 
+    // 3. CORRECT
     if (e.key === targetChar) {
         currentEl.classList.remove('active');
         currentEl.classList.remove('error-state');
@@ -253,25 +245,20 @@ document.addEventListener('keydown', (e) => {
         currentCharIndex++;
         currentLetterStatus = 'clean'; 
 
-        // --- SMART QUOTE STOP LOGIC ---
+        // 4. STOP LOGIC (Quotes aware)
         if (isOvertime) {
-            // 1. If we just typed punctuation...
+            // Case A: Typed Punctuation (. ! ?)
             if (['.', '!', '?'].includes(targetChar)) {
-                // Peek next: Is it a quote?
-                const nextChar = fullText[currentCharIndex]; 
-                if (nextChar === '"' || nextChar === "'") {
-                    // It's a quote! Let them type it. Don't stop.
-                } else {
-                    // Regular end of sentence
+                const nextChar = fullText[currentCharIndex];
+                // If next is NOT a quote, stop.
+                if (nextChar !== '"' && nextChar !== "'") {
                     triggerStop();
                     return;
                 }
             }
-            
-            // 2. If we just typed a quote...
+            // Case B: Typed Closing Quote (" ')
             if (['"', "'"].includes(targetChar)) {
-                // Check if previous char was punctuation
-                 const prevChar = fullText[currentCharIndex - 2]; 
+                 const prevChar = fullText[currentCharIndex - 2]; // -2 because index moved
                  if (['.', '!', '?'].includes(prevChar)) {
                     triggerStop();
                     return;
@@ -288,6 +275,7 @@ document.addEventListener('keydown', (e) => {
         centerView();
         updateImageDisplay();
     } 
+    // 5. MISTAKE
     else {
         mistakes++;
         sprintMistakes++;
@@ -358,7 +346,6 @@ function showModal(title, stats, btnText, action) {
     document.getElementById('modal-title').innerText = title;
     
     let bodyHtml = '';
-    // Only show stats if stats object is passed (not null)
     if (stats) {
         bodyHtml = `
             <div class="stat-row">
@@ -371,8 +358,10 @@ function showModal(title, stats, btnText, action) {
     document.getElementById('modal-body').innerHTML = bodyHtml;
     
     const btn = document.getElementById('action-btn');
-    btn.innerText = btnText;
-    btn.onclick = action;
+    if(btn) {
+        btn.innerText = btnText;
+        btn.onclick = action;
+    }
     
     modal.classList.remove('hidden');
 }
@@ -383,7 +372,7 @@ function closeModal() {
     isModalOpen = false;
     modalActionCallback = null;
     
-    // Reset Idle on Close
+    // Reset Idle on Close so timer works immediately
     lastInputTime = Date.now();
     timerDisplay.style.opacity = '1';
 }
