@@ -1,4 +1,4 @@
-/* v1.4.0.2 - Unified HUD & Login System */
+/* v1.4.0.3 - Unified HUD & Login System */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -237,3 +237,64 @@ select.modal-select:focus {
     border-bottom: 1px solid #444;
 }
 
+/* Top Right Menu Button */
+#menu-btn {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background: transparent;
+    border: none;
+    color: #555;
+    font-size: 1.5rem;
+    cursor: pointer;
+    z-index: 1000;
+    transition: color 0.2s;
+    padding: 10px;
+}
+#menu-btn:hover { color: #00ff41; }
+
+/* Menu Layout */
+.menu-section {
+    margin-bottom: 25px;
+    text-align: left;
+    border-bottom: 1px solid #333;
+    padding-bottom: 20px;
+}
+.menu-section:last-child { border-bottom: none; }
+.menu-label {
+    color: #888;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 10px;
+    display: block;
+}
+
+/* Danger Buttons */
+button.danger-btn {
+    background-color: #2a0a0a;
+    border: 1px solid #551111;
+    color: #ff9999;
+    margin-top: 10px;
+    width: 100%;
+    font-size: 0.9rem;
+    padding: 10px;
+}
+button.danger-btn:hover {
+    background-color: #441111;
+    border-color: #ff3333;
+    color: #fff;
+}
+
+/* Secondary Button (Cancel) */
+button.secondary-btn {
+    background-color: transparent;
+    border: 1px solid #444;
+    color: #aaa;
+    margin-top: 10px;
+    width: 100%;
+}
+button.secondary-btn:hover {
+    border-color: #888;
+    color: #fff;
+}
