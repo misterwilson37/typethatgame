@@ -1,4 +1,4 @@
-/* v1.8.1 - Layout Fixes: Modal & Vertical Centering */
+/* v1.7.3 - Restored Vertical Layout & Fixed Dropdowns */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -72,32 +72,29 @@ body {
 .text-btn:hover { color: white; }
 #user-name { color: white; margin-right: 5px; }
 
-/* --- GAME AREA --- */
+/* --- GAME AREA (Restored Vertical Flow) --- */
 #game-container {
     flex-grow: 1;
     position: relative;
     overflow: hidden; 
     background: #fafafa;
-    /* Vertical Centering Fix */
-    display: flex;
-    align-items: center; 
-    justify-content: flex-start; /* Text starts from left */
 }
 
 #text-stream {
-    /* Removed absolute positioning for flex centering to work better, 
-       but kept relative for translateX sliding */
-    position: relative; 
-    margin-left: 10%; 
-    white-space: nowrap; /* Ensure words stay on one line */
+    position: absolute; 
+    top: 0; 
+    left: 10%; 
+    width: 80%; 
+    max-width: 800px;
     transition: transform 0.2s ease-out; 
-    will-change: transform;
+    /* No flex here, we rely on JS translateY for vertical scrolling */
 }
 
 .word {
-    display: inline-block; margin-right: 10px; white-space: pre;
+    display: inline-block; margin-right: 10px; white-space: pre-wrap; /* Allow wrapping */
     line-height: 2.5em; font-size: 24px; color: #ccc; 
 }
+
 .letter {
     display: inline-block; vertical-align: bottom; min-width: 14.4px;           
     padding: 2px 0; line-height: 1.2; position: relative; color: #ccc;
@@ -118,7 +115,7 @@ body {
     background: var(--accent-grey);
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     gap: 5px; border-top: 4px solid var(--black); padding: 10px 0; flex-shrink: 0;
-    z-index: 20; /* Ensure it stays below modal */
+    z-index: 20; 
 }
 .kb-row { display: flex; gap: 5px; }
 .key {
@@ -131,13 +128,13 @@ body {
 .key.wide { width: 80px; font-size: 12px; }
 .key.shift-active { background-color: #ffd700; color: black; } 
 
-/* --- MODAL --- */
+/* --- MODAL (Fixed Z-Index & Layout) --- */
 .modal {
     position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-    background: rgba(0, 0, 0, 0.7); /* Slightly darker for better focus */
+    background: rgba(0, 0, 0, 0.6); 
     display: flex; flex-direction: column; justify-content: center; 
     align-items: center; 
-    z-index: 2000; /* Highest Z-Index to sit over everything */
+    z-index: 5000; /* Ensure this is on top of everything */
 }
 .modal-content {
     background: white; 
@@ -147,12 +144,14 @@ body {
     text-align: center;
     box-shadow: 0 10px 40px rgba(0,0,0,0.5); 
     border-radius: 4px;
-    box-sizing: border-box;
+    box-sizing: border-box; /* Keeps padding inside */
 }
 
 /* Stats */
 .stat-row { display: flex; justify-content: center; gap: 20px; margin: 20px 0; font-size: 1.1em; color: #333; }
 .stat-item span { display: block; font-size: 1.8em; font-weight: bold; color: var(--black); }
+.stat-subtext { margin-top: 15px; font-size: 0.9em; color: #777; line-height: 1.5; }
+.stat-subtext span.highlight { color: #333; font-weight: bold; }
 
 /* Buttons */
 .modal-btn {
@@ -170,10 +169,10 @@ body {
 }
 .modal-btn:hover { background: #3b8cc3; }
 
-/* Select Dropdown Fix */
+/* Select Dropdown Fix (The key fix) */
 select.modal-select {
     width: 100%;            
-    box-sizing: border-box; 
+    box-sizing: border-box; /* This prevents it falling off the edge */
     background-color: #222;
     color: #eee;
     border: 1px solid #444;
@@ -184,13 +183,6 @@ select.modal-select {
     outline: none;
     cursor: pointer;
     margin: 10px 0 20px 0;
-    
-    appearance: none;
-    -webkit-appearance: none;
-    background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2300ff41%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E");
-    background-repeat: no-repeat;
-    background-position: right 15px top 50%;
-    background-size: 12px auto;
 }
 
 /* Menu & Danger Buttons */
