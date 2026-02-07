@@ -2,32 +2,84 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>TypeThatBook Admin v1.0.0</title>
-    <link rel="stylesheet" href="style.css">
-</head>
-<body style="overflow: auto;">
-
-    <div id="hud">
-        <div>TypeThatBook: ADMIN PANEL</div>
-        <div><a href="index.html" style="color:white">Go to Game</a></div>
-    </div>
-
-    <div class="admin-container">
-        <h1>Library Management</h1>
+    <title>TypeThatBook Admin v1.1</title>
+    <style>
+        body { background: #111; color: #eee; font-family: 'Courier New', monospace; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
         
-        <div class="admin-card">
-            <h2>Wizard of Oz: Chapter 1</h2>
-            <p>Status: <span id="oz-status">Checking...</span></p>
-            <p>Click below to reset or upload the default Chapter 1 text.</p>
-            <button id="uploadBtn" style="padding: 10px 20px; background: black; color: white; cursor: pointer;">
-                Seed/Reset Chapter 1
-            </button>
-            <div id="console-output" style="margin-top: 15px; font-family: monospace;"></div>
-        </div>
+        /* Form Elements */
+        input, textarea, button, select { 
+            width: 100%; 
+            padding: 12px; 
+            margin-bottom: 20px; 
+            background: #222; 
+            border: 1px solid #444; 
+            color: #fff; 
+            font-family: inherit; 
+            box-sizing: border-box;
+        }
+        
+        button { 
+            cursor: pointer; 
+            background: #0047AB; 
+            font-weight: bold; 
+            text-transform: uppercase;
+            border: none;
+        }
+        button:hover { background: #4B9CD3; }
+        
+        label { display: block; margin-bottom: 8px; color: #888; text-transform: uppercase; font-size: 0.8rem; }
+        
+        /* Utilities */
+        .hidden { display: none !important; }
+        .status-bar { 
+            padding: 15px; 
+            margin-bottom: 20px; 
+            background: #222; 
+            border-left: 4px solid #555;
+        }
+        .row { display: flex; gap: 20px; }
+        .col { flex: 1; }
+        
+        a { color: #888; text-decoration: none; border-bottom: 1px dotted #888; }
+        a:hover { color: #fff; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 30px;">
+        <h1>ADMIN PANEL</h1>
+        <a href="index.html">Back to Game</a>
     </div>
 
-    <footer>v1.0.0 (admin.js)</footer>
+    <div class="status-bar" id="status">Initializing...</div>
+    
+    <div id="login-section" class="hidden">
+        <p>You must log in to edit the database.</p>
+        <button id="login-btn">Log In with Google</button>
+    </div>
 
-    <script type="module" src="admin.js"></script>
+    <div id="editor-section" class="hidden">
+        <div class="row">
+            <div class="col">
+                <label>Book ID</label>
+                <input type="text" id="book-id" value="wizard_of_oz">
+            </div>
+            <div class="col">
+                <label>Chapter Number</label>
+                <input type="number" id="chap-num" value="2">
+            </div>
+        </div>
+
+        <label>JSON Content (Paste Segments Here)</label>
+        <textarea id="json-content" rows="20" placeholder='{"title": "...", "segments": [...]}'></textarea>
+
+        <button id="save-btn">Save / Overwrite Chapter</button>
+    </div>
+</div>
+
+<script type="module" src="admin.js"></script>
+
 </body>
 </html>
