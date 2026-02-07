@@ -1,4 +1,4 @@
-// v1.8.1 - Layout Stability & Vertical Centering
+// v1.7.3 - Restored Vertical Engine
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,7 +9,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.8.1";
+const VERSION = "1.7.3";
 const BOOK_ID = "wizard_of_oz"; 
 const IDLE_THRESHOLD = 2000; 
 
@@ -26,7 +26,7 @@ let currentChapterNum = 1;
 let sessionLimit = 30; 
 let sessionValueStr = "30"; 
 
-// Time Stats State
+// Time Stats
 let statsData = { secondsToday: 0, secondsWeek: 0, lastDate: "", weekStart: 0 };
 
 // Game State
@@ -57,11 +57,10 @@ async function init() {
     const footer = document.querySelector('footer');
     if(footer) footer.innerText = `JS: v${VERSION}`;
     
-    // Inject Menu Button
     if (!document.getElementById('menu-btn')) {
         const btn = document.createElement('button');
         btn.id = 'menu-btn';
-        btn.innerHTML = '&#9776;'; // Menu Icon
+        btn.innerHTML = '&#9776;'; 
         btn.onclick = openMenuModal;
         document.body.appendChild(btn);
     }
@@ -178,7 +177,6 @@ function setupGame() {
     // Auto-advance if landing on a space
     if (fullText[currentCharIndex] === ' ') currentCharIndex++;
 
-    // Mark previous text as done
     if (currentCharIndex > 0) {
         for (let i = 0; i < currentCharIndex; i++) {
             const el = document.getElementById(`char-${i}`);
@@ -194,22 +192,16 @@ function setupGame() {
     centerView(); 
     
     let btnLabel = "Resume Reading";
-    let title = `Chapter ${currentChapterNum}`;
-    
-    if (savedCharIndex === 0) {
-        btnLabel = "Start Reading";
-    }
+    if (savedCharIndex === 0) btnLabel = "Start Reading";
 
-    if (!isGameActive) showStartModal(title, btnLabel);
+    if (!isGameActive) showStartModal(`Chapter ${currentChapterNum}`, btnLabel);
 }
 
-// --- ENGINE ---
+// --- ENGINE (Restored Vertical Scrolling) ---
 function renderText() {
     textStream.innerHTML = '';
-    const frag = document.createDocumentFragment();
     const words = fullText.split(' ');
     let charCount = 0;
-    
     words.forEach(word => {
         const wordSpan = document.createElement('span');
         wordSpan.className = 'word';
@@ -227,9 +219,8 @@ function renderText() {
         spaceSpan.id = `char-${charCount}`;
         wordSpan.appendChild(spaceSpan);
         charCount++;
-        frag.appendChild(wordSpan);
+        textStream.appendChild(wordSpan);
     });
-    textStream.appendChild(frag);
 }
 
 function startGame() {
@@ -302,7 +293,6 @@ function updateRunningAccuracy(isCorrect) {
     if (total > 0) accDisplay.innerText = Math.round((correctCount / total) * 100) + "%";
 }
 
-// --- INPUT HANDLING ---
 document.addEventListener('keydown', (e) => {
     if (isInputBlocked || !isGameActive) return;
     if (e.key === 'Shift' || e.key === 'Alt' || e.key === 'Control' || e.key === 'Meta') return;
@@ -327,7 +317,6 @@ document.addEventListener('keydown', (e) => {
             centerView();
             updateImageDisplay();
             
-            // Check End of Chapter
             if (currentCharIndex >= fullText.length) {
                 finishChapter();
             }
@@ -366,40 +355,35 @@ function finishChapter() {
     
     const nextChapter = currentChapterNum + 1;
     
-    // Calculate Final Stats
     const stats = {
         time: sprintSeconds,
-        wpm: 0, // Calculate properly if needed
+        wpm: 0, 
         acc: 100,
         today: formatTime(statsData.secondsToday),
         week: formatTime(statsData.secondsWeek)
     };
     
-    // Show Modal
     showStatsModal(`Chapter ${currentChapterNum} Complete!`, stats, `Start Chapter ${nextChapter}`, async () => {
-        // RESET Logic for Next Chapter
         currentChapterNum = nextChapter;
         savedCharIndex = 0;
         currentCharIndex = 0;
         lastSavedIndex = 0;
         
-        // Save to DB immediately so refresh works
-        await saveProgress(true); // force save
-        
-        // Load
+        await saveProgress(true); 
         loadChapter(nextChapter);
     });
 }
 
-// --- VIEW & KEYBOARD ---
+// --- VIEW (Restored Vertical Logic) ---
 function centerView() {
-    const activeEl = document.getElementById(`char-${currentCharIndex}`);
-    if (activeEl) {
-        // Simple offset strategy compatible with flexbox centering
-        const containerWidth = textStream.parentElement.offsetWidth;
-        const offset = activeEl.offsetLeft - (containerWidth * 0.1); 
-        textStream.style.transform = `translateX(-${Math.max(0, offset)}px)`;
-    }
+    const currentEl = document.getElementById(`char-${currentCharIndex}`);
+    if (!currentEl) return;
+    const container = document.getElementById('game-container');
+    
+    // Vertical centering logic: calculate offset from top
+    const offset = (container.clientHeight / 2) - currentEl.offsetTop - 25; 
+    
+    textStream.style.transform = `translateY(${offset}px)`;
 }
 
 function highlightCurrentChar() {
@@ -443,7 +427,6 @@ function createKeyboard() {
         keyboardDiv.appendChild(row);
     });
     
-    // Spacebar
     const spaceRow = document.createElement('div');
     spaceRow.className = 'kb-row';
     const space = document.createElement('div');
@@ -475,7 +458,6 @@ function highlightKey(char) {
                 needsShift = true;
                 break;
             }
-            // Fallback for uppercase letters that aren't special symbols
             if (k.dataset.char === char.toLowerCase() && char === char.toUpperCase() && char.match(/[A-Z]/)) {
                 targetId = k.id;
                 needsShift = true;
@@ -488,8 +470,7 @@ function highlightKey(char) {
     if (el) {
         el.classList.add('target');
         if (needsShift) {
-             // Visual indication for shift, maybe highlight Shift keys?
-             // specific implementation omitted for brevity, but class exists
+             // Shift highlight could go here
         }
     }
 }
@@ -509,9 +490,6 @@ function flashKey(char) {
 function updateImageDisplay() {
     if(!bookData || !bookData.segments) return;
     const currentSegment = bookData.segments.find(seg => {
-        // Approximate which segment we are in (simplified logic)
-        // Ideally, segments should track their start index.
-        // For now, let's just show the image of the first segment for testing
         return seg.image; 
     });
     if(currentSegment && currentSegment.image) {
@@ -577,7 +555,6 @@ function openMenuModal() {
     document.getElementById('modal-title').innerText = "Menu & Settings";
     
     let chapterOptions = "";
-    // List chapters 1-5 for now
     for(let i=1; i<=5; i++) {
         let sel = (i === currentChapterNum) ? "selected" : "";
         chapterOptions += `<option value="${i}" ${sel}>Chapter ${i}</option>`;
@@ -607,7 +584,6 @@ function openMenuModal() {
             if (val < currentChapterNum) {
                 confirmAction("Go back? Unsaved progress in this chapter will be lost.", () => switchChapter(val));
             } else {
-                // Moving forward is always allowed without warning
                 switchChapter(val);
             }
         }
@@ -625,20 +601,16 @@ function openMenuModal() {
     };
     
     modal.classList.remove('hidden');
-    // Hide main action btn in menu mode
     document.getElementById('action-btn').classList.add('hidden');
 }
 
 async function switchChapter(newChapNum, resetIndex = false) {
     currentChapterNum = newChapNum;
-    savedCharIndex = 0; // Always start fresh on manual switch unless we build sophisticated bookmarking
-    
-    // Save new location
+    savedCharIndex = 0; 
     await setDoc(doc(db, "users", currentUser.uid, "progress", BOOK_ID), {
         chapter: currentChapterNum,
         charIndex: 0 
     }, { merge: true });
-    
     location.reload();
 }
 
