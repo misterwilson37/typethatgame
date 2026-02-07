@@ -1,4 +1,4 @@
-// v1.5.3 - Smart Resume & Time Stats
+// v1.6.0 - Custom Sprint Lengths & Open Mode
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,9 +9,8 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.5.3";
+const VERSION = "1.6.0";
 const BOOK_ID = "wizard_of_oz"; 
-const SESSION_LIMIT = 30; 
 const IDLE_THRESHOLD = 2000; 
 
 // STATE
@@ -23,6 +22,9 @@ let savedCharIndex = 0;
 let lastSavedIndex = 0; 
 let currentChapterNum = 1;
 
+// Settings
+let sessionLimit = 30; // Default 30 seconds, can be 'infinity'
+
 // Time Stats State
 let statsData = {
     secondsToday: 0,
@@ -30,7 +32,6 @@ let statsData = {
     lastDate: "",
     weekStart: 0
 };
-let sessionSecondsAdded = 0; // Tracks seconds added in THIS active session for easier saving
 
 // Game State
 let mistakes = 0; 
@@ -125,48 +126,30 @@ function updateAuthUI(isLoggedIn) {
 async function loadUserStats() {
     try {
         const today = new Date();
-        const dateStr = today.toISOString().split('T')[0]; // YYYY-MM-DD
-        const weekStart = getWeekStart(today); // Timestamp of last Saturday
+        const dateStr = today.toISOString().split('T')[0]; 
+        const weekStart = getWeekStart(today); 
 
         const docRef = doc(db, "users", currentUser.uid, "stats", "time_tracking");
         const docSnap = await getDoc(docRef);
 
         if (docSnap.exists()) {
             const data = docSnap.data();
-            
-            // Check Daily Reset
-            if (data.lastDate === dateStr) {
-                statsData.secondsToday = data.secondsToday || 0;
-            } else {
-                statsData.secondsToday = 0; // New day, reset
-            }
-
-            // Check Weekly Reset
-            if (data.weekStart === weekStart) {
-                statsData.secondsWeek = data.secondsWeek || 0;
-            } else {
-                statsData.secondsWeek = 0; // New week, reset
-            }
+            statsData.secondsToday = (data.lastDate === dateStr) ? (data.secondsToday || 0) : 0;
+            statsData.secondsWeek = (data.weekStart === weekStart) ? (data.secondsWeek || 0) : 0;
         } else {
-            // New User
             statsData.secondsToday = 0;
             statsData.secondsWeek = 0;
         }
-
         statsData.lastDate = dateStr;
         statsData.weekStart = weekStart;
-
     } catch (e) {
         console.warn("Stats Load Error:", e);
     }
 }
 
 function getWeekStart(date) {
-    // Returns timestamp of the most recent Saturday (or today if it is Saturday)
     const d = new Date(date);
-    const day = d.getDay(); // 0=Sun, 1=Mon, ... 5=Fri, 6=Sat
-    // We want Saturday to be the start. 
-    // If Sat(6), diff is 0. Sun(0), diff is 1. Fri(5), diff is 6.
+    const day = d.getDay(); 
     const diff = (day + 1) % 7; 
     d.setDate(d.getDate() - diff);
     d.setHours(0,0,0,0);
@@ -187,7 +170,6 @@ async function loadUserProgress() {
             currentChapterNum = 1;
             savedCharIndex = 0;
         }
-        
         lastSavedIndex = savedCharIndex; 
         loadChapter(currentChapterNum);
     } catch (e) {
@@ -217,22 +199,16 @@ function setupGame() {
     fullText = fullText.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
     
     renderText();
-    
     currentCharIndex = savedCharIndex;
     
-    // --- SMART RESUME: Skip leading space ---
-    if (fullText[currentCharIndex] === ' ') {
-        currentCharIndex++;
-    }
+    if (fullText[currentCharIndex] === ' ') currentCharIndex++;
 
     if (currentCharIndex > 0) {
         for (let i = 0; i < currentCharIndex; i++) {
             const el = document.getElementById(`char-${i}`);
             if (el) {
                 el.classList.remove('active');
-                if (!el.classList.contains('space')) {
-                   el.classList.add('done-perfect');
-                }
+                if (!el.classList.contains('space')) el.classList.add('done-perfect');
             }
         }
     }
@@ -241,13 +217,11 @@ function setupGame() {
     highlightCurrentChar(); 
     centerView(); 
     
-    let btnLabel = "Resume Reading (ENTER)";
-    if (currentChapterNum === 1 && savedCharIndex === 0) {
-        btnLabel = "Start Reading (ENTER)";
-    }
+    let btnLabel = "Resume Reading";
+    if (currentChapterNum === 1 && savedCharIndex === 0) btnLabel = "Start Reading";
 
     if (!isGameActive) {
-        showModal(`Chapter ${currentChapterNum}`, null, btnLabel, startGame);
+        showStartModal(`Chapter ${currentChapterNum}`, btnLabel, startGame);
     }
 }
 
@@ -255,7 +229,6 @@ async function saveProgress() {
     if (!currentUser) return;
 
     try {
-        // 1. Save Book Location
         if (currentCharIndex > lastSavedIndex) {
             await setDoc(doc(db, "users", currentUser.uid, "progress", BOOK_ID), {
                 chapter: currentChapterNum,
@@ -265,16 +238,14 @@ async function saveProgress() {
             lastSavedIndex = currentCharIndex;
         }
 
-        // 2. Save Time Stats
         await setDoc(doc(db, "users", currentUser.uid, "stats", "time_tracking"), {
             secondsToday: statsData.secondsToday,
             secondsWeek: statsData.secondsWeek,
             lastDate: statsData.lastDate,
             weekStart: statsData.weekStart
         }, { merge: true });
-
-        console.log("Saved. Loc:", lastSavedIndex, "Today:", statsData.secondsToday, "s");
-
+        
+        console.log("Saved.");
     } catch (e) {
         console.warn("Save failed:", e);
     }
@@ -308,6 +279,13 @@ function renderText() {
 }
 
 function startGame() {
+    // 1. Get Session Limit from Dropdown
+    const select = document.getElementById('sprint-select');
+    if (select) {
+        const val = select.value;
+        sessionLimit = (val === 'infinity') ? 'infinity' : parseInt(val);
+    }
+
     closeModal();
     isGameActive = true;
     isOvertime = false;
@@ -342,14 +320,10 @@ function gameTick() {
         timeAccumulator += 100;
         timerDisplay.style.opacity = '1';
         if (timeAccumulator >= 1000) {
-            // Second tick
             activeSeconds++;
             sprintSeconds++;
-            
-            // Update Stats Accumulators
             statsData.secondsToday++;
             statsData.secondsWeek++;
-            
             timeAccumulator -= 1000;
             updateTimerUI();
         }
@@ -364,7 +338,9 @@ function updateTimerUI() {
     const mins = Math.floor(activeSeconds / 60).toString().padStart(2, '0');
     const secs = (activeSeconds % 60).toString().padStart(2, '0');
     timerDisplay.innerText = `${mins}:${secs}`;
-    if (sprintSeconds >= SESSION_LIMIT) {
+    
+    // Logic for turning timer Orange
+    if (sessionLimit !== 'infinity' && sprintSeconds >= sessionLimit) {
         isOvertime = true;
         timerDisplay.style.color = '#FFA500'; 
     }
@@ -420,7 +396,7 @@ function pauseGameForBreak() {
         week: formatTime(statsData.secondsWeek)
     };
     
-    showModal("Sprint Complete", stats, "Continue (ENTER)", startGame);
+    showEndModal("Sprint Complete", stats, "Continue (ENTER)", startGame);
 }
 
 document.addEventListener('keydown', (e) => {
@@ -428,6 +404,13 @@ document.addEventListener('keydown', (e) => {
         if (e.key === "Enter") { e.preventDefault(); if (modalActionCallback) modalActionCallback(); }
         return;
     }
+    
+    // --- ESCAPE KEY PAUSE ---
+    if (e.key === "Escape" && isGameActive) {
+        pauseGameForBreak();
+        return;
+    }
+
     if (e.key === "Shift") toggleKeyboardCase(true);
     if (!isGameActive) return;
     if (["Shift", "Control", "Alt", "Meta", "CapsLock", "Tab"].includes(e.key)) return;
@@ -457,11 +440,8 @@ document.addEventListener('keydown', (e) => {
         currentCharIndex++;
         currentLetterStatus = 'clean'; 
         
-        // --- NEW SAVE LOGIC ---
-        // Save on End Punctuation OR Closing Quote immediately
-        if (['.', '!', '?'].includes(targetChar)) {
-             saveProgress();
-        } 
+        // Save Checks
+        if (['.', '!', '?'].includes(targetChar)) saveProgress();
         else if (['"', "'"].includes(targetChar) && currentCharIndex >= 2) {
             const prevChar = fullText[currentCharIndex - 2];
             if (['.', '!', '?'].includes(prevChar)) saveProgress();
@@ -470,7 +450,7 @@ document.addEventListener('keydown', (e) => {
         updateRunningWPM();
         updateRunningAccuracy(true);
 
-        // --- OVERTIME / SPRINT END LOGIC ---
+        // --- OVERTIME LOGIC (Only if not Infinite) ---
         if (isOvertime) {
             if (['.', '!', '?'].includes(targetChar)) {
                 const nextChar = fullText[currentCharIndex]; 
@@ -544,23 +524,56 @@ function finishChapter() {
     isGameActive = false;
     clearInterval(timerInterval);
     saveProgress();
-    showModal("Chapter Complete!", { 
-        time: activeSeconds, 
+    
+    // Check if we need to load next chapter (not implemented yet, but placeholder)
+    const stats = { 
+        time: sprintSeconds, 
         wpm: parseInt(wpmDisplay.innerText), 
         acc: parseInt(accDisplay.innerText),
         today: formatTime(statsData.secondsToday),
         week: formatTime(statsData.secondsWeek)
-    }, "Play Again (ENTER)", () => location.reload());
+    };
+    showEndModal("Chapter Complete!", stats, "Play Again", () => location.reload());
 }
 
-function showModal(title, stats, btnText, action) {
+// --- MODAL VARIATIONS ---
+
+// 1. Start Modal (Has Dropdown)
+function showStartModal(title, btnText, action) {
+    const modal = document.getElementById('modal');
+    isModalOpen = true;
+    modalActionCallback = action;
+    
+    document.getElementById('modal-title').innerText = title;
+    
+    // Inject Dropdown
+    document.getElementById('modal-body').innerHTML = `
+        <div style="margin-bottom: 20px;">
+            <label for="sprint-select" style="color:#aaa; font-size:0.9rem; display:block; margin-bottom:5px;">Session Length</label>
+            <select id="sprint-select" style="background:#333; color:white; border:1px solid #555; padding:8px; border-radius:5px; width:100%; font-family:inherit;">
+                <option value="30">30 Seconds</option>
+                <option value="60">1 Minute</option>
+                <option value="120">2 Minutes</option>
+                <option value="300">5 Minutes</option>
+                <option value="infinity">Open Ended (∞)</option>
+            </select>
+        </div>
+        <p style="font-size:0.8rem; color:#777;">Press <b>ESC</b> anytime to pause.</p>
+    `;
+
+    const btn = document.getElementById('action-btn');
+    if(btn) { btn.innerText = btnText; btn.onclick = action; }
+    modal.classList.remove('hidden');
+}
+
+// 2. End Modal (Has Stats, No Dropdown)
+function showEndModal(title, stats, btnText, action) {
     const modal = document.getElementById('modal');
     isModalOpen = true;
     modalActionCallback = action;
     document.getElementById('modal-title').innerText = title;
-    let bodyHtml = '';
-    if (stats) {
-        bodyHtml = `
+    
+    let bodyHtml = `
             <div class="stat-row">
                 <div class="stat-item"><span>${stats.time}s</span>Sprint</div>
                 <div class="stat-item"><span>${stats.wpm}</span>WPM</div>
@@ -569,8 +582,9 @@ function showModal(title, stats, btnText, action) {
             <div style="margin-top:20px; font-size: 0.9em; color:#555;">
                 <p>Today: <b>${stats.today}</b> | This Week: <b>${stats.week}</b></p>
             </div>`;
-    }
+            
     document.getElementById('modal-body').innerHTML = bodyHtml;
+    
     const btn = document.getElementById('action-btn');
     if(btn) { btn.innerText = btnText; btn.onclick = action; }
     modal.classList.remove('hidden');
