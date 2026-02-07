@@ -1,4 +1,4 @@
-// v1.6.3 - The "Cooldown" Update
+// v1.6.4 - Double Tap Fix & Centered UI
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,10 +9,10 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.6.3";
+const VERSION = "1.6.4";
 const BOOK_ID = "wizard_of_oz"; 
 const IDLE_THRESHOLD = 2000; 
-const SPRINT_COOLDOWN_MS = 1500; // 1.5 second forced pause
+const SPRINT_COOLDOWN_MS = 1500; 
 
 // STATE
 let currentUser = null;
@@ -45,7 +45,7 @@ let timerInterval = null;
 let isGameActive = false;
 let isOvertime = false;
 let isModalOpen = false;
-let isInputBlocked = false; // New lock state
+let isInputBlocked = false; 
 let modalActionCallback = null;
 
 // Timer & Speed
@@ -224,7 +224,6 @@ function setupGame() {
     if (currentChapterNum === 1 && savedCharIndex === 0) btnLabel = "Start Reading";
 
     if (!isGameActive) {
-        // Initial load - No delay needed
         showModal(`Chapter ${currentChapterNum}`, null, btnLabel, startGame);
     }
 }
@@ -289,6 +288,7 @@ function startGame() {
         sessionLimit = (sessionValueStr === 'infinity') ? 'infinity' : parseInt(sessionValueStr);
     }
 
+    // Logic to skip space on start (if needed)
     if (fullText[currentCharIndex] === ' ') {
         const spaceEl = document.getElementById(`char-${currentCharIndex}`);
         if (spaceEl) spaceEl.classList.add('done-perfect');
@@ -408,30 +408,42 @@ function pauseGameForBreak() {
 }
 
 document.addEventListener('keydown', (e) => {
+    // --- TYPE TO START LOGIC ---
     if (isModalOpen) {
-        // 1. BLOCK INPUT if in cooldown
+        // Block if in cooldown
         if (isInputBlocked) return;
 
+        // Standard Modal Interactions (Enter/Select)
         if (document.activeElement.tagName === 'SELECT') {
              if (e.key === "Enter") { e.preventDefault(); if (modalActionCallback) modalActionCallback(); }
-             return;
+             return; // Don't type if manipulating the dropdown
         }
-
         if (e.key === "Enter") { 
             e.preventDefault(); 
             if (modalActionCallback) modalActionCallback();
-            return;
+            return; 
         }
 
+        // Check if key matches next character (Type-To-Start)
         let tempIndex = currentCharIndex;
         if (fullText[tempIndex] === ' ') tempIndex++; 
         const targetChar = fullText[tempIndex];
 
         if (e.key === targetChar) {
+            // Correct key! Start game.
             if (modalActionCallback) modalActionCallback(); 
+            
+            // KEY CHANGE v1.6.4:
+            // We do NOT return here. We let the code fall through.
+            // Since startGame() sets isGameActive = true, the code below will run
+            // and register this character immediately.
+        } else {
+            // Wrong key in modal -> Ignore it completely
+            return;
         }
-        return;
     }
+    
+    // --- GAME LOGIC ---
     
     if (e.key === "Escape" && isGameActive) {
         pauseGameForBreak();
@@ -577,7 +589,7 @@ function getDropdownHTML() {
     ).join('');
 
     return `
-        <div style="margin-bottom: 20px;">
+        <div style="margin-bottom: 20px; text-align:center;">
             <label for="sprint-select" style="color:#777; font-size:0.8rem; display:block; margin-bottom:5px; text-transform:uppercase; letter-spacing:1px;">Session Length</label>
             <select id="sprint-select" class="modal-select">
                 ${optionsHtml}
@@ -597,9 +609,7 @@ function showModal(title, stats, btnText, action) {
     let footerHtml = '';
 
     if (stats) {
-        // ENFORCE PAUSE for Stats screen
         isInputBlocked = true;
-        
         statsHtml = `
             <div class="stat-row">
                 <div class="stat-item"><span>${stats.time}s</span>Sprint</div>
@@ -612,10 +622,8 @@ function showModal(title, stats, btnText, action) {
             <hr style="border:0; border-top:1px solid #333; margin: 20px 0;">
         `;
         
-        // Footer starts hidden (opacity 0)
         footerHtml = `<p id="modal-footer-msg" style="margin-top:10px; font-size: 0.8em; color: #777; opacity: 0; transition: opacity 0.5s;">Type the next letter to continue...</p>`;
 
-        // Unlock after delay
         setTimeout(() => {
             isInputBlocked = false;
             const msg = document.getElementById('modal-footer-msg');
@@ -623,7 +631,6 @@ function showModal(title, stats, btnText, action) {
         }, SPRINT_COOLDOWN_MS);
 
     } else {
-        // Initial Start Screen (No pause)
         isInputBlocked = false;
          footerHtml = `
             <p style="font-size:0.8rem; color:#777; margin-top: 15px;">
@@ -647,7 +654,7 @@ function closeModal() {
     const modal = document.getElementById('modal');
     modal.classList.add('hidden');
     isModalOpen = false;
-    isInputBlocked = false; // Safety reset
+    isInputBlocked = false; 
     modalActionCallback = null;
     lastInputTime = Date.now();
     timerDisplay.style.opacity = '1';
