@@ -1,4 +1,4 @@
-// v1.6.2 - Persistent Dropdown & UI Fixes
+// v1.6.3 - The "Cooldown" Update
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,9 +9,10 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.6.2";
+const VERSION = "1.6.3";
 const BOOK_ID = "wizard_of_oz"; 
 const IDLE_THRESHOLD = 2000; 
+const SPRINT_COOLDOWN_MS = 1500; // 1.5 second forced pause
 
 // STATE
 let currentUser = null;
@@ -23,8 +24,8 @@ let lastSavedIndex = 0;
 let currentChapterNum = 1;
 
 // Settings
-let sessionLimit = 30; // internal int or 'infinity'
-let sessionValueStr = "30"; // string for dropdown persistence ("30", "60", "infinity")
+let sessionLimit = 30; 
+let sessionValueStr = "30"; 
 
 // Time Stats State
 let statsData = {
@@ -44,6 +45,7 @@ let timerInterval = null;
 let isGameActive = false;
 let isOvertime = false;
 let isModalOpen = false;
+let isInputBlocked = false; // New lock state
 let modalActionCallback = null;
 
 // Timer & Speed
@@ -202,7 +204,6 @@ function setupGame() {
     renderText();
     currentCharIndex = savedCharIndex;
     
-    // Initial space skip check
     if (fullText[currentCharIndex] === ' ') currentCharIndex++;
 
     if (currentCharIndex > 0) {
@@ -223,7 +224,7 @@ function setupGame() {
     if (currentChapterNum === 1 && savedCharIndex === 0) btnLabel = "Start Reading";
 
     if (!isGameActive) {
-        // Show Start Modal (with no stats)
+        // Initial load - No delay needed
         showModal(`Chapter ${currentChapterNum}`, null, btnLabel, startGame);
     }
 }
@@ -282,16 +283,13 @@ function renderText() {
 }
 
 function startGame() {
-    // 1. Get Session Limit
     const select = document.getElementById('sprint-select');
     if (select) {
-        sessionValueStr = select.value; // Store the selection string for next time
+        sessionValueStr = select.value;
         sessionLimit = (sessionValueStr === 'infinity') ? 'infinity' : parseInt(sessionValueStr);
     }
 
-    // 2. Ensure we aren't starting on a space (Fixes "Space Key First" issue)
     if (fullText[currentCharIndex] === ' ') {
-        // Mark the space as done visually
         const spaceEl = document.getElementById(`char-${currentCharIndex}`);
         if (spaceEl) spaceEl.classList.add('done-perfect');
         currentCharIndex++;
@@ -411,7 +409,9 @@ function pauseGameForBreak() {
 
 document.addEventListener('keydown', (e) => {
     if (isModalOpen) {
-        // If focusing dropdown, ignore game keys
+        // 1. BLOCK INPUT if in cooldown
+        if (isInputBlocked) return;
+
         if (document.activeElement.tagName === 'SELECT') {
              if (e.key === "Enter") { e.preventDefault(); if (modalActionCallback) modalActionCallback(); }
              return;
@@ -423,16 +423,14 @@ document.addEventListener('keydown', (e) => {
             return;
         }
 
-        // Type-to-start Logic
         let tempIndex = currentCharIndex;
         if (fullText[tempIndex] === ' ') tempIndex++; 
         const targetChar = fullText[tempIndex];
 
         if (e.key === targetChar) {
             if (modalActionCallback) modalActionCallback(); 
-        } else {
-            return;
         }
+        return;
     }
     
     if (e.key === "Escape" && isGameActive) {
@@ -565,7 +563,6 @@ function finishChapter() {
 
 // --- UNIFIED MODAL SYSTEM ---
 
-// Generates the dropdown HTML with the correct value selected
 function getDropdownHTML() {
     const options = [
         {val: "30", label: "30 Seconds"},
@@ -599,8 +596,10 @@ function showModal(title, stats, btnText, action) {
     let statsHtml = '';
     let footerHtml = '';
 
-    // If Stats exist (End of Sprint/Chapter)
     if (stats) {
+        // ENFORCE PAUSE for Stats screen
+        isInputBlocked = true;
+        
         statsHtml = `
             <div class="stat-row">
                 <div class="stat-item"><span>${stats.time}s</span>Sprint</div>
@@ -612,9 +611,20 @@ function showModal(title, stats, btnText, action) {
             </div>
             <hr style="border:0; border-top:1px solid #333; margin: 20px 0;">
         `;
-        footerHtml = `<p style="margin-top:10px; font-size: 0.8em; color: #777;">Type the next letter to continue...</p>`;
+        
+        // Footer starts hidden (opacity 0)
+        footerHtml = `<p id="modal-footer-msg" style="margin-top:10px; font-size: 0.8em; color: #777; opacity: 0; transition: opacity 0.5s;">Type the next letter to continue...</p>`;
+
+        // Unlock after delay
+        setTimeout(() => {
+            isInputBlocked = false;
+            const msg = document.getElementById('modal-footer-msg');
+            if (msg) msg.style.opacity = 1;
+        }, SPRINT_COOLDOWN_MS);
+
     } else {
-        // Start Screen footer
+        // Initial Start Screen (No pause)
+        isInputBlocked = false;
          footerHtml = `
             <p style="font-size:0.8rem; color:#777; margin-top: 15px;">
                 Type the first letter or press <b>ENTER</b> to start.<br>
@@ -622,7 +632,6 @@ function showModal(title, stats, btnText, action) {
             </p>`;
     }
 
-    // Combine: Stats (if any) + Dropdown (ALWAYS) + Footer
     document.getElementById('modal-body').innerHTML = `
         ${statsHtml}
         ${getDropdownHTML()}
@@ -638,6 +647,7 @@ function closeModal() {
     const modal = document.getElementById('modal');
     modal.classList.add('hidden');
     isModalOpen = false;
+    isInputBlocked = false; // Safety reset
     modalActionCallback = null;
     lastInputTime = Date.now();
     timerDisplay.style.opacity = '1';
