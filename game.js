@@ -1,4 +1,4 @@
-// v1.8.0 - Smart Navigation & Next Chapter Flow
+// v1.8.1 - Layout Stability & Vertical Centering
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,7 +9,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.8.0";
+const VERSION = "1.8.1";
 const BOOK_ID = "wizard_of_oz"; 
 const IDLE_THRESHOLD = 2000; 
 
@@ -154,7 +154,7 @@ async function loadChapter(chapterNum) {
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
             bookData = docSnap.data();
-            currentChapterNum = chapterNum; // Ensure local state matches loaded data
+            currentChapterNum = chapterNum; 
             setupGame();
         } else {
             if(chapterNum > 1) {
@@ -206,8 +206,10 @@ function setupGame() {
 // --- ENGINE ---
 function renderText() {
     textStream.innerHTML = '';
+    const frag = document.createDocumentFragment();
     const words = fullText.split(' ');
     let charCount = 0;
+    
     words.forEach(word => {
         const wordSpan = document.createElement('span');
         wordSpan.className = 'word';
@@ -225,8 +227,9 @@ function renderText() {
         spaceSpan.id = `char-${charCount}`;
         wordSpan.appendChild(spaceSpan);
         charCount++;
-        textStream.appendChild(wordSpan);
+        frag.appendChild(wordSpan);
     });
+    textStream.appendChild(frag);
 }
 
 function startGame() {
@@ -392,6 +395,7 @@ function finishChapter() {
 function centerView() {
     const activeEl = document.getElementById(`char-${currentCharIndex}`);
     if (activeEl) {
+        // Simple offset strategy compatible with flexbox centering
         const containerWidth = textStream.parentElement.offsetWidth;
         const offset = activeEl.offsetLeft - (containerWidth * 0.1); 
         textStream.style.transform = `translateX(-${Math.max(0, offset)}px)`;
