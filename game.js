@@ -1,4 +1,4 @@
-// v1.6.0 - Custom Sprint Lengths & Open Mode
+// v1.6.1 - Type-to-Start & Styled UI
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,7 +9,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.6.0";
+const VERSION = "1.6.1";
 const BOOK_ID = "wizard_of_oz"; 
 const IDLE_THRESHOLD = 2000; 
 
@@ -23,7 +23,7 @@ let lastSavedIndex = 0;
 let currentChapterNum = 1;
 
 // Settings
-let sessionLimit = 30; // Default 30 seconds, can be 'infinity'
+let sessionLimit = 30; 
 
 // Time Stats State
 let statsData = {
@@ -201,6 +201,7 @@ function setupGame() {
     renderText();
     currentCharIndex = savedCharIndex;
     
+    // Initial space skip check
     if (fullText[currentCharIndex] === ' ') currentCharIndex++;
 
     if (currentCharIndex > 0) {
@@ -279,11 +280,19 @@ function renderText() {
 }
 
 function startGame() {
-    // 1. Get Session Limit from Dropdown
+    // 1. Get Session Limit
     const select = document.getElementById('sprint-select');
     if (select) {
         const val = select.value;
         sessionLimit = (val === 'infinity') ? 'infinity' : parseInt(val);
+    }
+
+    // 2. Ensure we aren't starting on a space (Fixes "Space Key First" issue)
+    if (fullText[currentCharIndex] === ' ') {
+        // Mark the space as done visually
+        const spaceEl = document.getElementById(`char-${currentCharIndex}`);
+        if (spaceEl) spaceEl.classList.add('done-perfect');
+        currentCharIndex++;
     }
 
     closeModal();
@@ -339,7 +348,6 @@ function updateTimerUI() {
     const secs = (activeSeconds % 60).toString().padStart(2, '0');
     timerDisplay.innerText = `${mins}:${secs}`;
     
-    // Logic for turning timer Orange
     if (sessionLimit !== 'infinity' && sprintSeconds >= sessionLimit) {
         isOvertime = true;
         timerDisplay.style.color = '#FFA500'; 
@@ -396,16 +404,44 @@ function pauseGameForBreak() {
         week: formatTime(statsData.secondsWeek)
     };
     
-    showEndModal("Sprint Complete", stats, "Continue (ENTER)", startGame);
+    showEndModal("Sprint Complete", stats, "Continue (Type next letter)", startGame);
 }
 
 document.addEventListener('keydown', (e) => {
+    // --- TYPE TO START LOGIC ---
     if (isModalOpen) {
-        if (e.key === "Enter") { e.preventDefault(); if (modalActionCallback) modalActionCallback(); }
-        return;
+        // If focus is on the dropdown, don't hijack keys (except enter maybe)
+        if (document.activeElement.tagName === 'SELECT') {
+             if (e.key === "Enter") { e.preventDefault(); if (modalActionCallback) modalActionCallback(); }
+             return;
+        }
+
+        // Standard Enter
+        if (e.key === "Enter") { 
+            e.preventDefault(); 
+            if (modalActionCallback) modalActionCallback();
+            return;
+        }
+
+        // Type-to-start (The Magic)
+        // Check if the key pressed IS the next character in the book
+        // We need to look ahead to see what the char is, assuming startGame will skip spaces
+        let tempIndex = currentCharIndex;
+        if (fullText[tempIndex] === ' ') tempIndex++; 
+        
+        const targetChar = fullText[tempIndex];
+
+        if (e.key === targetChar) {
+            // Correct key! Start game immediately.
+            if (modalActionCallback) modalActionCallback(); 
+            // Do NOT return. Let the event fall through to the game logic below
+            // effectively registering the key press instantly.
+        } else {
+            // Wrong key while modal is open -> ignore
+            return;
+        }
     }
     
-    // --- ESCAPE KEY PAUSE ---
     if (e.key === "Escape" && isGameActive) {
         pauseGameForBreak();
         return;
@@ -450,7 +486,6 @@ document.addEventListener('keydown', (e) => {
         updateRunningWPM();
         updateRunningAccuracy(true);
 
-        // --- OVERTIME LOGIC (Only if not Infinite) ---
         if (isOvertime) {
             if (['.', '!', '?'].includes(targetChar)) {
                 const nextChar = fullText[currentCharIndex]; 
@@ -525,7 +560,6 @@ function finishChapter() {
     clearInterval(timerInterval);
     saveProgress();
     
-    // Check if we need to load next chapter (not implemented yet, but placeholder)
     const stats = { 
         time: sprintSeconds, 
         wpm: parseInt(wpmDisplay.innerText), 
@@ -538,7 +572,6 @@ function finishChapter() {
 
 // --- MODAL VARIATIONS ---
 
-// 1. Start Modal (Has Dropdown)
 function showStartModal(title, btnText, action) {
     const modal = document.getElementById('modal');
     isModalOpen = true;
@@ -546,11 +579,21 @@ function showStartModal(title, btnText, action) {
     
     document.getElementById('modal-title').innerText = title;
     
-    // Inject Dropdown
     document.getElementById('modal-body').innerHTML = `
         <div style="margin-bottom: 20px;">
-            <label for="sprint-select" style="color:#aaa; font-size:0.9rem; display:block; margin-bottom:5px;">Session Length</label>
-            <select id="sprint-select" style="background:#333; color:white; border:1px solid #555; padding:8px; border-radius:5px; width:100%; font-family:inherit;">
+            <label for="sprint-select" style="color:#777; font-size:0.8rem; display:block; margin-bottom:8px; text-transform:uppercase; letter-spacing:1px;">Session Length</label>
+            <select id="sprint-select" style="
+                background: #111; 
+                color: #eee; 
+                border: 1px solid #444; 
+                padding: 12px; 
+                border-radius: 4px; 
+                width: 100%; 
+                font-family: inherit; 
+                box-sizing: border-box; 
+                outline: none;
+                cursor: pointer;
+            " onfocus="this.style.borderColor='#00ff41'" onblur="this.style.borderColor='#444'">
                 <option value="30">30 Seconds</option>
                 <option value="60">1 Minute</option>
                 <option value="120">2 Minutes</option>
@@ -558,7 +601,10 @@ function showStartModal(title, btnText, action) {
                 <option value="infinity">Open Ended (∞)</option>
             </select>
         </div>
-        <p style="font-size:0.8rem; color:#777;">Press <b>ESC</b> anytime to pause.</p>
+        <p style="font-size:0.8rem; color:#777; margin-top: 15px;">
+            Type the first letter or press <b>ENTER</b> to start.<br>
+            Press <b>ESC</b> anytime to pause.
+        </p>
     `;
 
     const btn = document.getElementById('action-btn');
@@ -566,7 +612,6 @@ function showStartModal(title, btnText, action) {
     modal.classList.remove('hidden');
 }
 
-// 2. End Modal (Has Stats, No Dropdown)
 function showEndModal(title, stats, btnText, action) {
     const modal = document.getElementById('modal');
     isModalOpen = true;
@@ -579,8 +624,9 @@ function showEndModal(title, stats, btnText, action) {
                 <div class="stat-item"><span>${stats.wpm}</span>WPM</div>
                 <div class="stat-item"><span>${stats.acc}%</span>Acc</div>
             </div>
-            <div style="margin-top:20px; font-size: 0.9em; color:#555;">
-                <p>Today: <b>${stats.today}</b> | This Week: <b>${stats.week}</b></p>
+            <div style="margin-top:20px; font-size: 0.9em; color:#555; text-align: center;">
+                <p>Today: <span style="color:#eee">${stats.today}</span> &bull; This Week: <span style="color:#eee">${stats.week}</span></p>
+                <p style="margin-top:10px; font-size: 0.8em; color: #777;">Type the next letter to continue...</p>
             </div>`;
             
     document.getElementById('modal-body').innerHTML = bodyHtml;
