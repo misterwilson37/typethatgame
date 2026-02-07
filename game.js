@@ -1,4 +1,4 @@
-// v1.6.4 - Double Tap Fix & Centered UI
+// v1.7.0 - Navigation, Restarts & Seeding
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,7 +9,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.6.4";
+const VERSION = "1.7.0";
 const BOOK_ID = "wizard_of_oz"; 
 const IDLE_THRESHOLD = 2000; 
 const SPRINT_COOLDOWN_MS = 1500; 
@@ -22,6 +22,7 @@ let currentCharIndex = 0;
 let savedCharIndex = 0; 
 let lastSavedIndex = 0; 
 let currentChapterNum = 1;
+let totalChapters = 2; // Hardcoded for now, or could be fetched
 
 // Settings
 let sessionLimit = 30; 
@@ -47,6 +48,7 @@ let isOvertime = false;
 let isModalOpen = false;
 let isInputBlocked = false; 
 let modalActionCallback = null;
+let modalSecondaryCallback = null; // For "Cancel" buttons
 
 // Timer & Speed
 let lastInputTime = 0;
@@ -75,9 +77,16 @@ async function init() {
     const footer = document.querySelector('footer');
     if(footer) footer.innerText = `JS: v${VERSION}`;
     
-    storyImg.onerror = function() {
-        imgPanel.style.display = 'none';
-    };
+    // Inject Menu Button
+    if (!document.getElementById('menu-btn')) {
+        const btn = document.createElement('button');
+        btn.id = 'menu-btn';
+        btn.innerHTML = '&#9881;'; // Gear Icon
+        btn.onclick = openMenuModal;
+        document.body.appendChild(btn);
+    }
+    
+    storyImg.onerror = function() { imgPanel.style.display = 'none'; };
 
     createKeyboard();
     setupAuthListeners();
@@ -91,26 +100,33 @@ async function init() {
             signInAnonymously(auth);
         }
     });
+
+    // --- Developer Tool: Seed Chapter 2 ---
+    window.seedChapter2 = async () => {
+        if(!currentUser) { console.error("Log in first"); return; }
+        console.log("Seeding Chapter 2...");
+        const ch2Data = {
+            title: "The Council with the Munchkins",
+            segments: [
+                { text: "She was awakened by a shock, so sudden and severe that if Dorothy had not been lying on the soft bed she might have been hurt. As it was, the jar made her catch her breath and wonder what had happened; and Toto put his cold little nose into her face and whined dismally. Dorothy sat up and noticed that the house was not moving; nor was it dark, for the bright sunshine came in at the window, flooding the little room. She sprang from her bed and with Toto at her heels ran and opened the door.", image: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d2/Wizard_of_oz_book_cover.jpg/640px-Wizard_of_oz_book_cover.jpg" },
+                { text: "The little girl gave a cry of amazement and looked about her, her eyes growing bigger and bigger at the wonderful sights she saw. The cyclone had set the house down very gently--for a cyclone--in the midst of a country of marvelous beauty. There were lovely patches of greensward all about, with stately trees bearing rich and luscious fruits. Banks of gorgeous flowers were on every hand, and birds with rare and brilliant plumage sang and fluttered in the trees and bushes. A little way off was a small brook, rushing and sparkling along between green banks, and murmuring in a voice very grateful to a little girl who had lived so long on the dry, gray prairies.", image: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d2/Wizard_of_oz_book_cover.jpg/640px-Wizard_of_oz_book_cover.jpg" }
+            ]
+        };
+        await setDoc(doc(db, "books", BOOK_ID, "chapters", "chapter_2"), ch2Data);
+        alert("Chapter 2 Seeded! You can now use the menu to switch chapters.");
+        location.reload();
+    };
 }
 
 function setupAuthListeners() {
     loginBtn.addEventListener('click', async () => {
         const provider = new GoogleAuthProvider();
-        try {
-            await signInWithPopup(auth, provider);
-        } catch (error) {
-            console.error("Login failed", error);
-            alert("Login failed: " + error.message);
-        }
+        try { await signInWithPopup(auth, provider); } 
+        catch (error) { alert("Login failed: " + error.message); }
     });
-
     logoutBtn.addEventListener('click', async () => {
-        try {
-            await signOut(auth);
-            location.reload(); 
-        } catch (error) {
-            console.error("Logout failed", error);
-        }
+        try { await signOut(auth); location.reload(); } 
+        catch (error) { console.error("Logout failed", error); }
     });
 }
 
@@ -125,29 +141,23 @@ function updateAuthUI(isLoggedIn) {
     }
 }
 
-// --- STATS SYSTEM ---
+// --- DATA & SAVING ---
 async function loadUserStats() {
+    // ... same as before ...
     try {
         const today = new Date();
         const dateStr = today.toISOString().split('T')[0]; 
         const weekStart = getWeekStart(today); 
-
         const docRef = doc(db, "users", currentUser.uid, "stats", "time_tracking");
         const docSnap = await getDoc(docRef);
-
         if (docSnap.exists()) {
             const data = docSnap.data();
             statsData.secondsToday = (data.lastDate === dateStr) ? (data.secondsToday || 0) : 0;
             statsData.secondsWeek = (data.weekStart === weekStart) ? (data.secondsWeek || 0) : 0;
-        } else {
-            statsData.secondsToday = 0;
-            statsData.secondsWeek = 0;
         }
         statsData.lastDate = dateStr;
         statsData.weekStart = weekStart;
-    } catch (e) {
-        console.warn("Stats Load Error:", e);
-    }
+    } catch (e) { console.warn("Stats Load Error:", e); }
 }
 
 function getWeekStart(date) {
@@ -189,10 +199,18 @@ async function loadChapter(chapterNum) {
             bookData = docSnap.data();
             setupGame();
         } else {
-            textStream.innerText = "Chapter not found.";
+            // If chapter doesn't exist (e.g., they finished ch1 and tried to go to ch2 but it's not there)
+            if(chapterNum > 1) {
+                alert("You've reached the end of available content! Run 'seedChapter2()' in console to add more.");
+                // Fallback to Ch1
+                currentChapterNum = 1;
+                savedCharIndex = 0;
+                loadChapter(1);
+            } else {
+                textStream.innerText = "Chapter not found.";
+            }
         }
     } catch (e) {
-        console.error("Load Chapter Failed:", e);
         textStream.innerHTML = "Error loading chapter.";
     }
 }
@@ -221,16 +239,15 @@ function setupGame() {
     centerView(); 
     
     let btnLabel = "Resume Reading";
-    if (currentChapterNum === 1 && savedCharIndex === 0) btnLabel = "Start Reading";
+    if (savedCharIndex === 0) btnLabel = "Start Reading";
 
     if (!isGameActive) {
-        showModal(`Chapter ${currentChapterNum}`, null, btnLabel, startGame);
+        showStartModal(`Chapter ${currentChapterNum}`, btnLabel);
     }
 }
 
 async function saveProgress() {
     if (!currentUser) return;
-
     try {
         if (currentCharIndex > lastSavedIndex) {
             await setDoc(doc(db, "users", currentUser.uid, "progress", BOOK_ID), {
@@ -240,25 +257,20 @@ async function saveProgress() {
             }, { merge: true });
             lastSavedIndex = currentCharIndex;
         }
-
         await setDoc(doc(db, "users", currentUser.uid, "stats", "time_tracking"), {
             secondsToday: statsData.secondsToday,
             secondsWeek: statsData.secondsWeek,
             lastDate: statsData.lastDate,
             weekStart: statsData.weekStart
         }, { merge: true });
-        
-        console.log("Saved.");
-    } catch (e) {
-        console.warn("Save failed:", e);
-    }
+    } catch (e) { console.warn("Save failed:", e); }
 }
 
+// --- RENDERING & GAME ENGINE --- (Standard v1.6 logic)
 function renderText() {
     textStream.innerHTML = '';
     const words = fullText.split(' ');
     let charCount = 0;
-
     words.forEach(word => {
         const wordSpan = document.createElement('span');
         wordSpan.className = 'word';
@@ -288,7 +300,6 @@ function startGame() {
         sessionLimit = (sessionValueStr === 'infinity') ? 'infinity' : parseInt(sessionValueStr);
     }
 
-    // Logic to skip space on start (if needed)
     if (fullText[currentCharIndex] === ' ') {
         const spaceEl = document.getElementById(`char-${currentCharIndex}`);
         if (spaceEl) spaceEl.classList.add('done-perfect');
@@ -347,7 +358,6 @@ function updateTimerUI() {
     const mins = Math.floor(activeSeconds / 60).toString().padStart(2, '0');
     const secs = (activeSeconds % 60).toString().padStart(2, '0');
     timerDisplay.innerText = `${mins}:${secs}`;
-    
     if (sessionLimit !== 'infinity' && sprintSeconds >= sessionLimit) {
         isOvertime = true;
         timerDisplay.style.color = '#FFA500'; 
@@ -374,9 +384,7 @@ function updateRunningAccuracy(isCorrect) {
     if (accuracyHistory.length > 50) accuracyHistory.shift();
     const correctCount = accuracyHistory.filter(val => val === 1).length;
     const total = accuracyHistory.length;
-    if (total > 0) {
-        accDisplay.innerText = Math.round((correctCount / total) * 100) + "%";
-    }
+    if (total > 0) accDisplay.innerText = Math.round((correctCount / total) * 100) + "%";
 }
 
 function formatTime(seconds) {
@@ -404,19 +412,213 @@ function pauseGameForBreak() {
         week: formatTime(statsData.secondsWeek)
     };
     
-    showModal("Sprint Complete", stats, "Continue", startGame);
+    showStatsModal("Sprint Complete", stats, "Continue", startGame);
+}
+
+// --- NEW MENU & NAVIGATION SYSTEM ---
+
+function openMenuModal() {
+    // Pause game if active
+    if (isGameActive) {
+        isGameActive = false;
+        clearInterval(timerInterval);
+    }
+    
+    isModalOpen = true;
+    isInputBlocked = true; // Block typing
+    const modal = document.getElementById('modal');
+    document.getElementById('modal-title').innerText = "Menu & Settings";
+    
+    // Build Chapter Options (Simple 1-5 loop for now)
+    let chapterOptions = "";
+    for(let i=1; i<=5; i++) {
+        let sel = (i === currentChapterNum) ? "selected" : "";
+        chapterOptions += `<option value="${i}" ${sel}>Chapter ${i}</option>`;
+    }
+
+    const html = `
+        <div class="menu-section">
+            <span class="menu-label">Navigation</span>
+            <div style="display:flex; gap:10px;">
+                <select id="chapter-nav-select" class="modal-select" style="margin:0; flex-grow:1;">
+                    ${chapterOptions}
+                </select>
+                <button id="go-btn" class="modal-btn" style="width:auto; padding:0 20px;">Go</button>
+            </div>
+        </div>
+
+        <div class="menu-section">
+            <span class="menu-label">Danger Zone</span>
+            <button id="restart-chapter-btn" class="modal-btn danger-btn">Restart Current Chapter</button>
+            <button id="reset-book-btn" class="modal-btn danger-btn">Reset Book Progress</button>
+        </div>
+
+        <button id="close-menu-btn" class="modal-btn secondary-btn">Close Menu</button>
+    `;
+    
+    document.getElementById('modal-body').innerHTML = html;
+    
+    // Wire up buttons
+    document.getElementById('go-btn').onclick = () => {
+        const val = parseInt(document.getElementById('chapter-nav-select').value);
+        if(val !== currentChapterNum) handleChapterSwitch(val);
+    };
+    
+    document.getElementById('restart-chapter-btn').onclick = () => {
+        confirmAction("Restart this chapter? You will lose all progress in Chapter " + currentChapterNum + ".", 
+            async () => {
+                await setDoc(doc(db, "users", currentUser.uid, "progress", BOOK_ID), {
+                    chapter: currentChapterNum,
+                    charIndex: 0
+                }, { merge: true });
+                location.reload();
+            }
+        );
+    };
+
+    document.getElementById('reset-book-btn').onclick = () => {
+        confirmAction("Reset entire book? This will take you back to Chapter 1, character 0.", 
+            async () => {
+                await setDoc(doc(db, "users", currentUser.uid, "progress", BOOK_ID), {
+                    chapter: 1,
+                    charIndex: 0
+                }, { merge: true });
+                location.reload();
+            }
+        );
+    };
+
+    document.getElementById('close-menu-btn').onclick = closeModal;
+
+    // Remove main action button for this modal
+    const actionBtn = document.getElementById('action-btn');
+    if(actionBtn) actionBtn.style.display = 'none';
+    
+    modal.classList.remove('hidden');
+}
+
+function handleChapterSwitch(newChapter) {
+    // Optimistic switch - assuming it exists or loadChapter will handle error
+    confirmAction(`Jump to Chapter ${newChapter}?`, async () => {
+        await setDoc(doc(db, "users", currentUser.uid, "progress", BOOK_ID), {
+            chapter: newChapter,
+            charIndex: 0
+        }, { merge: true });
+        location.reload();
+    });
+}
+
+function confirmAction(message, onConfirm) {
+    const body = document.getElementById('modal-body');
+    body.innerHTML = `
+        <p style="margin-bottom:20px; color:#ddd; font-size:1rem;">${message}</p>
+        <button id="confirm-yes" class="modal-btn danger-btn">Yes, I'm sure</button>
+        <button id="confirm-no" class="modal-btn secondary-btn">Cancel</button>
+    `;
+    document.getElementById('modal-title').innerText = "Are you sure?";
+    
+    document.getElementById('confirm-yes').onclick = onConfirm;
+    document.getElementById('confirm-no').onclick = openMenuModal; // Go back to menu
+}
+
+// --- STANDARD MODALS ---
+
+function getDropdownHTML() {
+    const options = [
+        {val: "30", label: "30 Seconds"},
+        {val: "60", label: "1 Minute"},
+        {val: "120", label: "2 Minutes"},
+        {val: "300", label: "5 Minutes"},
+        {val: "infinity", label: "Open Ended (∞)"},
+    ];
+    let optionsHtml = options.map(opt => `<option value="${opt.val}" ${sessionValueStr === opt.val ? 'selected' : ''}>${opt.label}</option>`).join('');
+    return `
+        <div style="margin-bottom: 20px; text-align:center;">
+            <label for="sprint-select" style="color:#777; font-size:0.8rem; display:block; margin-bottom:5px; text-transform:uppercase; letter-spacing:1px;">Session Length</label>
+            <select id="sprint-select" class="modal-select">${optionsHtml}</select>
+        </div>`;
+}
+
+// For Start Screen
+function showStartModal(title, btnText) {
+    isModalOpen = true;
+    modalActionCallback = startGame;
+    
+    document.getElementById('modal-title').innerText = title;
+    document.getElementById('modal-body').innerHTML = `
+        ${getDropdownHTML()}
+        <p style="font-size:0.8rem; color:#777; margin-top: 15px;">
+            Type the first letter or press <b>ENTER</b> to start.<br>
+            Press <b>ESC</b> anytime to pause.
+        </p>
+    `;
+    const btn = document.getElementById('action-btn');
+    if(btn) { btn.innerText = btnText; btn.style.display = 'block'; btn.onclick = startGame; }
+    document.getElementById('modal').classList.remove('hidden');
+    isInputBlocked = false;
+}
+
+// For Stats Screen (with Cooldown)
+function showStatsModal(title, stats, btnText, action) {
+    isModalOpen = true;
+    modalActionCallback = action;
+    isInputBlocked = true;
+    
+    document.getElementById('modal-title').innerText = title;
+    
+    const statsHtml = `
+        <div class="stat-row">
+            <div class="stat-item"><span>${stats.time}s</span>Sprint</div>
+            <div class="stat-item"><span>${stats.wpm}</span>WPM</div>
+            <div class="stat-item"><span>${stats.acc}%</span>Acc</div>
+        </div>
+        <div class="stat-subtext">
+            Today: <span class="highlight">${stats.today}</span> &bull; This Week: <span class="highlight">${stats.week}</span>
+        </div>
+        <hr style="border:0; border-top:1px solid #333; margin: 20px 0;">
+    `;
+    
+    const footerHtml = `<p id="modal-footer-msg" style="margin-top:10px; font-size: 0.8em; color: #777; opacity: 0; transition: opacity 0.5s;">Type the next letter to continue...</p>`;
+
+    document.getElementById('modal-body').innerHTML = `
+        ${statsHtml}
+        ${getDropdownHTML()}
+        ${footerHtml}
+    `;
+
+    const btn = document.getElementById('action-btn');
+    if(btn) { btn.innerText = btnText; btn.style.display = 'block'; btn.onclick = action; }
+    
+    document.getElementById('modal').classList.remove('hidden');
+
+    setTimeout(() => {
+        isInputBlocked = false;
+        const msg = document.getElementById('modal-footer-msg');
+        if (msg) msg.style.opacity = 1;
+    }, SPRINT_COOLDOWN_MS);
+}
+
+function closeModal() {
+    const modal = document.getElementById('modal');
+    modal.classList.add('hidden');
+    isModalOpen = false;
+    isInputBlocked = false; 
+    modalActionCallback = null;
+    
+    // Reset Action Button visibility in case Menu hid it
+    const btn = document.getElementById('action-btn');
+    if(btn) btn.style.display = 'block';
+
+    lastInputTime = Date.now();
+    timerDisplay.style.opacity = '1';
 }
 
 document.addEventListener('keydown', (e) => {
-    // --- TYPE TO START LOGIC ---
     if (isModalOpen) {
-        // Block if in cooldown
         if (isInputBlocked) return;
-
-        // Standard Modal Interactions (Enter/Select)
         if (document.activeElement.tagName === 'SELECT') {
              if (e.key === "Enter") { e.preventDefault(); if (modalActionCallback) modalActionCallback(); }
-             return; // Don't type if manipulating the dropdown
+             return;
         }
         if (e.key === "Enter") { 
             e.preventDefault(); 
@@ -424,26 +626,15 @@ document.addEventListener('keydown', (e) => {
             return; 
         }
 
-        // Check if key matches next character (Type-To-Start)
-        let tempIndex = currentCharIndex;
-        if (fullText[tempIndex] === ' ') tempIndex++; 
-        const targetChar = fullText[tempIndex];
-
-        if (e.key === targetChar) {
-            // Correct key! Start game.
-            if (modalActionCallback) modalActionCallback(); 
-            
-            // KEY CHANGE v1.6.4:
-            // We do NOT return here. We let the code fall through.
-            // Since startGame() sets isGameActive = true, the code below will run
-            // and register this character immediately.
-        } else {
-            // Wrong key in modal -> Ignore it completely
-            return;
+        // Type-to-start (Only works if we have a callback like Start Game, not in Menu)
+        if (modalActionCallback) {
+            let tempIndex = currentCharIndex;
+            if (fullText[tempIndex] === ' ') tempIndex++; 
+            const targetChar = fullText[tempIndex];
+            if (e.key === targetChar) modalActionCallback();
         }
+        return;
     }
-    
-    // --- GAME LOGIC ---
     
     if (e.key === "Escape" && isGameActive) {
         pauseGameForBreak();
@@ -479,7 +670,6 @@ document.addEventListener('keydown', (e) => {
         currentCharIndex++;
         currentLetterStatus = 'clean'; 
         
-        // Save Checks
         if (['.', '!', '?'].includes(targetChar)) saveProgress();
         else if (['"', "'"].includes(targetChar) && currentCharIndex >= 2) {
             const prevChar = fullText[currentCharIndex - 2];
@@ -563,6 +753,7 @@ function finishChapter() {
     clearInterval(timerInterval);
     saveProgress();
     
+    // Automatically suggest next chapter if available
     const stats = { 
         time: sprintSeconds, 
         wpm: parseInt(wpmDisplay.innerText), 
@@ -570,94 +761,17 @@ function finishChapter() {
         today: formatTime(statsData.secondsToday),
         week: formatTime(statsData.secondsWeek)
     };
-    showModal("Chapter Complete!", stats, "Play Again", () => location.reload());
-}
-
-// --- UNIFIED MODAL SYSTEM ---
-
-function getDropdownHTML() {
-    const options = [
-        {val: "30", label: "30 Seconds"},
-        {val: "60", label: "1 Minute"},
-        {val: "120", label: "2 Minutes"},
-        {val: "300", label: "5 Minutes"},
-        {val: "infinity", label: "Open Ended (∞)"},
-    ];
     
-    let optionsHtml = options.map(opt => 
-        `<option value="${opt.val}" ${sessionValueStr === opt.val ? 'selected' : ''}>${opt.label}</option>`
-    ).join('');
-
-    return `
-        <div style="margin-bottom: 20px; text-align:center;">
-            <label for="sprint-select" style="color:#777; font-size:0.8rem; display:block; margin-bottom:5px; text-transform:uppercase; letter-spacing:1px;">Session Length</label>
-            <select id="sprint-select" class="modal-select">
-                ${optionsHtml}
-            </select>
-        </div>
-    `;
-}
-
-function showModal(title, stats, btnText, action) {
-    const modal = document.getElementById('modal');
-    isModalOpen = true;
-    modalActionCallback = action;
+    // Check if next chapter exists (optimistic)
+    const nextChap = currentChapterNum + 1;
     
-    document.getElementById('modal-title').innerText = title;
-    
-    let statsHtml = '';
-    let footerHtml = '';
-
-    if (stats) {
-        isInputBlocked = true;
-        statsHtml = `
-            <div class="stat-row">
-                <div class="stat-item"><span>${stats.time}s</span>Sprint</div>
-                <div class="stat-item"><span>${stats.wpm}</span>WPM</div>
-                <div class="stat-item"><span>${stats.acc}%</span>Acc</div>
-            </div>
-            <div class="stat-subtext">
-                Today: <span class="highlight">${stats.today}</span> &bull; This Week: <span class="highlight">${stats.week}</span>
-            </div>
-            <hr style="border:0; border-top:1px solid #333; margin: 20px 0;">
-        `;
-        
-        footerHtml = `<p id="modal-footer-msg" style="margin-top:10px; font-size: 0.8em; color: #777; opacity: 0; transition: opacity 0.5s;">Type the next letter to continue...</p>`;
-
-        setTimeout(() => {
-            isInputBlocked = false;
-            const msg = document.getElementById('modal-footer-msg');
-            if (msg) msg.style.opacity = 1;
-        }, SPRINT_COOLDOWN_MS);
-
-    } else {
-        isInputBlocked = false;
-         footerHtml = `
-            <p style="font-size:0.8rem; color:#777; margin-top: 15px;">
-                Type the first letter or press <b>ENTER</b> to start.<br>
-                Press <b>ESC</b> anytime to pause.
-            </p>`;
-    }
-
-    document.getElementById('modal-body').innerHTML = `
-        ${statsHtml}
-        ${getDropdownHTML()}
-        ${footerHtml}
-    `;
-
-    const btn = document.getElementById('action-btn');
-    if(btn) { btn.innerText = btnText; btn.onclick = action; }
-    modal.classList.remove('hidden');
-}
-
-function closeModal() {
-    const modal = document.getElementById('modal');
-    modal.classList.add('hidden');
-    isModalOpen = false;
-    isInputBlocked = false; 
-    modalActionCallback = null;
-    lastInputTime = Date.now();
-    timerDisplay.style.opacity = '1';
+    showStatsModal("Chapter Complete!", stats, "Start Chapter " + nextChap, async () => {
+         await setDoc(doc(db, "users", currentUser.uid, "progress", BOOK_ID), {
+            chapter: nextChap,
+            charIndex: 0
+        }, { merge: true });
+        location.reload();
+    });
 }
 
 const keyMap = { row1: "`1234567890-=", row1_s: "~!@#$%^&*()_+", row2: "qwertyuiop[]\\", row2_s: "QWERTYUIOP{}|", row3: "asdfghjkl;'", row3_s: "ASDFGHJKL:\"", row4: "zxcvbnm,./", row4_s: "ZXCVBNM<>?" };
