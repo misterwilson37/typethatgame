@@ -1,4 +1,4 @@
-/* v1.5.1 - Fixed Dropdown Layout & Modal */
+/* v1.8.1 - Layout Fixes: Modal & Vertical Centering */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -78,11 +78,22 @@ body {
     position: relative;
     overflow: hidden; 
     background: #fafafa;
+    /* Vertical Centering Fix */
+    display: flex;
+    align-items: center; 
+    justify-content: flex-start; /* Text starts from left */
 }
+
 #text-stream {
-    position: absolute; top: 0; left: 10%; width: 80%; max-width: 800px;
+    /* Removed absolute positioning for flex centering to work better, 
+       but kept relative for translateX sliding */
+    position: relative; 
+    margin-left: 10%; 
+    white-space: nowrap; /* Ensure words stay on one line */
     transition: transform 0.2s ease-out; 
+    will-change: transform;
 }
+
 .word {
     display: inline-block; margin-right: 10px; white-space: pre;
     line-height: 2.5em; font-size: 24px; color: #ccc; 
@@ -107,6 +118,7 @@ body {
     background: var(--accent-grey);
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     gap: 5px; border-top: 4px solid var(--black); padding: 10px 0; flex-shrink: 0;
+    z-index: 20; /* Ensure it stays below modal */
 }
 .kb-row { display: flex; gap: 5px; }
 .key {
@@ -122,20 +134,20 @@ body {
 /* --- MODAL --- */
 .modal {
     position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-    background: rgba(0, 0, 0, 0.5);
+    background: rgba(0, 0, 0, 0.7); /* Slightly darker for better focus */
     display: flex; flex-direction: column; justify-content: center; 
     align-items: center; 
-    z-index: 100; 
+    z-index: 2000; /* Highest Z-Index to sit over everything */
 }
 .modal-content {
     background: white; 
-    width: 90%; max-width: 500px; /* Constrained width */
+    width: 90%; max-width: 500px; 
     border-top: 6px solid var(--carolina-blue); 
     padding: 30px; 
     text-align: center;
-    box-shadow: 0 10px 40px rgba(0,0,0,0.4); 
+    box-shadow: 0 10px 40px rgba(0,0,0,0.5); 
     border-radius: 4px;
-    box-sizing: border-box; /* IMPORTANT: Keeps padding inside width */
+    box-sizing: border-box;
 }
 
 /* Stats */
@@ -160,8 +172,8 @@ body {
 
 /* Select Dropdown Fix */
 select.modal-select {
-    width: 100%;            /* Force full width */
-    box-sizing: border-box; /* Include padding in calculation */
+    width: 100%;            
+    box-sizing: border-box; 
     background-color: #222;
     color: #eee;
     border: 1px solid #444;
