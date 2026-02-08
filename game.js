@@ -1,4 +1,4 @@
-// v1.9.1.3 - Keyboard Layout Fixed, Instant Start Typing
+// v1.9.1.4 - Fixes: Navigation, Space-Start, & Stat Display
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,7 +9,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.9.1.3";
+const VERSION = "1.9.1.4";
 const BOOK_ID = "wizard_of_oz"; 
 const IDLE_THRESHOLD = 2000; 
 const SPRINT_COOLDOWN_MS = 1500; 
@@ -75,6 +75,7 @@ async function init() {
     const footer = document.querySelector('footer');
     if(footer) footer.innerText = `JS: v${VERSION}`;
     
+    // Inject Menu Button
     if (!document.getElementById('menu-btn')) {
         const btn = document.createElement('button');
         btn.id = 'menu-btn';
@@ -134,6 +135,10 @@ async function loadUserStats() {
             const data = docSnap.data();
             statsData.secondsToday = (data.lastDate === dateStr) ? (data.secondsToday || 0) : 0;
             statsData.secondsWeek = (data.weekStart === weekStart) ? (data.secondsWeek || 0) : 0;
+        } else {
+            // Defaults if document doesn't exist
+            statsData.secondsToday = 0;
+            statsData.secondsWeek = 0;
         }
         statsData.lastDate = dateStr;
         statsData.weekStart = weekStart;
@@ -202,8 +207,15 @@ function setupGame() {
     renderText();
     currentCharIndex = savedCharIndex;
     
-    if (fullText[currentCharIndex] === ' ') currentCharIndex++;
+    // FIX 2: Handle starting on a space
+    // If we load and are pointing at a space, mark it done and move to next char
+    if (fullText[currentCharIndex] === ' ') {
+        const spaceEl = document.getElementById(`char-${currentCharIndex}`);
+        if (spaceEl) spaceEl.classList.add('done-perfect');
+        currentCharIndex++;
+    }
 
+    // Mark previous text as done
     if (currentCharIndex > 0) {
         for (let i = 0; i < currentCharIndex; i++) {
             const el = document.getElementById(`char-${i}`);
@@ -263,10 +275,13 @@ function startGame() {
         sessionLimit = (sessionValueStr === 'infinity') ? 'infinity' : parseInt(sessionValueStr);
     }
 
+    // Double check space skip on start
     if (fullText[currentCharIndex] === ' ') {
         const spaceEl = document.getElementById(`char-${currentCharIndex}`);
         if (spaceEl) spaceEl.classList.add('done-perfect');
         currentCharIndex++;
+        highlightCurrentChar();
+        centerView();
     }
 
     closeModal();
@@ -350,24 +365,21 @@ function updateRunningAccuracy(isCorrect) {
     if (total > 0) accDisplay.innerText = Math.round((correctCount / total) * 100) + "%";
 }
 
-// --- CORE INPUT LOGIC ---
-
 document.addEventListener('keydown', (e) => {
-    // 1. MODAL NAVIGATION & STARTING
+    // 1. MODAL / START SCREEN NAVIGATION
     if (isModalOpen) {
-        if (isInputBlocked) return; // Cooldown active
+        if (isInputBlocked) return; 
 
         const targetChar = fullText[currentCharIndex];
         
-        // If user types the correct first letter: START & TYPE
+        // FIX 2: Allow starting by typing the target letter (which might be after a space now)
         if (e.key === targetChar && modalActionCallback) {
             e.preventDefault();
-            modalActionCallback(); // Start game (closes modal)
-            handleTyping(e.key);   // IMMEDIATELY process the letter
+            modalActionCallback(); // Start game
+            handleTyping(e.key);   // Process the letter immediately
             return;
         }
         
-        // If user hits Enter/Space: Just START
         if ((e.key === "Enter" || e.key === " ") && modalActionCallback) {
             e.preventDefault();
             modalActionCallback();
@@ -387,7 +399,7 @@ document.addEventListener('keydown', (e) => {
     if (["Shift", "Control", "Alt", "Meta", "CapsLock", "Tab"].includes(e.key)) return;
     if (e.key === " ") e.preventDefault(); 
 
-    // 3. TYPING
+    // 3. TYPING LOGIC
     handleTyping(e.key);
 });
 
@@ -407,7 +419,6 @@ function handleTyping(key) {
     }
 
     if (key === targetChar) {
-        // Correct
         currentEl.classList.remove('active');
         currentEl.classList.remove('error-state');
         
@@ -447,7 +458,6 @@ function handleTyping(key) {
         updateImageDisplay();
     } 
     else {
-        // Mistake
         mistakes++;
         sprintMistakes++;
         if (currentLetterStatus === 'clean') currentLetterStatus = 'error';
@@ -535,12 +545,16 @@ function pauseGameForBreak() {
     const minutes = sprintSeconds / 60;
     const sprintWPM = (minutes > 0) ? Math.round((charsTyped / 5) / minutes) : 0;
     
+    // FIX 3: Ensure data exists before display
+    const todayStr = formatTime(statsData.secondsToday || 0);
+    const weekStr = formatTime(statsData.secondsWeek || 0);
+
     const stats = { 
         time: sprintSeconds, 
         wpm: sprintWPM, 
         acc: 100,
-        today: formatTime(statsData.secondsToday),
-        week: formatTime(statsData.secondsWeek)
+        today: todayStr,
+        week: weekStr
     };
     
     showStatsModal("Sprint Complete", stats, "Continue", startGame);
@@ -556,8 +570,8 @@ function finishChapter() {
         time: sprintSeconds,
         wpm: 0, 
         acc: 100,
-        today: formatTime(statsData.secondsToday),
-        week: formatTime(statsData.secondsWeek)
+        today: formatTime(statsData.secondsToday || 0),
+        week: formatTime(statsData.secondsWeek || 0)
     };
     
     showStatsModal(`Chapter ${currentChapterNum} Complete!`, stats, `Start Chapter ${nextChapter}`, async () => {
@@ -683,22 +697,67 @@ function openMenuModal() {
     const modal = document.getElementById('modal');
     document.getElementById('modal-title').innerText = "Settings";
     
+    let chapterOptions = "";
+    // FIX 1: Ensure Chapter options are selectable even if we are on a later chapter
+    for(let i=1; i<=5; i++) {
+        let sel = (i === currentChapterNum) ? "selected" : "";
+        chapterOptions += `<option value="${i}" ${sel}>Chapter ${i}</option>`;
+    }
+
     document.getElementById('modal-body').innerHTML = `
+        <div class="menu-section">
+            <div class="menu-label">Navigation</div>
+            <div style="display:flex; gap:10px;">
+                <select id="chapter-nav-select" class="modal-select" style="margin:0; flex-grow:1;">
+                    ${chapterOptions}
+                </select>
+                <button id="go-btn" class="modal-btn" style="width:auto; padding:0 20px;">Go</button>
+            </div>
+        </div>
         <div class="menu-section">
             <div class="menu-label">Session Control</div>
             ${getDropdownHTML()}
         </div>
-        <div class="menu-section">
-            <div class="menu-label">Account</div>
-            <p style="font-size:0.9rem">${currentUser && !currentUser.isAnonymous ? "Logged in as " + (currentUser.displayName || "User") : "Guest Mode"}</p>
-        </div>
     `;
     
+    // Attach event listeners for the dynamic menu
+    document.getElementById('go-btn').onclick = () => {
+        const val = parseInt(document.getElementById('chapter-nav-select').value);
+        if(val !== currentChapterNum) handleChapterSwitch(val);
+    };
+
     const btn = document.getElementById('action-btn');
     btn.innerText = "Close";
     btn.onclick = () => { closeModal(); if(!isGameActive && savedCharIndex > 0) startGame(); };
     
     modal.classList.remove('hidden');
+}
+
+function handleChapterSwitch(newChapter) {
+    if (newChapter > currentChapterNum) {
+        switchChapterHot(newChapter);
+    } else {
+        // Warning when going backwards
+        if(confirm(`Go back to Chapter ${newChapter}? Unsaved progress in current chapter will be lost.`)) {
+            switchChapterHot(newChapter);
+        }
+    }
+}
+
+async function switchChapterHot(newChapter) {
+    await setDoc(doc(db, "users", currentUser.uid, "progress", BOOK_ID), {
+        chapter: newChapter,
+        charIndex: 0
+    }, { merge: true });
+    
+    currentChapterNum = newChapter;
+    savedCharIndex = 0;
+    currentCharIndex = 0;
+    lastSavedIndex = 0;
+    
+    closeModal();
+    textStream.innerHTML = "Switching chapters...";
+    loadChapter(newChapter);
 }
 
 // --- KEYBOARD UI ---
@@ -718,12 +777,11 @@ function createKeyboard() {
     
     rows.forEach((rowChars, rIndex) => {
         const rowDiv = document.createElement('div');
-        rowDiv.className = 'kb-row'; // FIXED: Matches style.css
+        rowDiv.className = 'kb-row'; // MATCHES CSS
         
         let leftSpecial = null;
         if (rIndex === 1) leftSpecial = "CAPS";
         if (rIndex === 2) leftSpecial = "SHIFT";
-        
         if (leftSpecial) addSpecialKey(rowDiv, leftSpecial);
         
         rowChars.forEach((char, cIndex) => {
@@ -740,7 +798,6 @@ function createKeyboard() {
         if (rIndex === 0) rightSpecial = "BACK";
         if (rIndex === 1) rightSpecial = "ENTER";
         if (rIndex === 2) rightSpecial = "SHIFT";
-        
         if (rightSpecial) addSpecialKey(rowDiv, rightSpecial);
         
         keyboardDiv.appendChild(rowDiv);
@@ -748,9 +805,9 @@ function createKeyboard() {
     
     // Space Row
     const spaceRow = document.createElement('div');
-    spaceRow.className = 'kb-row'; // FIXED
+    spaceRow.className = 'kb-row'; 
     const space = document.createElement('div');
-    space.className = 'key space'; // FIXED: Matches style.css
+    space.className = 'key space'; 
     space.innerText = ""; 
     space.id = "key- ";
     spaceRow.appendChild(space);
