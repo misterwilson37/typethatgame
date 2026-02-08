@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>TypeThatBook Admin v1.9.7.1</title>
+    <title>TypeThatBook Admin v1.9.7.4</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
         body { background: #111; color: #eee; font-family: 'Courier New', monospace; padding: 20px; }
@@ -52,7 +52,18 @@
         .checkbox-wrapper input { width: auto; margin: 0 10px 0 0; }
         .checkbox-wrapper label { margin: 0; text-transform: none; color: #ddd; }
 
-        footer { position: fixed; bottom: 5px; right: 10px; font-size: 0.7em; color: #666; background: rgba(0,0,0,0.8); z-index: 101; padding: 2px 5px; border-radius: 3px; }
+        /* WARNING MODAL */
+        #warning-modal {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8); z-index: 200;
+            display: flex; justify-content: center; align-items: center;
+        }
+        .warning-content {
+            background: #220000; border: 2px solid #ff3333; padding: 30px;
+            max-width: 500px; text-align: center;
+        }
+
+        footer { position: fixed; bottom: 5px; right: 10px; font-size: 0.7em; color: #666; background: rgba(255,255,255,0.8); z-index: 101; padding: 2px 5px; border-radius: 3px; }
     </style>
 </head>
 <body>
@@ -73,89 +84,109 @@
     <div id="editor-section" class="hidden">
         
         <div class="import-box" style="border-color: #4B9CD3;">
-            <h3 style="margin-top:0;">Database Manager</h3>
+            <h3 style="margin-top:0; color:#4B9CD3;">1. Database Manager</h3>
             
-            <div class="row">
-                <div class="col" style="flex:2;">
-                    <label>Select Book</label>
-                    <select id="book-select">
-                        <option value="">Loading books...</option>
-                    </select>
-                    <input type="text" id="new-book-input" class="hidden" placeholder="Enter NEW Book ID (e.g. alice_in_wonderland)">
-                </div>
+            <label>Select Action</label>
+            <select id="book-select">
+                <option value="">Loading books...</option>
+            </select>
+
+            <div id="edit-existing-ui" class="hidden">
+                <button id="open-book-btn">Open Book</button>
             </div>
 
-            <div class="row">
-                <div class="col">
-                    <label>Book Display Title (Visible to Players)</label>
-                    <input type="text" id="book-title" placeholder="e.g. The Wizard of Oz">
+            <div id="create-new-ui" class="hidden" style="margin-top: 15px; border-top: 1px solid #333; padding-top: 15px;">
+                <div class="row">
+                    <div class="col">
+                        <label>New Book ID (e.g. dracula)</label>
+                        <input type="text" id="new-book-id">
+                    </div>
+                    <div class="col">
+                        <label>Display Title (e.g. Dracula by Bram Stoker)</label>
+                        <input type="text" id="new-book-title">
+                    </div>
                 </div>
-                <div class="col" style="display:flex; align-items:flex-end;">
-                    <button id="load-db-btn" class="secondary-btn">Load Chapters from DB</button>
-                </div>
+                <label>Initial EPUB File</label>
+                <input type="file" id="new-epub-file" accept=".epub">
+                <button id="create-parse-btn" style="margin-top:10px;">Parse & Initialize Staging</button>
             </div>
-
         </div>
 
-        <h2>Content Staging</h2>
-        <div class="import-box">
-            
-            <div class="row" style="border-bottom: 1px solid #333; margin-bottom: 20px; padding-bottom: 10px;">
-                <div class="col" style="display:flex; align-items:center; justify-content:space-between;">
-                    <span style="color:#888; font-size:0.9em;">Update Book Title Only:</span>
-                    <button id="save-title-btn" class="secondary-btn" style="width:auto; background:#224422; border-color:#336633;">Save Title Only</button>
+        <div id="staging-area" class="hidden">
+            <h2>2. Content Staging</h2>
+            <div class="import-box">
+                
+                <div class="row" style="border-bottom: 1px solid #333; margin-bottom: 20px; padding-bottom: 10px;">
+                    <div class="col" style="flex:2;">
+                        <label>Book Display Title</label>
+                        <input type="text" id="active-book-title">
+                    </div>
+                    <div class="col" style="display:flex; align-items:flex-end;">
+                        <button id="save-title-btn" class="secondary-btn" style="background:#224422; border-color:#336633;">Save Title Only</button>
+                    </div>
                 </div>
-            </div>
 
-            <div class="row">
-                <div class="col">
-                    <label>Load New EPUB File</label>
-                    <input type="file" id="epub-file" accept=".epub">
+                <div id="overwrite-section" class="hidden" style="border-bottom: 1px solid #333; margin-bottom: 20px; padding-bottom: 10px;">
+                    <label style="color:#ff9999;">Overwrite Data with New EPUB</label>
+                    <div class="row">
+                        <div class="col">
+                            <input type="file" id="overwrite-epub-file" accept=".epub">
+                        </div>
+                        <div class="col">
+                            <button id="overwrite-btn" class="danger-btn">Process Overwrite</button>
+                        </div>
+                    </div>
                 </div>
-            </div>
-            
-            <div class="checkbox-wrapper">
-                <input type="checkbox" id="clean-newlines" checked>
-                <label for="clean-newlines">Aggressive Cleaning (Remove line breaks inside paragraphs)</label>
-            </div>
+                
+                <div class="checkbox-wrapper">
+                    <input type="checkbox" id="clean-newlines" checked>
+                    <label for="clean-newlines">Aggressive Cleaning (Remove line breaks inside paragraphs)</label>
+                </div>
+                <div style="font-size: 0.8em; color: #888; margin-bottom: 10px;">* Em-dashes (—) automatically converted to double-dashes (--)</div>
 
-            <div id="processing-ui" class="hidden">
-                <label>Staging Area (Edit/Delete before Upload)</label>
                 <div id="chapter-list"></div>
                 
-                <div class="row">
-                    <div class="col">
-                        <button id="upload-all-btn">Upload All Chapters (Overwrite)</button>
+                <button id="upload-all-btn">Upload All Chapters to Database</button>
+            </div>
+
+            <hr style="border-color:#333; margin: 30px 0;">
+
+            <details id="manual-details">
+                <summary style="cursor:pointer; color:#4B9CD3; margin-bottom:10px;">Manual Chapter Editor</summary>
+                <div style="padding: 15px; border:1px solid #333; margin-bottom:20px;">
+                    <div class="row">
+                        <div class="col">
+                            <label>Chapter Number (Supports 0, 1.1)</label>
+                            <input type="number" id="manual-chap-num" value="1" step="any">
+                        </div>
+                        <div class="col">
+                            <label>Chapter Title (Optional)</label>
+                            <input type="text" id="manual-chap-title">
+                        </div>
+                    </div>
+                    <label>JSON Segments</label>
+                    <textarea id="json-content" rows="15"></textarea>
+                    
+                    <div style="display:flex; gap:10px;">
+                        <button id="update-staged-btn" class="hidden">Update Staged Chapter</button>
+                        <button id="save-btn">Save Directly to DB</button>
                     </div>
                 </div>
-            </div>
+            </details>
         </div>
 
-        <hr style="border-color:#333; margin: 30px 0;">
+    </div>
+</div>
 
-        <details id="manual-details">
-            <summary style="cursor:pointer; color:#4B9CD3; margin-bottom:10px;">Manual Chapter Editor</summary>
-            <div style="padding: 15px; border:1px solid #333; margin-bottom:20px;">
-                <div class="row">
-                    <div class="col">
-                        <label>Chapter Number (Supports 0, 1.1, etc)</label>
-                        <input type="number" id="manual-chap-num" value="1" step="any">
-                    </div>
-                    <div class="col">
-                        <label>Chapter Title (Optional)</label>
-                        <input type="text" id="manual-chap-title" placeholder="e.g. Preface">
-                    </div>
-                </div>
-                <label>JSON Segments</label>
-                <textarea id="json-content" rows="15" placeholder='{ "segments": [ { "text": "..." } ] }'></textarea>
-                
-                <div style="display:flex; gap:10px;">
-                    <button id="update-staged-btn" class="hidden">Update Staged Chapter</button>
-                    <button id="save-btn">Save Directly to DB</button>
-                </div>
-            </div>
-        </details>
-
+<div id="warning-modal" class="hidden">
+    <div class="warning-content">
+        <h2 style="color:#ff3333; margin-top:0;">⚠️ WARNING</h2>
+        <p>This will replace all chapters currently in the Staging Area with the content from the new EPUB file.</p>
+        <p>This action cannot be undone.</p>
+        <div class="row" style="margin-top:20px;">
+            <div class="col"><button id="confirm-overwrite-btn" class="danger-btn">Yes, Overwrite</button></div>
+            <div class="col"><button id="cancel-overwrite-btn" class="secondary-btn">Cancel</button></div>
+        </div>
     </div>
 </div>
 
