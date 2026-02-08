@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>TypeThatBook Admin v1.9.6</title>
+    <title>TypeThatBook Admin v1.9.6.1</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
         body { background: #111; color: #eee; font-family: 'Courier New', monospace; padding: 20px; }
@@ -74,6 +74,7 @@
         
         <div class="import-box" style="border-color: #4B9CD3;">
             <h3 style="margin-top:0;">Database Manager</h3>
+            
             <div class="row">
                 <div class="col" style="flex:2;">
                     <label>Select Book</label>
@@ -82,10 +83,18 @@
                     </select>
                     <input type="text" id="new-book-input" class="hidden" placeholder="Enter NEW Book ID (e.g. alice_in_wonderland)">
                 </div>
+            </div>
+
+            <div class="row">
+                <div class="col">
+                    <label>Book Display Title (Visible to Players)</label>
+                    <input type="text" id="book-title" placeholder="e.g. The Wizard of Oz">
+                </div>
                 <div class="col" style="display:flex; align-items:flex-end;">
-                    <button id="load-db-btn" class="secondary-btn">Load from Database</button>
+                    <button id="load-db-btn" class="secondary-btn">Load Chapters from DB</button>
                 </div>
             </div>
+
         </div>
 
         <h2>Content Staging</h2>
