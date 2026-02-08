@@ -1,9 +1,9 @@
-// v1.9.7.4 - UI Overhaul & Em-Dash Filters
+// v1.9.7.5 - Character Filtering & Normalization
 import { db, auth } from "./firebase-config.js";
 import { doc, setDoc, getDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const ADMIN_VERSION = "1.9.7.4";
+const ADMIN_VERSION = "1.9.7.5";
 
 // DOM Elements
 const statusEl = document.getElementById('status');
@@ -34,6 +34,7 @@ const overwriteBtn = document.getElementById('overwrite-btn');
 const chapterListEl = document.getElementById('chapter-list');
 const uploadAllBtn = document.getElementById('upload-all-btn');
 const cleanNewlinesCb = document.getElementById('clean-newlines');
+const normalizeCharsCb = document.getElementById('normalize-chars'); // NEW
 
 // Manual Editor
 const manualTitle = document.getElementById('manual-chap-title');
@@ -52,7 +53,7 @@ const cancelOverwriteBtn = document.getElementById('cancel-overwrite-btn');
 let stagedChapters = [];
 let editingIndex = -1;
 let bookTitlesMap = {};
-let activeBookId = ""; // Track currently managed book
+let activeBookId = ""; 
 
 // Init
 if(footerEl) footerEl.innerText = `Admin JS: v${ADMIN_VERSION}`;
@@ -114,7 +115,7 @@ async function loadBookList() {
 }
 
 bookSelect.onchange = () => {
-    stagingArea.classList.add('hidden'); // Hide staging on change
+    stagingArea.classList.add('hidden'); 
     if (bookSelect.value === "__NEW__") {
         createNewUI.classList.remove('hidden');
         editExistingUI.classList.add('hidden');
@@ -139,12 +140,10 @@ createParseBtn.onclick = async () => {
     activeBookId = id;
     activeBookTitle.value = title;
     
-    // Parse File
     await parseEpubFile(file);
     
-    // Show Staging
     stagingArea.classList.remove('hidden');
-    overwriteSection.classList.add('hidden'); // No overwrite needed for new
+    overwriteSection.classList.add('hidden'); 
     statusEl.innerText = "New Book Staged. Review and Upload.";
 };
 
@@ -180,7 +179,7 @@ openBookBtn.onclick = async () => {
         
         renderChapterList();
         stagingArea.classList.remove('hidden');
-        overwriteSection.classList.remove('hidden'); // Show overwrite option
+        overwriteSection.classList.remove('hidden'); 
         statusEl.innerText = "Book Loaded.";
         statusEl.style.borderColor = "#00ff41";
 
@@ -210,11 +209,12 @@ async function parseEpubFile(file) {
     statusEl.innerText = "Parsing EPUB...";
     chapterListEl.innerHTML = "Parsing...";
     stagedChapters = [];
+    
+    let invalidChars = new Set(); // Track bad characters
 
     try {
         const zip = await JSZip.loadAsync(file);
         
-        // Locate OPF
         let opfPath = null;
         const files = Object.keys(zip.files);
         const containerInfo = await zip.file("META-INF/container.xml")?.async("string");
@@ -256,13 +256,28 @@ async function parseEpubFile(file) {
             doc.body.querySelectorAll("p").forEach(el => {
                 let text = el.textContent;
                 
-                // --- FILTERS ---
+                // 1. Basic Cleaning
                 if (cleanNewlinesCb.checked) text = text.replace(/[\r\n]+/g, ' '); 
                 text = text.replace(/\s\s+/g, ' ').trim();
                 
-                // Em Dash Fix
-                text = text.replace(/—/g, '--');
-                // ----------------
+                // 2. Automatic Fixes (Always On)
+                text = text.replace(/—/g, '--'); // Em-dash -> double dash
+                text = text.replace(/[\u2018\u2019]/g, "'"); // Smart Single
+                text = text.replace(/[\u201C\u201D]/g, '"'); // Smart Double
+                text = text.replace(/\u2026/g, "..."); // Ellipsis
+                
+                // 3. Conditional Aggressive Fixes (Normalization)
+                if (normalizeCharsCb.checked) {
+                    // Decomposes accents (e.g. é -> e + ´) and removes the accent char
+                    text = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                }
+
+                // 4. Untypable Character Detection
+                // Check for anything NOT in: Space(32) to Tilde(126), Tab, Newline
+                const badChars = text.match(/[^ -~\t\n]/g);
+                if(badChars) {
+                    badChars.forEach(c => invalidChars.add(c));
+                }
                 
                 if (text.length > 0) {
                     if (!text.startsWith('\t')) text = '\t' + text;
@@ -275,7 +290,15 @@ async function parseEpubFile(file) {
                 counter++;
             }
         }
+        
         renderChapterList();
+        
+        // Alert if we found weird characters
+        if(invalidChars.size > 0) {
+            const badList = Array.from(invalidChars).join("   ");
+            alert("⚠️ UNTYPABLE CHARACTERS DETECTED ⚠️\n\nThe following characters were found which cannot be typed on a standard US Keyboard:\n\n" + badList + "\n\nPlease select 'Normalize Characters' and re-parse, or check your source text.");
+        }
+
     } catch (e) {
         console.error(e);
         statusEl.innerText = "Parse Error: " + e.message;
@@ -366,10 +389,7 @@ uploadAllBtn.onclick = async () => {
     const chapterMeta = [];
 
     for (let i = 0; i < stagedChapters.length; i++) {
-        const chapNum = i + 1; // Default sequential 
-        // Note: For advanced numbering (0, 1.1), we'd need a field in stagedChapters.
-        // Currently sequential for bulk upload. Manual edits can fix later or we add inputs to list.
-        
+        const chapNum = i + 1; 
         const chapData = stagedChapters[i];
         const uiStatus = document.querySelector(`#ui-chap-${i} .chap-status`);
         
@@ -399,7 +419,7 @@ uploadAllBtn.onclick = async () => {
         statusEl.innerText = "Upload Complete!";
         statusEl.style.borderColor = "#00ff41";
         
-        // Refresh dropdown in case new book
+        // Refresh dropdown
         await loadBookList();
         bookSelect.value = activeBookId; 
         
