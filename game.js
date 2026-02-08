@@ -1,4 +1,4 @@
-// v1.9.3.5 - Strict Init, Decimal Navigation, Zero Chapter Support
+// v1.9.3.6 - Spam Protection, Chapter Numbers & Full Width
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc, getDocs, collection } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,10 +9,11 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.9.3.5";
+const VERSION = "1.9.3.6";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000; 
 const SPRINT_COOLDOWN_MS = 1500; 
+const SPAM_THRESHOLD = 5; // Hard stop after this many consecutive errors
 
 // STATE
 let currentBookId = localStorage.getItem('currentBookId') || DEFAULT_BOOK;
@@ -32,10 +33,12 @@ let statsData = { secondsToday:0, secondsWeek:0, charsToday:0, charsWeek:0, mist
 
 // Game Vars
 let mistakes = 0; let sprintMistakes = 0; 
+let consecutiveMistakes = 0; // New tracking for spam
 let activeSeconds = 0; let sprintSeconds = 0; 
 let sprintCharStart = 0; let timerInterval = null;
 let isGameActive = false; let isOvertime = false;
 let isModalOpen = false; let isInputBlocked = false; 
+let isHardStop = false; // Flag for pause-on-error state
 let modalActionCallback = null;
 let lastInputTime = 0; let timeAccumulator = 0;
 let wpmHistory = []; let accuracyHistory = [];
@@ -72,16 +75,11 @@ async function init() {
         if (user) {
             currentUser = user;
             updateAuthUI(true);
-            
-            // STRICT LOAD ORDER
             try {
-                await loadBookMetadata(); // 1. Get Book Structure (Titles/Counts)
-                await loadUserProgress(); // 2. Get User Place (using Meta to validate if needed)
-                await loadUserStats();    // 3. Get Stats
-            } catch(e) {
-                console.error("Init Sequence Error:", e);
-                textStream.innerText = "Error loading game data.";
-            }
+                await loadBookMetadata(); 
+                await loadUserProgress(); 
+                await loadUserStats();    
+            } catch(e) { console.error("Init Error:", e); }
         } else {
             signInAnonymously(auth);
         }
@@ -117,11 +115,10 @@ async function loadBookMetadata() {
         if (docSnap.exists()) {
             bookMetadata = docSnap.data();
         } else {
-            // Check if fallback needed
             if(currentBookId !== DEFAULT_BOOK) {
                 currentBookId = DEFAULT_BOOK;
                 localStorage.setItem('currentBookId', DEFAULT_BOOK);
-                await loadBookMetadata(); // Retry default
+                await loadBookMetadata(); 
             }
         }
     } catch (e) { console.warn("Meta Error:", e); }
@@ -170,18 +167,13 @@ async function loadUserProgress() {
     try {
         const docRef = doc(db, "users", currentUser.uid, "progress", currentBookId);
         const docSnap = await getDoc(docRef);
-        
-        // Default start
         currentChapterNum = 1;
         savedCharIndex = 0;
-
         if (docSnap.exists()) {
             const data = docSnap.data();
-            // Ensure 0 is valid
             if (data.chapter !== undefined && data.chapter !== null) currentChapterNum = data.chapter;
             if (data.charIndex !== undefined) savedCharIndex = data.charIndex;
         }
-        
         lastSavedIndex = savedCharIndex; 
         loadChapter(currentChapterNum);
     } catch (e) { loadChapter(1); }
@@ -189,10 +181,7 @@ async function loadUserProgress() {
 
 async function loadChapter(chapterNum) {
     textStream.innerHTML = `Loading Chapter...`;
-    
-    // Support numeric or string IDs (chapter_1 vs chapter_1.1)
     const chapterId = "chapter_" + chapterNum;
-    
     try {
         const docRef = doc(db, "books", currentBookId, "chapters", chapterId);
         const docSnap = await getDoc(docRef);
@@ -243,14 +232,6 @@ function setupGame() {
     let btnLabel = "Resume";
     if (savedCharIndex === 0) btnLabel = "Start Reading";
     
-    // Better Title Lookup
-    let title = `Chapter ${currentChapterNum}`;
-    if (bookMetadata && bookMetadata.chapters) {
-        // loose equality to match 1 vs "1"
-        const chapMeta = bookMetadata.chapters.find(c => c.id == "chapter_" + currentChapterNum);
-        if (chapMeta) title = chapMeta.title;
-    }
-
     if (!isGameActive) showStartModal(btnLabel);
 }
 
@@ -298,10 +279,11 @@ function startGame() {
     
     sprintSeconds = 0; sprintMistakes = 0; sprintCharStart = currentCharIndex; 
     activeSeconds = 0; timeAccumulator = 0; lastInputTime = Date.now(); 
+    consecutiveMistakes = 0; // Reset spam check
     wpmHistory = []; accuracyHistory = [];
     
     highlightCurrentChar(); centerView(); closeModal();
-    isGameActive = true; isOvertime = false;
+    isGameActive = true; isOvertime = false; isHardStop = false;
     accDisplay.innerText = "100%"; wpmDisplay.innerText = "0";
     timerDisplay.style.color = 'white'; timerDisplay.style.opacity = '1';
 
@@ -365,6 +347,21 @@ document.addEventListener('keydown', (e) => {
     if (isModalOpen) {
         if (isInputBlocked) return; 
         
+        // --- HARD STOP LOGIC ---
+        if (isHardStop) {
+            let targetChar = fullText[currentCharIndex];
+            let isMatch = (e.key === targetChar);
+            if (targetChar === '\n' && e.key === 'Enter') isMatch = true;
+            if (targetChar === '\t' && e.key === 'Tab') isMatch = true;
+            
+            if (isMatch) {
+                // Correct key hit - Resume
+                resumeGame();
+                handleTyping(e.key);
+            }
+            return;
+        }
+
         // --- SMART START LOGIC ---
         let shouldStart = false;
         let shouldSkip = false;
@@ -427,6 +424,8 @@ function handleTyping(key) {
 
     if (inputChar === targetChar) {
         statsData.charsToday++; statsData.charsWeek++;
+        consecutiveMistakes = 0; // RESET spam counter
+
         currentEl.classList.remove('active'); currentEl.classList.remove('error-state');
         if (currentLetterStatus === 'clean') currentEl.classList.add('done-perfect'); 
         else if (currentLetterStatus === 'fixed') currentEl.classList.add('done-fixed'); 
@@ -454,16 +453,64 @@ function handleTyping(key) {
         highlightCurrentChar(); centerView();
     } else {
         mistakes++; sprintMistakes++;
+        consecutiveMistakes++; // INCREMENT spam counter
+        
         statsData.mistakesToday++; statsData.mistakesWeek++;
         if (currentLetterStatus === 'clean') currentLetterStatus = 'error';
         const errEl = document.getElementById(`char-${currentCharIndex}`);
         if(errEl) errEl.classList.add('error-state'); 
         flashKey(key); updateRunningAccuracy(false);
+
+        // CHECK SPAM
+        if (consecutiveMistakes >= SPAM_THRESHOLD) {
+            triggerHardStop(targetChar);
+        }
     }
 }
 
 function triggerStop() {
     updateImageDisplay(); highlightCurrentChar(); centerView(); pauseGameForBreak();
+}
+
+// New: Hard Stop for Spamming
+function triggerHardStop(targetChar) {
+    isGameActive = false;
+    clearInterval(timerInterval);
+    isHardStop = true; // Prevents generic modal logic
+    
+    // Determine friendly key name
+    let friendlyKey = targetChar;
+    if (targetChar === ' ') friendlyKey = 'Space';
+    if (targetChar === '\n') friendlyKey = 'Enter';
+    if (targetChar === '\t') friendlyKey = 'Tab';
+
+    const modal = document.getElementById('modal');
+    document.getElementById('modal-title').innerText = "Pausing for Accuracy";
+    document.getElementById('modal-body').innerHTML = `
+        <div style="font-size: 1.2em; margin: 20px 0;">
+            Please type <b style="color: #D32F2F; font-size: 1.5em; border: 1px solid #ccc; padding: 2px 8px; border-radius: 4px;">${friendlyKey}</b> to resume.
+        </div>
+    `;
+    const btn = document.getElementById('action-btn');
+    btn.style.display = 'none'; // Hide button, force keypress
+    modal.classList.remove('hidden');
+    isModalOpen = true; 
+    isInputBlocked = false;
+}
+
+function resumeGame() {
+    isModalOpen = false;
+    isHardStop = false;
+    document.getElementById('modal').classList.add('hidden');
+    
+    // Reset counters but don't reset sprint start time fully?
+    // User loses time while paused, that's the penalty.
+    isGameActive = true;
+    timerInterval = setInterval(gameTick, 100); 
+    consecutiveMistakes = 0;
+    
+    const keyboard = document.getElementById('virtual-keyboard'); 
+    if(keyboard) keyboard.focus();
 }
 
 document.addEventListener('keyup', (e) => { if (e.key === "Shift") toggleKeyboardCase(false); });
@@ -551,23 +598,19 @@ function finishChapter() {
     let nextChapterId = null;
     
     if (bookMetadata && bookMetadata.chapters) {
-        // Find index of current
+        // Find index of current (loose comparison for string vs number)
         const currentIdx = bookMetadata.chapters.findIndex(c => c.id == "chapter_" + currentChapterNum);
         
         if (currentIdx !== -1 && currentIdx + 1 < bookMetadata.chapters.length) {
             // Get next ID from metadata
             const nextChap = bookMetadata.chapters[currentIdx + 1];
-            
-            // Extract Number (e.g., chapter_2.3 -> 2.3)
             nextChapterId = nextChap.id.replace("chapter_", "");
         }
     }
     
-    // Fallback if metadata missing or we are at end
     if (!nextChapterId) {
-        // If it was a simple number, just add 1
         if (!isNaN(currentChapterNum)) nextChapterId = parseFloat(currentChapterNum) + 1;
-        else nextChapterId = 1; // Reset
+        else nextChapterId = 1;
     }
     
     const charsTyped = currentCharIndex - sprintCharStart;
@@ -601,9 +644,12 @@ function finishChapter() {
 function getHeaderHTML() {
     let bookTitle = (bookMetadata && bookMetadata.title) ? bookMetadata.title : currentBookId.replace(/_/g, ' ');
     let chapTitle = `Chapter ${currentChapterNum}`;
+    
     if (bookMetadata && bookMetadata.chapters) {
         const c = bookMetadata.chapters.find(ch => ch.id == "chapter_" + currentChapterNum);
-        if (c && c.title) chapTitle = c.title; 
+        if (c && c.title && c.title !== `Chapter ${currentChapterNum}`) {
+            chapTitle += ` | ${c.title}`;
+        }
     }
     return `<div class="modal-book-title">${bookTitle}</div><div class="modal-chap-info">${chapTitle}</div>`;
 }
@@ -683,7 +729,6 @@ async function openMenuModal() {
     let chapterOptions = "";
     if (bookMetadata && bookMetadata.chapters) {
         bookMetadata.chapters.forEach((chap) => {
-            // ID format is "chapter_X", extract X
             const num = chap.id.replace("chapter_", "");
             let sel = (num == currentChapterNum) ? "selected" : "";
             chapterOptions += `<option value="${num}" ${sel}>${chap.title || num}</option>`;
@@ -732,7 +777,6 @@ async function openMenuModal() {
     };
 
     document.getElementById('go-btn').onclick = () => {
-        // Can be float now
         const val = document.getElementById('chapter-nav-select').value;
         if(val != currentChapterNum) {
             handleChapterSwitch(val);
@@ -749,7 +793,6 @@ async function openMenuModal() {
 }
 
 function handleChapterSwitch(newChapter) {
-    // Compare loosely or parseFloat
     if (newChapter != currentChapterNum) switchChapterHot(newChapter);
     else if(confirm(`Go back to Chapter ${newChapter}?`)) switchChapterHot(newChapter);
 }
