@@ -1,4 +1,4 @@
-/* v1.9.1.9.1 - Layout Stability & Enter Key Placement */
+/* v1.9.1.9.2 - Layout Fixes & Thicker Icons */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -90,7 +90,7 @@ body {
     padding-bottom: 300px; 
 }
 
-/* WORD WRAPPING: Reverted to inline-block/pre for stability */
+/* WORD WRAPPING FIX: Inline-block + Pre */
 .word {
     display: inline-block; 
     white-space: pre; 
@@ -104,10 +104,9 @@ body {
     padding: 2px 0; line-height: 1.2; position: relative; color: #ccc;
 }
 
-/* SPACES: Standalone, no weird styling */
+/* SPACES: No extra styling, just size */
 .letter.space { 
     min-width: 14.4px; 
-    /* Ensure no underlines/borders bleed in */
     border-bottom: none !important;
     text-decoration: none !important;
 }
@@ -121,25 +120,32 @@ body {
 }
 .letter.tab::before {
     content: '→';
-    font-size: 18px; 
-    vertical-align: middle;
+    font-size: 24px; /* Larger */
+    font-weight: 700; /* Thicker */
+    position: absolute;
+    left: 50%; 
+    top: 45%; /* Moved up slightly to center with Caps */
+    transform: translate(-50%, -50%);
     opacity: 0.5;
 }
 .letter.tab.done-perfect, .letter.tab.done-fixed { border-bottom: none; }
 .letter.tab.done-perfect::before, .letter.tab.done-fixed::before { opacity: 0.1; }
 
-/* ENTER CHARACTER (↵) - Attached to Word */
+/* ENTER CHARACTER (↵) */
 .letter.enter {
     width: 20px;
     text-align: center;
     margin-left: 2px;
     color: #999;
+    position: relative;
 }
 .letter.enter::before {
     content: '↵';
     font-size: 20px; 
-    vertical-align: middle;
-    font-weight: bold;
+    font-weight: 700;
+    position: absolute;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
     opacity: 0.5;
 }
 .letter.enter.done-perfect::before { opacity: 0.1; }
