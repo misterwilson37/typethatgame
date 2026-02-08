@@ -1,4 +1,4 @@
-// v1.9.3 - Multi-Book, Start-Skip, No Images
+// v1.9.3.1 - Smart Start (Skip Space/Enter), Strict Tab, Dynamic Chapters
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc, getDocs, collection } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,9 +9,10 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.9.3";
+const VERSION = "1.9.3.1";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000; 
+const SPRINT_COOLDOWN_MS = 1500; 
 
 // STATE
 let currentBookId = localStorage.getItem('currentBookId') || DEFAULT_BOOK;
@@ -108,7 +109,6 @@ async function loadBookMetadata() {
         if (docSnap.exists()) {
             bookMetadata = docSnap.data();
         } else {
-            // Fallback if book deleted or invalid
             if(currentBookId !== DEFAULT_BOOK) {
                 currentBookId = DEFAULT_BOOK;
                 localStorage.setItem('currentBookId', DEFAULT_BOOK);
@@ -203,12 +203,7 @@ function setupGame() {
     renderText();
     currentCharIndex = savedCharIndex;
     
-    // START-SKIP LOGIC: Move cursor forward if saved on whitespace
-    while (currentCharIndex < fullText.length && (fullText[currentCharIndex] === ' ' || fullText[currentCharIndex] === '\n' || fullText[currentCharIndex] === '\t')) {
-        const charEl = document.getElementById(`char-${currentCharIndex}`);
-        if (charEl) charEl.classList.add('done-perfect');
-        currentCharIndex++;
-    }
+    // NOTE: Removed auto-skip loops. Cursor stays exactly where saved.
 
     if (currentCharIndex > 0) {
         for (let i = 0; i < currentCharIndex; i++) {
@@ -281,12 +276,7 @@ function startGame() {
         sessionLimit = (sessionValueStr === 'infinity') ? 'infinity' : parseInt(sessionValueStr);
     }
 
-    // START-SKIP LOGIC: Ensure we don't force start on space/enter
-    while (currentCharIndex < fullText.length && (fullText[currentCharIndex] === ' ' || fullText[currentCharIndex] === '\n' || fullText[currentCharIndex] === '\t')) {
-        const charEl = document.getElementById(`char-${currentCharIndex}`);
-        if (charEl) charEl.classList.add('done-perfect');
-        currentCharIndex++;
-    }
+    // NOTE: Removed auto-skip loops.
     
     sprintSeconds = 0; sprintMistakes = 0; sprintCharStart = currentCharIndex; 
     activeSeconds = 0; timeAccumulator = 0; lastInputTime = Date.now(); 
@@ -356,12 +346,57 @@ function updateRunningAccuracy(isCorrect) {
 document.addEventListener('keydown', (e) => {
     if (isModalOpen) {
         if (isInputBlocked) return; 
-        const isStartKey = (e.key === "Enter") || (e.key === " ");
-        if (isStartKey && modalActionCallback) {
-            e.preventDefault(); modalActionCallback(); return;
+        
+        // --- SMART START LOGIC ---
+        let shouldStart = false;
+        let shouldSkip = false;
+        
+        const targetChar = fullText[currentCharIndex];
+        
+        // 1. Direct Match (User types correct key)
+        if (e.key === targetChar) shouldStart = true;
+        if (targetChar === '\n' && e.key === 'Enter') shouldStart = true;
+        if (targetChar === '\t' && e.key === 'Tab') shouldStart = true;
+        
+        // 2. Smart Skip (User skips Space/Enter)
+        // Rule: Only ignore Space/Enter. Never ignore Tab.
+        if (!shouldStart && (targetChar === ' ' || targetChar === '\n')) {
+            const nextCharIndex = currentCharIndex + 1;
+            if (nextCharIndex < fullText.length) {
+                const nextChar = fullText[nextCharIndex];
+                
+                let matchNext = (e.key === nextChar);
+                // Allow Tab start if next char is Tab
+                if (nextChar === '\t' && e.key === 'Tab') matchNext = true;
+                
+                if (matchNext) {
+                    shouldStart = true;
+                    shouldSkip = true;
+                }
+            }
+        }
+
+        if (shouldStart && modalActionCallback) {
+            e.preventDefault();
+            
+            // 1. Activate Game
+            modalActionCallback(); // Calls startGame() which sets isGameActive=true
+            
+            // 2. Handle Skip if needed
+            if (shouldSkip) {
+                const skippedEl = document.getElementById(`char-${currentCharIndex}`);
+                if(skippedEl) skippedEl.classList.add('done-perfect');
+                currentCharIndex++;
+            }
+            
+            // 3. Process the typed key immediately
+            handleTyping(e.key);
+            return;
         }
         return;
     }
+    
+    // Normal Game Logic
     if (e.key === "Escape" && isGameActive) { pauseGameForBreak(); return; }
     if (e.key === "Shift") toggleKeyboardCase(true);
     if (!isGameActive) return;
@@ -448,7 +483,6 @@ function highlightCurrentChar() {
 }
 
 function updateImageDisplay() {
-    // Images Removed per user request
     const p = document.getElementById('image-panel');
     if(p) p.style.display = 'none';
 }
@@ -513,7 +547,6 @@ function finishChapter() {
     isGameActive = false; clearInterval(timerInterval);
     const nextChapter = currentChapterNum + 1;
     
-    // Same stats logic as Pause
     const charsTyped = currentCharIndex - sprintCharStart;
     const sprintMinutes = sprintSeconds / 60;
     const sprintWPM = (sprintMinutes > 0) ? Math.round((charsTyped / 5) / sprintMinutes) : 0;
@@ -551,7 +584,8 @@ function showStartModal(title, btnText) {
     const html = `
         ${getDropdownHTML()}
         <p style="font-size:0.8rem; color:#777; margin-top: 15px;">
-            Type the first letter to start.<br>
+            Type the first character to start.<br>
+            (You can skip Space or Enter at the start, but Tabs are required.)<br>
             Press <b>ESC</b> anytime to pause.
         </p>
     `;
@@ -618,7 +652,6 @@ async function openMenuModal() {
         });
     }
 
-    // Book Options - Fetch dynamically
     let bookOptions = "";
     try {
         const querySnapshot = await getDocs(collection(db, "books"));
@@ -649,13 +682,12 @@ async function openMenuModal() {
         </div>
     `;
     
-    // Handlers
     document.getElementById('book-select').onchange = (e) => {
         if(confirm("Switch book? Progress saved.")) {
             currentBookId = e.target.value;
             localStorage.setItem('currentBookId', currentBookId);
             loadBookMetadata().then(() => {
-                loadUserProgress(); // Reloads chapter 1 of new book
+                loadUserProgress(); 
                 closeModal();
             });
         }
@@ -690,7 +722,6 @@ async function switchChapterHot(newChapter) {
     closeModal(); textStream.innerHTML = "Switching..."; loadChapter(newChapter);
 }
 
-// KEYBOARD UI (Standard)
 const rows = [['q','w','e','r','t','y','u','i','o','p','[',']','\\'],['a','s','d','f','g','h','j','k','l',';',"'"],['z','x','c','v','b','n','m',',','.','/']];
 const shiftRows = [['Q','W','E','R','T','Y','U','I','O','P','{','}','|'],['A','S','D','F','G','H','J','K','L',':','"'],['Z','X','C','V','B','N','M','<','>','?']];
 
