@@ -1,4 +1,4 @@
-/* v1.9.1.8 - Paragraphs, Enter Keys, and Tabs */
+/* v1.9.1.9 - Fixed Line Wrapping and Special Keys */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -87,69 +87,66 @@ body {
     width: 80%;
     max-width: 800px;
     transition: transform 0.2s ease-out; 
-    padding-bottom: 300px; /* Space for scrolling */
+    padding-bottom: 300px; 
 }
 
-/* Words are inline-block to keep letters together, but we allow wrapping now */
+/* WORD WRAPPING FIX */
 .word {
     display: inline-block; 
-    white-space: pre;
+    white-space: normal; /* Allow wrapping */
     line-height: 2.5em; 
     font-size: 24px; 
     color: #ccc; 
+    margin-right: 0; /* Let space char handle spacing */
 }
 
 .letter {
-    display: inline-block; vertical-align: bottom; min-width: 14.4px;           
+    display: inline-block; vertical-align: baseline; min-width: 14.4px;           
     padding: 2px 0; line-height: 1.2; position: relative; color: #ccc;
 }
 .letter.space { min-width: 14.4px; }
 
 /* TAB CHARACTER (→) */
 .letter.tab {
-    min-width: 40px; 
-    position: relative;
-    border-bottom: 1px dashed #eee; /* Faint guide */
+    width: 40px; 
+    text-align: center;
+    border-bottom: 1px dotted #ddd;
+    color: #999;
 }
 .letter.tab::before {
     content: '→';
-    position: absolute;
-    left: 50%; top: 50%;
-    transform: translate(-50%, -50%);
-    font-size: 14px;
-    color: #999;
+    font-size: 18px; /* Bigger font */
+    vertical-align: middle;
+    opacity: 0.5;
 }
+.letter.tab.done-perfect, .letter.tab.done-fixed { border-bottom: none; }
+.letter.tab.done-perfect::before, .letter.tab.done-fixed::before { opacity: 0.1; }
 
 /* ENTER CHARACTER (↵) */
 .letter.enter {
-    min-width: 20px;
-    position: relative;
+    width: 30px;
+    text-align: center;
     margin-left: 5px;
+    color: #999;
 }
 .letter.enter::before {
     content: '↵';
-    position: absolute;
-    left: 50%; top: 50%;
-    transform: translate(-50%, -50%);
-    font-size: 18px;
-    color: #999;
+    font-size: 20px; /* Bigger font */
+    vertical-align: middle;
     font-weight: bold;
+    opacity: 0.5;
 }
+.letter.enter.done-perfect::before { opacity: 0.1; }
 
-/* Hide symbols when typed correctly */
-.letter.tab.done-perfect::before,
-.letter.enter.done-perfect::before {
-    color: var(--corrected-color); /* Keep visible but colored? Or hide? User preference. */
-    opacity: 0.2; /* Fade them out */
-}
-
+/* ACTIVE STATES */
 .letter.active { background-color: var(--carolina-blue); color: white !important; border-radius: 2px; }
 .letter.active.error-state { background-color: var(--error-bg); color: black !important; }
 
-/* Active State for Special Keys */
+/* Active Special Keys */
 .letter.tab.active::before,
 .letter.enter.active::before {
     color: white;
+    opacity: 1;
 }
 
 .letter.done-perfect { color: var(--black); } 
@@ -194,10 +191,7 @@ body {
 }
 @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
 
-.stat-row {
-    display: flex; justify-content: center; gap: 40px; margin: 20px 0;
-    font-size: 1.2em; color: #333;
-}
+.stat-row { display: flex; justify-content: center; gap: 40px; margin: 20px 0; font-size: 1.2em; color: #333; }
 .stat-item span { display: block; font-size: 2em; font-weight: bold; color: var(--black); }
 
 .modal-btn {
@@ -209,28 +203,13 @@ body {
 .modal-btn:active { transform: translateY(2px); box-shadow: 0 2px 0 #2b7ca8; }
 .modal-btn:disabled { background: #999; cursor: not-allowed; box-shadow: none; }
 
-/* DROPDOWN */
 select.modal-select {
-    width: auto;             
-    min-width: 150px;
-    max-width: 100%;
-    display: block;          
-    margin: 5px auto 20px auto; 
-    background-color: #222;
-    color: #eee;
-    border: 1px solid #444;
-    padding: 10px 30px 10px 15px; 
-    border-radius: 4px;
-    font-family: inherit;
-    font-size: 1rem;
-    outline: none;
-    cursor: pointer;
-    appearance: none;
-    -webkit-appearance: none;
+    width: auto; min-width: 150px; max-width: 100%; display: block; margin: 5px auto 20px auto; 
+    background-color: #222; color: #eee; border: 1px solid #444; padding: 10px 30px 10px 15px; 
+    border-radius: 4px; font-family: inherit; font-size: 1rem; outline: none; cursor: pointer;
+    appearance: none; -webkit-appearance: none;
     background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2300ff41%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E");
-    background-repeat: no-repeat;
-    background-position: right 10px top 50%;
-    background-size: 10px auto;
+    background-repeat: no-repeat; background-position: right 10px top 50%; background-size: 10px auto;
 }
 .menu-section select.modal-select { margin: 0; flex-grow: 1; min-width: 0; }
 
