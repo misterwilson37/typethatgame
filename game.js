@@ -1,4 +1,4 @@
-// v1.9.1.9.3 - Fixed Space Skipping & Icon Styling
+// v1.9.1.9.4 - Strict Mode (No Space Skipping)
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,7 +9,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.9.1.9.3";
+const VERSION = "1.9.1.9.4";
 const BOOK_ID = "wizard_of_oz"; 
 const IDLE_THRESHOLD = 2000; 
 const SPRINT_COOLDOWN_MS = 1500; 
@@ -201,8 +201,12 @@ function setupGame() {
     renderText();
     currentCharIndex = savedCharIndex;
     
-    // NOTE: Removed the auto-skip loop here. 
-    // We start exactly where the user left off, even if it's a space.
+    // SKIP LOGIC: Start of session skip allowed
+    while (currentCharIndex < fullText.length && (fullText[currentCharIndex] === ' ' || fullText[currentCharIndex] === '\n')) {
+        const charEl = document.getElementById(`char-${currentCharIndex}`);
+        if (charEl) charEl.classList.add('done-perfect');
+        currentCharIndex++;
+    }
 
     if (currentCharIndex > 0) {
         for (let i = 0; i < currentCharIndex; i++) {
@@ -311,7 +315,12 @@ function startGame() {
         sessionLimit = (sessionValueStr === 'infinity') ? 'infinity' : parseInt(sessionValueStr);
     }
 
-    // NOTE: Removed auto-skip loop here too.
+    // SKIP LOGIC at Start of Sprint
+    while (currentCharIndex < fullText.length && (fullText[currentCharIndex] === ' ' || fullText[currentCharIndex] === '\n')) {
+        const charEl = document.getElementById(`char-${currentCharIndex}`);
+        if (charEl) charEl.classList.add('done-perfect');
+        currentCharIndex++;
+    }
     
     highlightCurrentChar();
     centerView();
@@ -400,7 +409,7 @@ document.addEventListener('keydown', (e) => {
     if (isModalOpen) {
         if (isInputBlocked) return; 
 
-        // SMART START
+        // SMART START: Check if key matches current char OR next valid char (skipping space/enter)
         let tempIndex = currentCharIndex;
         // Look ahead for next REAL char (skip space/enter)
         while (tempIndex < fullText.length && (fullText[tempIndex] === ' ' || fullText[tempIndex] === '\n')) {
@@ -459,51 +468,16 @@ function handleTyping(key) {
         return;
     }
 
-    // 4. SMART MATCHING LOGIC
-    let isCorrect = false;
-
-    // A) Direct Match (User types space for space, enter for enter)
-    if (inputChar === targetChar) {
-        isCorrect = true;
-    } 
-    // B) Smart Skip (User typed next letter instead of Space/Enter)
-    else {
-        // Look ahead
-        let lookAheadIndex = currentCharIndex;
-        while (lookAheadIndex < fullText.length && (fullText[lookAheadIndex] === ' ' || fullText[lookAheadIndex] === '\n')) {
-            lookAheadIndex++;
-        }
-        
-        if (lookAheadIndex < fullText.length) {
-            const nextRealChar = fullText[lookAheadIndex];
-            if (inputChar === nextRealChar) {
-                // MATCH FOUND via Skip!
-                isCorrect = true;
-                
-                // Auto-complete the skipped spaces/enters
-                for (let i = currentCharIndex; i < lookAheadIndex; i++) {
-                    const skipEl = document.getElementById(`char-${i}`);
-                    if (skipEl) {
-                        skipEl.classList.remove('active');
-                        skipEl.classList.add('done-perfect');
-                    }
-                }
-                // Advance index to the character we just matched
-                currentCharIndex = lookAheadIndex; 
-            }
-        }
-    }
+    // 4. STRICT MATCHING LOGIC (No Skipping)
+    let isCorrect = (inputChar === targetChar);
 
     if (isCorrect) {
-        // Get Element again (index might have changed due to skip)
-        const matchedEl = document.getElementById(`char-${currentCharIndex}`);
+        currentEl.classList.remove('active');
+        currentEl.classList.remove('error-state');
         
-        matchedEl.classList.remove('active');
-        matchedEl.classList.remove('error-state');
-        
-        if (currentLetterStatus === 'clean') matchedEl.classList.add('done-perfect'); 
-        else if (currentLetterStatus === 'fixed') matchedEl.classList.add('done-fixed'); 
-        else matchedEl.classList.add('done-dirty'); 
+        if (currentLetterStatus === 'clean') currentEl.classList.add('done-perfect'); 
+        else if (currentLetterStatus === 'fixed') currentEl.classList.add('done-fixed'); 
+        else currentEl.classList.add('done-dirty'); 
 
         currentCharIndex++;
         currentLetterStatus = 'clean'; 
@@ -531,9 +505,6 @@ function handleTyping(key) {
             return;
         }
         
-        // REMOVED: Auto-skip space/enter AFTER typing. 
-        // User must type space/enter OR use Smart Skip on next letter.
-
         highlightCurrentChar();
         centerView();
         updateImageDisplay();
