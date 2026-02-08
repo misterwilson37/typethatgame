@@ -1,4 +1,4 @@
-// v1.9.1.7 - Tab Support & Stats Visibility
+// v1.9.1.8 - Paragraphs & Enter Key Support
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,7 +9,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.9.1.7";
+const VERSION = "1.9.1.8";
 const BOOK_ID = "wizard_of_oz"; 
 const IDLE_THRESHOLD = 2000; 
 const SPRINT_COOLDOWN_MS = 1500; 
@@ -136,9 +136,6 @@ async function loadUserStats() {
         }
         statsData.lastDate = dateStr;
         statsData.weekStart = weekStart;
-        
-        console.log("STATS LOADED from DB:", statsData);
-
     } catch (e) { console.warn("Stats Load Error:", e); }
 }
 
@@ -198,13 +195,17 @@ async function loadChapter(chapterNum) {
 }
 
 function setupGame() {
-    fullText = bookData.segments.map(s => s.text).join(" ");
+    // IMPORTANT: Join with Newline for paragraphs
+    fullText = bookData.segments.map(s => s.text).join("\n");
+    // Standardize quotes
     fullText = fullText.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
     
     renderText();
     currentCharIndex = savedCharIndex;
     
-    // Auto-advance if load starts on space
+    // Auto-advance logic if needed
+    // (Note: We usually stop at spaces, but now we have tabs and newlines. 
+    // It's safer to start exactly where saved unless it's strictly a ' ' space)
     if (fullText[currentCharIndex] === ' ') {
         const spaceEl = document.getElementById(`char-${currentCharIndex}`);
         if (spaceEl) spaceEl.classList.add('done-perfect');
@@ -237,35 +238,64 @@ function setupGame() {
     }
 }
 
-// --- ENGINE (VERTICAL with TAB Support) ---
+// --- ENGINE (PARAGRAPH RENDERER) ---
 function renderText() {
     textStream.innerHTML = '';
-    const words = fullText.split(' ');
-    let charCount = 0;
-    words.forEach(word => {
-        const wordSpan = document.createElement('span');
-        wordSpan.className = 'word';
-        for (let char of word) {
+    const container = document.createDocumentFragment();
+    let wordBuffer = document.createElement('span');
+    wordBuffer.className = 'word';
+
+    for (let i = 0; i < fullText.length; i++) {
+        const char = fullText[i];
+        
+        if (char === '\n') {
+            // End current word
+            if (wordBuffer.hasChildNodes()) container.appendChild(wordBuffer);
+            
+            // Create New Word Buffer for the Enter Key
+            wordBuffer = document.createElement('span'); 
+            wordBuffer.className = 'word'; // Or keep it loose? Better in word for spacing.
+            
+            const span = document.createElement('span');
+            span.className = 'letter enter';
+            span.innerText = ''; // CSS adds symbol
+            span.id = `char-${i}`;
+            wordBuffer.appendChild(span);
+            container.appendChild(wordBuffer);
+            
+            // Add Visual Line Break
+            container.appendChild(document.createElement('br'));
+            
+            // Reset buffer for next line
+            wordBuffer = document.createElement('span');
+            wordBuffer.className = 'word';
+            
+        } else if (char === '\t') {
+            // Tab is treated as a character inside a word (usually start of word)
+            const span = document.createElement('span');
+            span.className = 'letter tab';
+            span.innerText = ''; // CSS adds arrow
+            span.id = `char-${i}`;
+            wordBuffer.appendChild(span);
+            
+        } else if (char === ' ') {
+            const span = document.createElement('span');
+            span.className = 'letter space';
+            span.innerText = ' ';
+            span.id = `char-${i}`;
+            wordBuffer.appendChild(span);
+            
+        } else {
             const span = document.createElement('span');
             span.className = 'letter';
-            if (char === '\t') {
-                span.className = 'letter tab'; // TAB CLASS
-                span.innerText = ''; // Empty, handled by CSS
-            } else {
-                span.innerText = char;
-            }
-            span.id = `char-${charCount}`;
-            wordSpan.appendChild(span);
-            charCount++;
+            span.innerText = char;
+            span.id = `char-${i}`;
+            wordBuffer.appendChild(span);
         }
-        const spaceSpan = document.createElement('span');
-        spaceSpan.className = 'letter space';
-        spaceSpan.innerText = ' '; 
-        spaceSpan.id = `char-${charCount}`;
-        wordSpan.appendChild(spaceSpan);
-        charCount++;
-        textStream.appendChild(wordSpan);
-    });
+    }
+    
+    if (wordBuffer.hasChildNodes()) container.appendChild(wordBuffer);
+    textStream.appendChild(container);
 }
 
 function startGame() {
@@ -376,8 +406,11 @@ document.addEventListener('keydown', (e) => {
         }
 
         const isStartKey = (e.key === "Enter") || (e.key === " ");
-        // Check for Tab start too
-        const isMatchKey = (e.key === effectiveTarget) || (nextChar && e.key === nextChar) || (effectiveTarget === '\t' && e.key === 'Tab');
+        
+        // Match logic: Char match, Next Char (skip space) match, or TAB match
+        let isMatchKey = (e.key === effectiveTarget) || (nextChar && e.key === nextChar);
+        if (effectiveTarget === '\t' && e.key === 'Tab') isMatchKey = true;
+        if (effectiveTarget === '\n' && e.key === 'Enter') isMatchKey = true;
 
         if ((isStartKey || isMatchKey) && modalActionCallback) {
             e.preventDefault();
@@ -395,9 +428,10 @@ document.addEventListener('keydown', (e) => {
 
     if (e.key === "Shift") toggleKeyboardCase(true);
     if (!isGameActive) return;
-    if (["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(e.key)) return; // Allow Tab
-    if (e.key === " ") e.preventDefault(); 
-    if (e.key === "Tab") e.preventDefault(); // Stop focus change
+    if (["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(e.key)) return; 
+    
+    // Prevent default scrolling for Space/Tab/Enter so they can be typed
+    if (e.key === " " || e.key === "Tab" || e.key === "Enter") e.preventDefault();
 
     handleTyping(e.key);
 });
@@ -409,9 +443,10 @@ function handleTyping(key) {
     const targetChar = fullText[currentCharIndex];
     const currentEl = document.getElementById(`char-${currentCharIndex}`);
 
-    // Map TAB key to \t character
+    // MAP INPUT KEYS
     let inputChar = key;
     if (key === "Tab") inputChar = "\t";
+    if (key === "Enter") inputChar = "\n";
 
     if (key === "Backspace") {
         if (currentLetterStatus === 'error') {
@@ -433,7 +468,8 @@ function handleTyping(key) {
         currentCharIndex++;
         currentLetterStatus = 'clean'; 
         
-        if (['.', '!', '?'].includes(targetChar)) saveProgress();
+        // Save on sentence end OR paragraph end
+        if (['.', '!', '?', '\n'].includes(targetChar)) saveProgress();
         else if (['"', "'"].includes(targetChar) && currentCharIndex >= 2) {
             const prevChar = fullText[currentCharIndex - 2];
             if (['.', '!', '?'].includes(prevChar)) saveProgress();
@@ -442,14 +478,13 @@ function handleTyping(key) {
         updateRunningWPM();
         updateRunningAccuracy(true);
 
+        // Overtime check logic (modified for Enter)
         if (isOvertime) {
-            if (['.', '!', '?'].includes(targetChar)) {
+            // Stop if we hit punctuation or Enter
+            if (['.', '!', '?', '\n'].includes(targetChar)) {
+                // If it's a quote next, let them finish the quote
                 const nextChar = fullText[currentCharIndex]; 
                 if (nextChar !== '"' && nextChar !== "'") { triggerStop(); return; }
-            }
-            if (['"', "'"].includes(targetChar)) {
-                 const prevChar = fullText[currentCharIndex - 2]; 
-                 if (['.', '!', '?'].includes(prevChar)) { triggerStop(); return; }
             }
         }
 
@@ -467,7 +502,7 @@ function handleTyping(key) {
         sprintMistakes++;
         if (currentLetterStatus === 'clean') currentLetterStatus = 'error';
         currentEl.classList.add('error-state'); 
-        flashKey(key);
+        flashKey(key); // flash the visual key
         updateRunningAccuracy(false);
     }
 }
@@ -518,7 +553,6 @@ function updateImageDisplay() {
 async function saveProgress(force = false) {
     if (!currentUser) return;
     try {
-        // Save Progress
         if (currentCharIndex > lastSavedIndex || force) {
             await setDoc(doc(db, "users", currentUser.uid, "progress", BOOK_ID), {
                 chapter: currentChapterNum,
@@ -527,21 +561,17 @@ async function saveProgress(force = false) {
             }, { merge: true });
             lastSavedIndex = currentCharIndex;
         }
-        
-        // Save Stats
-        console.log("SAVING STATS to DB:", statsData);
         await setDoc(doc(db, "users", currentUser.uid, "stats", "time_tracking"), {
             secondsToday: statsData.secondsToday,
             secondsWeek: statsData.secondsWeek,
             lastDate: statsData.lastDate,
             weekStart: statsData.weekStart
         }, { merge: true });
-        
     } catch (e) { console.warn("Save failed:", e); }
 }
 
 function formatTime(seconds) {
-    if (seconds === undefined || seconds === null || isNaN(seconds)) return "0m 0s"; 
+    if (!seconds) return "0m 0s"; 
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
     return `${m}m ${s}s`;
@@ -559,8 +589,6 @@ function pauseGameForBreak() {
     const todayStr = formatTime(statsData.secondsToday);
     const weekStr = formatTime(statsData.secondsWeek);
     
-    console.log("PAUSE STATS DISPLAY:", { today: todayStr, week: weekStr, raw: statsData });
-
     const stats = { 
         time: sprintSeconds, 
         wpm: sprintWPM, 
@@ -860,7 +888,8 @@ function highlightKey(char) {
     let needsShift = false;
     
     if (char === ' ') targetId = 'key- ';
-    else if (char === '\t') targetId = 'key-TAB'; // MAP TAB for highlight
+    else if (char === '\t') targetId = 'key-TAB'; 
+    else if (char === '\n') targetId = 'key-ENTER'; // MAP ENTER
     else {
         const keys = Array.from(document.querySelectorAll('.key'));
         const found = keys.find(k => k.dataset.char === char || k.dataset.shift === char);
@@ -879,7 +908,8 @@ function highlightKey(char) {
 function flashKey(char) {
     let targetId = '';
     if (char === ' ') targetId = 'key- ';
-    else if (char === '\t' || char === 'Tab') targetId = 'key-TAB'; // MAP TAB for flash
+    else if (char === '\t' || char === 'Tab') targetId = 'key-TAB';
+    else if (char === '\n' || char === 'Enter') targetId = 'key-ENTER'; // MAP ENTER
     else {
         const keys = Array.from(document.querySelectorAll('.key'));
         const found = keys.find(k => k.dataset.char === char || k.dataset.shift === char);
