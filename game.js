@@ -1,4 +1,4 @@
-// v1.7.3 - Restored Vertical Engine
+// v1.7.1 - Cleaned Navigation & Menu (No Seeding Hacks)
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,9 +9,10 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.7.3";
+const VERSION = "1.7.1";
 const BOOK_ID = "wizard_of_oz"; 
 const IDLE_THRESHOLD = 2000; 
+const SPRINT_COOLDOWN_MS = 1500; 
 
 // STATE
 let currentUser = null;
@@ -26,16 +27,33 @@ let currentChapterNum = 1;
 let sessionLimit = 30; 
 let sessionValueStr = "30"; 
 
-// Time Stats
-let statsData = { secondsToday: 0, secondsWeek: 0, lastDate: "", weekStart: 0 };
+// Time Stats State
+let statsData = {
+    secondsToday: 0,
+    secondsWeek: 0,
+    lastDate: "",
+    weekStart: 0
+};
 
 // Game State
-let mistakes = 0; let sprintMistakes = 0; let activeSeconds = 0; let sprintSeconds = 0; let sprintCharStart = 0; 
-let timerInterval = null; let isGameActive = false; let isOvertime = false; let isModalOpen = false; 
-let isInputBlocked = false; let modalActionCallback = null;
+let mistakes = 0; 
+let sprintMistakes = 0; 
+let activeSeconds = 0; 
+let sprintSeconds = 0; 
+let sprintCharStart = 0; 
+let timerInterval = null;
+let isGameActive = false;
+let isOvertime = false;
+let isModalOpen = false;
+let isInputBlocked = false; 
+let modalActionCallback = null;
 
 // Timer & Speed
-let lastInputTime = 0; let timeAccumulator = 0; let wpmHistory = []; let accuracyHistory = []; 
+let lastInputTime = 0;
+let timeAccumulator = 0;
+let wpmHistory = [];
+let accuracyHistory = [];
+let currentLetterStatus = 'clean'; 
 
 // DOM Elements
 const textStream = document.getElementById('text-stream');
@@ -57,10 +75,11 @@ async function init() {
     const footer = document.querySelector('footer');
     if(footer) footer.innerText = `JS: v${VERSION}`;
     
+    // Inject Menu Button
     if (!document.getElementById('menu-btn')) {
         const btn = document.createElement('button');
         btn.id = 'menu-btn';
-        btn.innerHTML = '&#9776;'; 
+        btn.innerHTML = '&#9881;'; // Gear Icon
         btn.onclick = openMenuModal;
         document.body.appendChild(btn);
     }
@@ -84,10 +103,12 @@ async function init() {
 function setupAuthListeners() {
     loginBtn.addEventListener('click', async () => {
         const provider = new GoogleAuthProvider();
-        try { await signInWithPopup(auth, provider); } catch (error) { alert("Login failed: " + error.message); }
+        try { await signInWithPopup(auth, provider); } 
+        catch (error) { alert("Login failed: " + error.message); }
     });
     logoutBtn.addEventListener('click', async () => {
-        try { await signOut(auth); location.reload(); } catch (error) { console.error("Logout failed", error); }
+        try { await signOut(auth); location.reload(); } 
+        catch (error) { console.error("Logout failed", error); }
     });
 }
 
@@ -102,7 +123,7 @@ function updateAuthUI(isLoggedIn) {
     }
 }
 
-// --- DATA ---
+// --- DATA & SAVING ---
 async function loadUserStats() {
     try {
         const today = new Date();
@@ -134,37 +155,44 @@ async function loadUserProgress() {
     try {
         const docRef = doc(db, "users", currentUser.uid, "progress", BOOK_ID);
         const docSnap = await getDoc(docRef);
+        
         if (docSnap.exists()) {
             const data = docSnap.data();
             currentChapterNum = data.chapter || 1;
             savedCharIndex = data.charIndex || 0;
         } else {
-            currentChapterNum = 1; savedCharIndex = 0;
+            currentChapterNum = 1;
+            savedCharIndex = 0;
         }
         lastSavedIndex = savedCharIndex; 
         loadChapter(currentChapterNum);
-    } catch (e) { console.error("Load Progress Error:", e); loadChapter(1); }
+    } catch (e) {
+        console.error("Load Progress Error:", e);
+        loadChapter(1);
+    }
 }
 
 async function loadChapter(chapterNum) {
-    textStream.innerHTML = `Loading Chapter ${chapterNum}...`;
     try {
         const docRef = doc(db, "books", BOOK_ID, "chapters", "chapter_" + chapterNum);
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
             bookData = docSnap.data();
-            currentChapterNum = chapterNum; 
             setupGame();
         } else {
+            // Handle missing chapter
             if(chapterNum > 1) {
-                alert(`Chapter ${chapterNum} is not available yet! Returning to Chapter 1.`);
-                currentChapterNum = 1; savedCharIndex = 0;
+                alert(`Chapter ${chapterNum} not found. Returning to Chapter 1.`);
+                currentChapterNum = 1;
+                savedCharIndex = 0;
                 loadChapter(1);
             } else {
-                textStream.innerText = "Chapter 1 not found. Please upload it.";
+                textStream.innerText = "Chapter 1 not found. Please check Admin Panel.";
             }
         }
-    } catch (e) { textStream.innerHTML = "Error loading chapter."; }
+    } catch (e) {
+        textStream.innerHTML = "Error loading chapter.";
+    }
 }
 
 function setupGame() {
@@ -174,7 +202,6 @@ function setupGame() {
     renderText();
     currentCharIndex = savedCharIndex;
     
-    // Auto-advance if landing on a space
     if (fullText[currentCharIndex] === ' ') currentCharIndex++;
 
     if (currentCharIndex > 0) {
@@ -194,10 +221,31 @@ function setupGame() {
     let btnLabel = "Resume Reading";
     if (savedCharIndex === 0) btnLabel = "Start Reading";
 
-    if (!isGameActive) showStartModal(`Chapter ${currentChapterNum}`, btnLabel);
+    if (!isGameActive) {
+        showStartModal(`Chapter ${currentChapterNum}`, btnLabel);
+    }
 }
 
-// --- ENGINE (Restored Vertical Scrolling) ---
+async function saveProgress() {
+    if (!currentUser) return;
+    try {
+        if (currentCharIndex > lastSavedIndex) {
+            await setDoc(doc(db, "users", currentUser.uid, "progress", BOOK_ID), {
+                chapter: currentChapterNum,
+                charIndex: currentCharIndex,
+                lastUpdated: new Date()
+            }, { merge: true });
+            lastSavedIndex = currentCharIndex;
+        }
+        await setDoc(doc(db, "users", currentUser.uid, "stats", "time_tracking"), {
+            secondsToday: statsData.secondsToday,
+            secondsWeek: statsData.secondsWeek,
+            lastDate: statsData.lastDate,
+            weekStart: statsData.weekStart
+        }, { merge: true });
+    } catch (e) { console.warn("Save failed:", e); }
+}
+
 function renderText() {
     textStream.innerHTML = '';
     const words = fullText.split(' ');
@@ -210,6 +258,7 @@ function renderText() {
             span.className = 'letter';
             span.innerText = char;
             span.id = `char-${charCount}`;
+            span.dataset.index = charCount;
             wordSpan.appendChild(span);
             charCount++;
         }
@@ -229,15 +278,32 @@ function startGame() {
         sessionValueStr = select.value;
         sessionLimit = (sessionValueStr === 'infinity') ? 'infinity' : parseInt(sessionValueStr);
     }
+
+    if (fullText[currentCharIndex] === ' ') {
+        const spaceEl = document.getElementById(`char-${currentCharIndex}`);
+        if (spaceEl) spaceEl.classList.add('done-perfect');
+        currentCharIndex++;
+    }
+
     closeModal();
     isGameActive = true;
     isOvertime = false;
     
-    sprintSeconds = 0; sprintMistakes = 0; sprintCharStart = currentCharIndex; 
-    activeSeconds = 0; timeAccumulator = 0; lastInputTime = Date.now(); 
-    wpmHistory = []; accuracyHistory = [];
-    accDisplay.innerText = "100%"; wpmDisplay.innerText = "0";
-    timerDisplay.style.color = 'white'; timerDisplay.style.opacity = '1';
+    sprintSeconds = 0;
+    sprintMistakes = 0;
+    sprintCharStart = currentCharIndex; 
+    
+    activeSeconds = 0; 
+    timeAccumulator = 0;
+    lastInputTime = Date.now(); 
+    
+    wpmHistory = []; 
+    accuracyHistory = [];
+    accDisplay.innerText = "100%";
+    wpmDisplay.innerText = "0";
+    
+    timerDisplay.style.color = 'white'; 
+    timerDisplay.style.opacity = '1';
 
     if (timerInterval) clearInterval(timerInterval);
     timerInterval = setInterval(gameTick, 100); 
@@ -253,13 +319,17 @@ function gameTick() {
         timeAccumulator += 100;
         timerDisplay.style.opacity = '1';
         if (timeAccumulator >= 1000) {
-            activeSeconds++; sprintSeconds++; statsData.secondsToday++; statsData.secondsWeek++;
+            activeSeconds++;
+            sprintSeconds++;
+            statsData.secondsToday++;
+            statsData.secondsWeek++;
             timeAccumulator -= 1000;
             updateTimerUI();
         }
     } else {
         timerDisplay.style.opacity = '0.5';
-        wpmDisplay.innerText = "0"; wpmHistory = []; 
+        wpmDisplay.innerText = "0"; 
+        wpmHistory = []; 
     }
 }
 
@@ -281,7 +351,10 @@ function updateRunningWPM() {
         const timeDiffMs = now - wpmHistory[0];
         const timeDiffMin = timeDiffMs / 60000;
         const chars = wpmHistory.length - 1; 
-        if (timeDiffMin > 0) wpmDisplay.innerText = Math.round((chars / 5) / timeDiffMin);
+        if (timeDiffMin > 0) {
+            const wpm = Math.round((chars / 5) / timeDiffMin);
+            wpmDisplay.innerText = wpm;
+        }
     }
 }
 
@@ -293,264 +366,44 @@ function updateRunningAccuracy(isCorrect) {
     if (total > 0) accDisplay.innerText = Math.round((correctCount / total) * 100) + "%";
 }
 
-document.addEventListener('keydown', (e) => {
-    if (isInputBlocked || !isGameActive) return;
-    if (e.key === 'Shift' || e.key === 'Alt' || e.key === 'Control' || e.key === 'Meta') return;
-
-    if (e.key === 'Escape') { pauseGameForBreak(); return; }
-
-    const targetChar = fullText[currentCharIndex];
-    lastInputTime = Date.now();
-    updateTimerUI();
-
-    let isCorrect = (e.key === targetChar);
-    
-    const charEl = document.getElementById(`char-${currentCharIndex}`);
-    if (charEl) {
-        if (isCorrect) {
-            charEl.classList.remove('active', 'error-state');
-            charEl.classList.add('done-perfect');
-            currentCharIndex++;
-            updateRunningWPM();
-            updateRunningAccuracy(true);
-            highlightCurrentChar();
-            centerView();
-            updateImageDisplay();
-            
-            if (currentCharIndex >= fullText.length) {
-                finishChapter();
-            }
-        } else {
-            mistakes++; sprintMistakes++;
-            charEl.classList.add('error-state');
-            updateRunningAccuracy(false);
-            flashKey(targetChar); 
-        }
-    }
-});
-
-async function saveProgress(force = false) {
-    if (!currentUser) return;
-    try {
-        if (currentCharIndex > lastSavedIndex || force) {
-            await setDoc(doc(db, "users", currentUser.uid, "progress", BOOK_ID), {
-                chapter: currentChapterNum,
-                charIndex: currentCharIndex,
-                lastUpdated: new Date()
-            }, { merge: true });
-            lastSavedIndex = currentCharIndex;
-        }
-        await setDoc(doc(db, "users", currentUser.uid, "stats", "time_tracking"), {
-            secondsToday: statsData.secondsToday,
-            secondsWeek: statsData.secondsWeek,
-            lastDate: statsData.lastDate,
-            weekStart: statsData.weekStart
-        }, { merge: true });
-    } catch (e) { console.warn("Save failed:", e); }
+function formatTime(seconds) {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}m ${s}s`;
 }
 
-function finishChapter() {
+function pauseGameForBreak() {
     isGameActive = false;
-    clearInterval(timerInterval);
-    
-    const nextChapter = currentChapterNum + 1;
-    
-    const stats = {
-        time: sprintSeconds,
-        wpm: 0, 
-        acc: 100,
+    clearInterval(timerInterval); 
+    saveProgress(); 
+
+    const charsTyped = currentCharIndex - sprintCharStart;
+    const minutes = sprintSeconds / 60;
+    const sprintWPM = (minutes > 0) ? Math.round((charsTyped / 5) / minutes) : 0;
+    const totalSprintKeystrokes = charsTyped + sprintMistakes;
+    const sprintAcc = (totalSprintKeystrokes > 0) ? Math.round((charsTyped / totalSprintKeystrokes) * 100) : 100;
+
+    const stats = { 
+        time: sprintSeconds, 
+        wpm: sprintWPM, 
+        acc: sprintAcc,
         today: formatTime(statsData.secondsToday),
         week: formatTime(statsData.secondsWeek)
     };
     
-    showStatsModal(`Chapter ${currentChapterNum} Complete!`, stats, `Start Chapter ${nextChapter}`, async () => {
-        currentChapterNum = nextChapter;
-        savedCharIndex = 0;
-        currentCharIndex = 0;
-        lastSavedIndex = 0;
-        
-        await saveProgress(true); 
-        loadChapter(nextChapter);
-    });
+    showStatsModal("Sprint Complete", stats, "Continue", startGame);
 }
 
-// --- VIEW (Restored Vertical Logic) ---
-function centerView() {
-    const currentEl = document.getElementById(`char-${currentCharIndex}`);
-    if (!currentEl) return;
-    const container = document.getElementById('game-container');
-    
-    // Vertical centering logic: calculate offset from top
-    const offset = (container.clientHeight / 2) - currentEl.offsetTop - 25; 
-    
-    textStream.style.transform = `translateY(${offset}px)`;
-}
-
-function highlightCurrentChar() {
-    document.querySelectorAll('.letter.active').forEach(el => el.classList.remove('active'));
-    const el = document.getElementById(`char-${currentCharIndex}`);
-    if (el) {
-        el.classList.add('active');
-        highlightKey(fullText[currentCharIndex]);
-    }
-}
-
-function createKeyboard() {
-    const layout = [
-        "1234567890-=",
-        "QWERTYUIOP[]\\",
-        "ASDFGHJKL;'",
-        "ZXCVBNM,./"
-    ];
-    const shiftLayout = [
-        "!@#$%^&*()_+",
-        "QWERTYUIOP{}|",
-        "ASDFGHJKL:\"",
-        "ZXCVBNM<>?"
-    ];
-
-    keyboardDiv.innerHTML = ''; 
-    layout.forEach((rowStr, rIndex) => {
-        const row = document.createElement('div');
-        row.className = 'kb-row';
-        for (let i = 0; i < rowStr.length; i++) {
-            const k = document.createElement('div');
-            k.className = 'key';
-            k.dataset.char = rowStr[i].toLowerCase();
-            k.dataset.shift = shiftLayout[rIndex][i];
-            k.innerText = rowStr[i]; 
-            k.id = `key-${rowStr[i]}`; 
-            if (rowStr[i] === '\\') k.id = 'key-backslash';
-            if (rowStr[i] === '"') k.id = 'key-quote';
-            row.appendChild(k);
-        }
-        keyboardDiv.appendChild(row);
-    });
-    
-    const spaceRow = document.createElement('div');
-    spaceRow.className = 'kb-row';
-    const space = document.createElement('div');
-    space.className = 'key space';
-    space.id = 'key- ';
-    spaceRow.appendChild(space);
-    keyboardDiv.appendChild(spaceRow);
-}
-
-function highlightKey(char) {
-    document.querySelectorAll('.key').forEach(k => k.classList.remove('target', 'shift-active'));
-    
-    if (!char) return;
-
-    let targetId = '';
-    let needsShift = false;
-
-    if (char === ' ') {
-        targetId = 'key- ';
-    } else {
-        const allKeys = document.querySelectorAll('.key');
-        for (let k of allKeys) {
-            if (k.dataset.char === char.toLowerCase() && !isShiftChar(char)) {
-                 targetId = k.id;
-                 break;
-            }
-            if (k.dataset.shift === char) {
-                targetId = k.id;
-                needsShift = true;
-                break;
-            }
-            if (k.dataset.char === char.toLowerCase() && char === char.toUpperCase() && char.match(/[A-Z]/)) {
-                targetId = k.id;
-                needsShift = true;
-                break;
-            }
-        }
-    }
-
-    const el = document.getElementById(targetId);
-    if (el) {
-        el.classList.add('target');
-        if (needsShift) {
-             // Shift highlight could go here
-        }
-    }
-}
-
-function isShiftChar(char) {
-    return "~!@#$%^&*()_+{}|:\"<>?".includes(char);
-}
-
-function flashKey(char) {
-    const el = document.getElementById(`key-${char.toUpperCase()}`); 
-    if(el) {
-        el.style.backgroundColor = '#ffcccc';
-        setTimeout(() => el.style.backgroundColor = '', 200);
-    }
-}
-
-function updateImageDisplay() {
-    if(!bookData || !bookData.segments) return;
-    const currentSegment = bookData.segments.find(seg => {
-        return seg.image; 
-    });
-    if(currentSegment && currentSegment.image) {
-        storyImg.src = currentSegment.image;
-        imgPanel.style.display = 'block';
-    }
-}
-
-// --- MODALS ---
-function showStartModal(title, btnText) {
-    isModalOpen = true; isInputBlocked = true;
-    const modal = document.getElementById('modal');
-    document.getElementById('modal-title').innerText = title;
-    
-    const html = `
-        <div class="stat-subtext">
-            Session Goal: 
-            <select id="sprint-select" class="modal-select">
-                <option value="30" ${sessionValueStr==="30"?"selected":""}>30 Seconds</option>
-                <option value="60" ${sessionValueStr==="60"?"selected":""}>1 Minute</option>
-                <option value="300" ${sessionValueStr==="300"?"selected":""}>5 Minutes</option>
-                <option value="infinity" ${sessionValueStr==="infinity"?"selected":""}>No Limit</option>
-            </select>
-        </div>
-    `;
-    document.getElementById('modal-body').innerHTML = html;
-    
-    const btn = document.getElementById('action-btn');
-    btn.innerText = btnText;
-    btn.onclick = startGame;
-    
-    modal.classList.remove('hidden');
-}
-
-function showStatsModal(title, stats, btnText, callback) {
-    isModalOpen = true; isInputBlocked = true;
-    const modal = document.getElementById('modal');
-    document.getElementById('modal-title').innerText = title;
-    
-    const html = `
-        <div class="stat-row">
-            <div class="stat-item"><span>${stats.time}s</span>Active</div>
-            <div class="stat-item"><span>${stats.acc}%</span>Accuracy</div>
-        </div>
-        <div class="stat-subtext">
-            Today: <span class="highlight">${stats.today}</span> | 
-            Week: <span class="highlight">${stats.week}</span>
-        </div>
-    `;
-    document.getElementById('modal-body').innerHTML = html;
-    
-    const btn = document.getElementById('action-btn');
-    btn.innerText = btnText;
-    btn.onclick = () => { closeModal(); if(callback) callback(); };
-    
-    modal.classList.remove('hidden');
-}
+// --- NEW MENU & NAVIGATION SYSTEM ---
 
 function openMenuModal() {
-    if (isGameActive) { isGameActive = false; clearInterval(timerInterval); saveProgress(); }
-    isModalOpen = true; isInputBlocked = true;
+    if (isGameActive) {
+        isGameActive = false;
+        clearInterval(timerInterval);
+    }
+    
+    isModalOpen = true;
+    isInputBlocked = true;
     const modal = document.getElementById('modal');
     document.getElementById('modal-title').innerText = "Menu & Settings";
     
@@ -564,15 +417,19 @@ function openMenuModal() {
         <div class="menu-section">
             <span class="menu-label">Navigation</span>
             <div style="display:flex; gap:10px;">
-                <select id="chapter-nav-select" class="modal-select" style="margin:0; flex-grow:1;">${chapterOptions}</select>
-                <button id="go-btn" class="modal-btn" style="width:auto; padding:0 20px; margin-top:0;">Go</button>
+                <select id="chapter-nav-select" class="modal-select" style="margin:0; flex-grow:1;">
+                    ${chapterOptions}
+                </select>
+                <button id="go-btn" class="modal-btn" style="width:auto; padding:0 20px;">Go</button>
             </div>
         </div>
+
         <div class="menu-section">
             <span class="menu-label">Danger Zone</span>
-            <button id="restart-chapter-btn" class="modal-btn danger-btn">Restart Chapter</button>
-            <button id="reset-book-btn" class="modal-btn danger-btn">Reset Book</button>
+            <button id="restart-chapter-btn" class="modal-btn danger-btn">Restart Current Chapter</button>
+            <button id="reset-book-btn" class="modal-btn danger-btn">Reset Book Progress</button>
         </div>
+
         <button id="close-menu-btn" class="modal-btn secondary-btn">Close Menu</button>
     `;
     
@@ -580,54 +437,314 @@ function openMenuModal() {
     
     document.getElementById('go-btn').onclick = () => {
         const val = parseInt(document.getElementById('chapter-nav-select').value);
-        if(val !== currentChapterNum) {
-            if (val < currentChapterNum) {
-                confirmAction("Go back? Unsaved progress in this chapter will be lost.", () => switchChapter(val));
-            } else {
-                switchChapter(val);
-            }
-        }
+        if(val !== currentChapterNum) handleChapterSwitch(val);
     };
     
     document.getElementById('restart-chapter-btn').onclick = () => {
-        confirmAction("Restart this chapter?", () => switchChapter(currentChapterNum, true));
+        confirmAction("Restart this chapter? You will lose all progress in Chapter " + currentChapterNum + ".", 
+            async () => {
+                await setDoc(doc(db, "users", currentUser.uid, "progress", BOOK_ID), {
+                    chapter: currentChapterNum,
+                    charIndex: 0
+                }, { merge: true });
+                location.reload();
+            }
+        );
     };
+
     document.getElementById('reset-book-btn').onclick = () => {
-        confirmAction("Reset entire book?", () => switchChapter(1, true));
+        confirmAction("Reset entire book? This will take you back to Chapter 1, character 0.", 
+            async () => {
+                await setDoc(doc(db, "users", currentUser.uid, "progress", BOOK_ID), {
+                    chapter: 1,
+                    charIndex: 0
+                }, { merge: true });
+                location.reload();
+            }
+        );
     };
-    document.getElementById('close-menu-btn').onclick = () => {
-        closeModal();
-        if(!isGameActive) showStartModal(`Chapter ${currentChapterNum}`, "Resume");
-    };
+
+    document.getElementById('close-menu-btn').onclick = closeModal;
+
+    const actionBtn = document.getElementById('action-btn');
+    if(actionBtn) actionBtn.style.display = 'none';
     
     modal.classList.remove('hidden');
-    document.getElementById('action-btn').classList.add('hidden');
 }
 
-async function switchChapter(newChapNum, resetIndex = false) {
-    currentChapterNum = newChapNum;
-    savedCharIndex = 0; 
-    await setDoc(doc(db, "users", currentUser.uid, "progress", BOOK_ID), {
-        chapter: currentChapterNum,
-        charIndex: 0 
-    }, { merge: true });
-    location.reload();
+function handleChapterSwitch(newChapter) {
+    confirmAction(`Jump to Chapter ${newChapter}?`, async () => {
+        await setDoc(doc(db, "users", currentUser.uid, "progress", BOOK_ID), {
+            chapter: newChapter,
+            charIndex: 0
+        }, { merge: true });
+        location.reload();
+    });
 }
 
-function confirmAction(msg, action) {
-    if(confirm(msg)) action();
+function confirmAction(message, onConfirm) {
+    const body = document.getElementById('modal-body');
+    body.innerHTML = `
+        <p style="margin-bottom:20px; color:#ddd; font-size:1rem;">${message}</p>
+        <button id="confirm-yes" class="modal-btn danger-btn">Yes, I'm sure</button>
+        <button id="confirm-no" class="modal-btn secondary-btn">Cancel</button>
+    `;
+    document.getElementById('modal-title').innerText = "Are you sure?";
+    
+    document.getElementById('confirm-yes').onclick = onConfirm;
+    document.getElementById('confirm-no').onclick = openMenuModal; 
+}
+
+function getDropdownHTML() {
+    const options = [
+        {val: "30", label: "30 Seconds"},
+        {val: "60", label: "1 Minute"},
+        {val: "120", label: "2 Minutes"},
+        {val: "300", label: "5 Minutes"},
+        {val: "infinity", label: "Open Ended (∞)"},
+    ];
+    let optionsHtml = options.map(opt => `<option value="${opt.val}" ${sessionValueStr === opt.val ? 'selected' : ''}>${opt.label}</option>`).join('');
+    return `
+        <div style="margin-bottom: 20px; text-align:center;">
+            <label for="sprint-select" style="color:#777; font-size:0.8rem; display:block; margin-bottom:5px; text-transform:uppercase; letter-spacing:1px;">Session Length</label>
+            <select id="sprint-select" class="modal-select">${optionsHtml}</select>
+        </div>`;
+}
+
+function showStartModal(title, btnText) {
+    isModalOpen = true;
+    modalActionCallback = startGame;
+    
+    document.getElementById('modal-title').innerText = title;
+    document.getElementById('modal-body').innerHTML = `
+        ${getDropdownHTML()}
+        <p style="font-size:0.8rem; color:#777; margin-top: 15px;">
+            Type the first letter or press <b>ENTER</b> to start.<br>
+            Press <b>ESC</b> anytime to pause.
+        </p>
+    `;
+    const btn = document.getElementById('action-btn');
+    if(btn) { btn.innerText = btnText; btn.style.display = 'block'; btn.onclick = startGame; }
+    document.getElementById('modal').classList.remove('hidden');
+    isInputBlocked = false;
+}
+
+function showStatsModal(title, stats, btnText, action) {
+    isModalOpen = true;
+    modalActionCallback = action;
+    isInputBlocked = true;
+    
+    document.getElementById('modal-title').innerText = title;
+    
+    const statsHtml = `
+        <div class="stat-row">
+            <div class="stat-item"><span>${stats.time}s</span>Sprint</div>
+            <div class="stat-item"><span>${stats.wpm}</span>WPM</div>
+            <div class="stat-item"><span>${stats.acc}%</span>Acc</div>
+        </div>
+        <div class="stat-subtext">
+            Today: <span class="highlight">${stats.today}</span> &bull; This Week: <span class="highlight">${stats.week}</span>
+        </div>
+        <hr style="border:0; border-top:1px solid #333; margin: 20px 0;">
+    `;
+    
+    const footerHtml = `<p id="modal-footer-msg" style="margin-top:10px; font-size: 0.8em; color: #777; opacity: 0; transition: opacity 0.5s;">Type the next letter to continue...</p>`;
+
+    document.getElementById('modal-body').innerHTML = `
+        ${statsHtml}
+        ${getDropdownHTML()}
+        ${footerHtml}
+    `;
+
+    const btn = document.getElementById('action-btn');
+    if(btn) { btn.innerText = btnText; btn.style.display = 'block'; btn.onclick = action; }
+    
+    document.getElementById('modal').classList.remove('hidden');
+
+    setTimeout(() => {
+        isInputBlocked = false;
+        const msg = document.getElementById('modal-footer-msg');
+        if (msg) msg.style.opacity = 1;
+    }, SPRINT_COOLDOWN_MS);
 }
 
 function closeModal() {
-    isModalOpen = false; isInputBlocked = false;
-    document.getElementById('modal').classList.add('hidden');
-    document.getElementById('action-btn').classList.remove('hidden');
+    const modal = document.getElementById('modal');
+    modal.classList.add('hidden');
+    isModalOpen = false;
+    isInputBlocked = false; 
+    modalActionCallback = null;
+    
+    const btn = document.getElementById('action-btn');
+    if(btn) btn.style.display = 'block';
+
+    lastInputTime = Date.now();
+    timerDisplay.style.opacity = '1';
 }
 
-function formatTime(seconds) {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m}m ${s}s`;
+document.addEventListener('keydown', (e) => {
+    if (isModalOpen) {
+        if (isInputBlocked) return;
+        if (document.activeElement.tagName === 'SELECT') {
+             if (e.key === "Enter") { e.preventDefault(); if (modalActionCallback) modalActionCallback(); }
+             return;
+        }
+        if (e.key === "Enter") { 
+            e.preventDefault(); 
+            if (modalActionCallback) modalActionCallback();
+            return; 
+        }
+        if (modalActionCallback) {
+            let tempIndex = currentCharIndex;
+            if (fullText[tempIndex] === ' ') tempIndex++; 
+            const targetChar = fullText[tempIndex];
+            if (e.key === targetChar) modalActionCallback();
+        }
+        return;
+    }
+    
+    if (e.key === "Escape" && isGameActive) {
+        pauseGameForBreak();
+        return;
+    }
+
+    if (e.key === "Shift") toggleKeyboardCase(true);
+    if (!isGameActive) return;
+    if (["Shift", "Control", "Alt", "Meta", "CapsLock", "Tab"].includes(e.key)) return;
+    if (e.key === " ") e.preventDefault(); 
+
+    lastInputTime = Date.now();
+    timerDisplay.style.opacity = '1';
+
+    const targetChar = fullText[currentCharIndex];
+    const currentEl = document.getElementById(`char-${currentCharIndex}`);
+
+    if (e.key === "Backspace") {
+        if (currentLetterStatus === 'error') {
+            currentLetterStatus = 'fixed';
+            currentEl.classList.remove('error-state');
+        }
+        return;
+    }
+
+    if (e.key === targetChar) {
+        currentEl.classList.remove('active');
+        currentEl.classList.remove('error-state');
+        if (currentLetterStatus === 'clean') currentEl.classList.add('done-perfect'); 
+        else if (currentLetterStatus === 'fixed') currentEl.classList.add('done-fixed'); 
+        else currentEl.classList.add('done-dirty'); 
+
+        currentCharIndex++;
+        currentLetterStatus = 'clean'; 
+        
+        if (['.', '!', '?'].includes(targetChar)) saveProgress();
+        else if (['"', "'"].includes(targetChar) && currentCharIndex >= 2) {
+            const prevChar = fullText[currentCharIndex - 2];
+            if (['.', '!', '?'].includes(prevChar)) saveProgress();
+        }
+
+        updateRunningWPM();
+        updateRunningAccuracy(true);
+
+        if (isOvertime) {
+            if (['.', '!', '?'].includes(targetChar)) {
+                const nextChar = fullText[currentCharIndex]; 
+                if (nextChar !== '"' && nextChar !== "'") { triggerStop(); return; }
+            }
+            if (['"', "'"].includes(targetChar)) {
+                 const prevChar = fullText[currentCharIndex - 2]; 
+                 if (['.', '!', '?'].includes(prevChar)) { triggerStop(); return; }
+            }
+        }
+
+        if (currentCharIndex >= fullText.length) {
+            finishChapter();
+            return;
+        }
+        highlightCurrentChar();
+        centerView();
+        updateImageDisplay();
+    } 
+    else {
+        mistakes++;
+        sprintMistakes++;
+        if (currentLetterStatus === 'clean') currentLetterStatus = 'error';
+        currentEl.classList.add('error-state'); 
+        flashKey(e.key);
+        updateRunningAccuracy(false);
+    }
+});
+
+function triggerStop() {
+    updateImageDisplay();
+    highlightCurrentChar();
+    centerView();
+    pauseGameForBreak();
 }
 
-window.onload = init;
+document.addEventListener('keyup', (e) => { if (e.key === "Shift") toggleKeyboardCase(false); });
+
+function centerView() {
+    const currentEl = document.getElementById(`char-${currentCharIndex}`);
+    if (!currentEl) return;
+    const container = document.getElementById('game-container');
+    const offset = (container.clientHeight / 2) - currentEl.offsetTop - 25; 
+    textStream.style.transform = `translateY(${offset}px)`;
+}
+
+function highlightCurrentChar() {
+    const el = document.getElementById(`char-${currentCharIndex}`);
+    if (el) {
+        el.classList.add('active');
+        highlightKey(fullText[currentCharIndex]);
+    }
+}
+
+function updateImageDisplay() {
+    const progress = currentCharIndex / fullText.length;
+    const segmentIndex = Math.floor(progress * bookData.segments.length);
+    const segment = bookData.segments[segmentIndex];
+    if (segment && segment.image) {
+        const currentSrc = storyImg.getAttribute('src');
+        if (currentSrc !== segment.image) {
+            storyImg.src = segment.image;
+            imgPanel.style.display = 'block';
+        }
+    } else {
+        imgPanel.style.display = 'none';
+    }
+}
+
+function finishChapter() {
+    isGameActive = false;
+    clearInterval(timerInterval);
+    saveProgress();
+    
+    const stats = { 
+        time: sprintSeconds, 
+        wpm: parseInt(wpmDisplay.innerText), 
+        acc: parseInt(accDisplay.innerText),
+        today: formatTime(statsData.secondsToday),
+        week: formatTime(statsData.secondsWeek)
+    };
+    
+    const nextChap = currentChapterNum + 1;
+    
+    showStatsModal("Chapter Complete!", stats, "Start Chapter " + nextChap, async () => {
+         await setDoc(doc(db, "users", currentUser.uid, "progress", BOOK_ID), {
+            chapter: nextChap,
+            charIndex: 0
+        }, { merge: true });
+        location.reload();
+    });
+}
+
+const keyMap = { row1: "`1234567890-=", row1_s: "~!@#$%^&*()_+", row2: "qwertyuiop[]\\", row2_s: "QWERTYUIOP{}|", row3: "asdfghjkl;'", row3_s: "ASDFGHJKL:\"", row4: "zxcvbnm,./", row4_s: "ZXCVBNM<>?" };
+function createKeyboard() { keyboardDiv.innerHTML = ''; createRow(keyMap.row1, keyMap.row1_s); createRow(keyMap.row2, keyMap.row2_s, "TAB"); createRow(keyMap.row3, keyMap.row3_s, "CAPS", "ENTER"); createRow(keyMap.row4, keyMap.row4_s, "SHIFT", "SHIFT"); const spaceRow = document.createElement('div'); spaceRow.className = 'kb-row'; const space = document.createElement('div'); space.className = 'key space'; space.id = 'key- '; space.innerText = "SPACE"; spaceRow.appendChild(space); keyboardDiv.appendChild(spaceRow); }
+function createRow(chars, shiftChars, leftSpecial, rightSpecial) { const row = document.createElement('div'); row.className = 'kb-row'; if (leftSpecial) addSpecialKey(row, leftSpecial); for (let i = 0; i < chars.length; i++) { const k = document.createElement('div'); k.className = 'key'; k.dataset.char = chars[i]; k.dataset.shift = shiftChars[i]; k.id = `key-${chars[i]}`; k.innerText = chars[i]; row.appendChild(k); } if (rightSpecial) addSpecialKey(row, rightSpecial); keyboardDiv.appendChild(row); }
+function addSpecialKey(row, text) { const k = document.createElement('div'); k.className = 'key wide'; k.innerText = text; k.id = `key-${text}`; row.appendChild(k); }
+function toggleKeyboardCase(isShift) { document.querySelectorAll('.key').forEach(k => { if(k.dataset.char) k.innerText = isShift ? k.dataset.shift : k.dataset.char; if(k.id === 'key-SHIFT') isShift ? k.classList.add('shift-active') : k.classList.remove('shift-active'); }); }
+function highlightKey(char) { document.querySelectorAll('.key').forEach(k => k.classList.remove('target')); let targetId = ''; let needsShift = false; if (char === ' ') targetId = 'key- '; else { const keyEl = Array.from(document.querySelectorAll('.key')).find(k => k.dataset.char === char || k.dataset.shift === char); if (keyEl) { targetId = keyEl.id; if (keyEl.dataset.shift === char) needsShift = true; } } const el = document.getElementById(targetId); if (el) el.classList.add('target'); needsShift ? toggleKeyboardCase(true) : toggleKeyboardCase(false); }
+function flashKey(char) { let id = `key-${char.toLowerCase()}`; const el = document.getElementById(id); if (el) { el.style.backgroundColor = 'var(--brute-force-color)'; setTimeout(() => el.style.backgroundColor = '', 200); } }
+
+init();
