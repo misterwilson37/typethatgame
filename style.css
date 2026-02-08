@@ -153,7 +153,7 @@ body {
 .key.shift-active { background-color: #ffd700; color: black; } 
 
 /* --- MODALS --- */
-.modal {
+.modal, #warning-modal, #error-wizard-modal {
     position: fixed; top: 0; left: 0; width: 100%; height: 100%;
     background: rgba(0, 0, 0, 0.3);
     display: flex; flex-direction: column; justify-content: flex-end; 
@@ -215,8 +215,13 @@ button.secondary-btn:hover { border-color: #888; color: #fff; }
 
 /* ERROR WIZARD STYLES */
 .error-wizard-content {
-    background: #222; border: 2px solid #ffaa00; padding: 25px;
-    max-width: 700px; width: 90%; text-align: left; color: #eee;
+    pointer-events: auto;
+    background: #151515; border: 2px solid #ffaa00; padding: 25px;
+    max-width: 800px; width: 90%; text-align: left; color: #eee;
+    max-height: 90vh; overflow-y: auto;
+    box-shadow: 0 0 20px rgba(255, 170, 0, 0.2);
+    /* Center it */
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
 }
 .bad-char-highlight {
     background-color: #ff0000;
