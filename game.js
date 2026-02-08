@@ -1,4 +1,4 @@
-// v1.9.2.1 - Accurate Stats & Historical Tracking
+// v1.9.2.2 - Fixed Finish Chapter Stats & Cleanup
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,7 +9,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.9.2.1";
+const VERSION = "1.9.2.2";
 const BOOK_ID = "wizard_of_oz"; 
 const IDLE_THRESHOLD = 2000; 
 const SPRINT_COOLDOWN_MS = 1500; 
@@ -27,7 +27,7 @@ let currentChapterNum = 1;
 let sessionLimit = 30; 
 let sessionValueStr = "30"; 
 
-// Time & Accuracy Stats
+// Time Stats State
 let statsData = { 
     secondsToday: 0, secondsWeek: 0, 
     charsToday: 0, charsWeek: 0,
@@ -257,7 +257,7 @@ function setupGame() {
     }
 }
 
-// --- ENGINE ---
+// --- ENGINE (FIXED RENDERER) ---
 function renderText() {
     textStream.innerHTML = '';
     const container = document.createDocumentFragment();
@@ -273,6 +273,7 @@ function renderText() {
             span.innerHTML = '&nbsp;'; 
             span.id = `char-${i}`;
             wordBuffer.appendChild(span);
+            
             container.appendChild(wordBuffer);
             container.appendChild(document.createElement('br'));
             wordBuffer = document.createElement('span');
@@ -284,6 +285,7 @@ function renderText() {
             span.innerText = ' ';
             span.id = `char-${i}`;
             wordBuffer.appendChild(span);
+            
             container.appendChild(wordBuffer);
             wordBuffer = document.createElement('span');
             wordBuffer.className = 'word';
@@ -410,7 +412,6 @@ function updateRunningAccuracy(isCorrect) {
 document.addEventListener('keydown', (e) => {
     if (isModalOpen) {
         if (isInputBlocked) return; 
-        // Simple start check
         const isStartKey = (e.key === "Enter") || (e.key === " ");
         if (isStartKey && modalActionCallback) {
             e.preventDefault();
@@ -500,453 +501,4 @@ function handleTyping(key) {
         statsData.mistakesToday++;
         statsData.mistakesWeek++;
 
-        if (currentLetterStatus === 'clean') currentLetterStatus = 'error';
-        const errEl = document.getElementById(`char-${currentCharIndex}`);
-        if(errEl) errEl.classList.add('error-state'); 
-        flashKey(key); 
-        updateRunningAccuracy(false);
-    }
-}
-
-function triggerStop() {
-    updateImageDisplay();
-    highlightCurrentChar();
-    centerView();
-    pauseGameForBreak();
-}
-
-document.addEventListener('keyup', (e) => { if (e.key === "Shift") toggleKeyboardCase(false); });
-
-// --- VIEW LOGIC ---
-function centerView() {
-    const currentEl = document.getElementById(`char-${currentCharIndex}`);
-    if (!currentEl) return;
-    const container = document.getElementById('game-container');
-    const offset = (container.clientHeight / 2) - currentEl.offsetTop - 25; 
-    textStream.style.transform = `translateY(${offset}px)`;
-}
-
-function highlightCurrentChar() {
-    document.querySelectorAll('.letter.active').forEach(el => el.classList.remove('active'));
-    const el = document.getElementById(`char-${currentCharIndex}`);
-    if (el) {
-        el.classList.add('active');
-        highlightKey(fullText[currentCharIndex]);
-    }
-}
-
-function updateImageDisplay() {
-    if(!bookData || !bookData.segments) return;
-    const progress = currentCharIndex / fullText.length;
-    const segmentIndex = Math.floor(progress * bookData.segments.length);
-    const segment = bookData.segments[segmentIndex];
-    if (segment && segment.image) {
-        const currentSrc = storyImg.getAttribute('src');
-        if (currentSrc !== segment.image) {
-            storyImg.src = segment.image;
-            imgPanel.style.display = 'block';
-        }
-    } else {
-        imgPanel.style.display = 'none';
-    }
-}
-
-async function saveProgress(force = false) {
-    if (!currentUser) return;
-    try {
-        if (currentCharIndex > lastSavedIndex || force) {
-            await setDoc(doc(db, "users", currentUser.uid, "progress", BOOK_ID), {
-                chapter: currentChapterNum,
-                charIndex: currentCharIndex,
-                lastUpdated: new Date()
-            }, { merge: true });
-            lastSavedIndex = currentCharIndex;
-        }
-        await setDoc(doc(db, "users", currentUser.uid, "stats", "time_tracking"), statsData, { merge: true });
-    } catch (e) { console.warn("Save failed:", e); }
-}
-
-function formatTime(seconds) {
-    if (!seconds) return "0m 0s"; 
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m}m ${s}s`;
-}
-
-function calculateAverageWPM(chars, seconds) {
-    if(!seconds || seconds <= 0) return 0;
-    const mins = seconds / 60;
-    return Math.round((chars / 5) / mins);
-}
-
-function calculateAverageAcc(chars, mistakes) {
-    if(!chars || chars <= 0) return 100;
-    // Accuracy = (Correct / TotalKeypresses) * 100
-    // TotalKeypresses = chars + mistakes
-    const total = chars + mistakes;
-    if(total === 0) return 100;
-    return Math.round((chars / total) * 100);
-}
-
-function pauseGameForBreak() {
-    isGameActive = false;
-    clearInterval(timerInterval); 
-    saveProgress(); 
-
-    const charsTyped = currentCharIndex - sprintCharStart;
-    
-    // Sprint Calc
-    const sprintMinutes = sprintSeconds / 60;
-    const sprintWPM = (sprintMinutes > 0) ? Math.round((charsTyped / 5) / sprintMinutes) : 0;
-    const sprintTotalEntries = charsTyped + sprintMistakes;
-    const sprintAcc = (sprintTotalEntries > 0) ? Math.round((charsTyped / sprintTotalEntries) * 100) : 100;
-
-    // Daily/Weekly Calcs
-    const todayWPM = calculateAverageWPM(statsData.charsToday, statsData.secondsToday);
-    const todayAcc = calculateAverageAcc(statsData.charsToday, statsData.mistakesToday);
-    
-    const weekWPM = calculateAverageWPM(statsData.charsWeek, statsData.secondsWeek);
-    const weekAcc = calculateAverageAcc(statsData.charsWeek, statsData.mistakesWeek);
-
-    const todayStr = `${formatTime(statsData.secondsToday)} (${todayWPM} WPM | ${todayAcc}%)`;
-    const weekStr = `${formatTime(statsData.secondsWeek)} (${weekWPM} WPM | ${weekAcc}%)`;
-
-    const stats = { 
-        time: sprintSeconds, 
-        wpm: sprintWPM, 
-        acc: sprintAcc,
-        today: todayStr,
-        week: weekStr
-    };
-    
-    showStatsModal("Sprint Complete", stats, "Continue", startGame);
-}
-
-function finishChapter() {
-    isGameActive = false;
-    clearInterval(timerInterval);
-    
-    const nextChapter = currentChapterNum + 1;
-    
-    const todayWPM = calculateAverageWPM(statsData.charsToday, statsData.secondsToday);
-    const todayAcc = calculateAverageAcc(statsData.charsToday, statsData.mistakesToday);
-    const weekWPM = calculateAverageWPM(statsData.charsWeek, statsData.secondsWeek);
-    const weekAcc = calculateAverageAcc(statsData.charsWeek, statsData.mistakesWeek);
-
-    const stats = {
-        time: sprintSeconds,
-        wpm: 0, 
-        acc: 100,
-        today: `${formatTime(statsData.secondsToday)} (${todayWPM} WPM | ${todayAcc}%)`,
-        week: `${formatTime(statsData.secondsWeek)} (${weekWPM} WPM | ${weekAcc}%)`
-    };
-    
-    showStatsModal(`Chapter ${currentChapterNum} Complete!`, stats, `Start Chapter ${nextChapter}`, async () => {
-        await saveProgress(true); 
-        currentChapterNum = nextChapter;
-        savedCharIndex = 0;
-        currentCharIndex = 0;
-        lastSavedIndex = 0;
-        await setDoc(doc(db, "users", currentUser.uid, "progress", BOOK_ID), {
-            chapter: currentChapterNum,
-            charIndex: 0
-        }, { merge: true });
-        loadChapter(nextChapter);
-    });
-}
-
-// --- MODALS & MENUS ---
-
-function getDropdownHTML() {
-    const options = [
-        {val: "30", label: "30 Seconds"},
-        {val: "60", label: "1 Minute"},
-        {val: "120", label: "2 Minutes"},
-        {val: "300", label: "5 Minutes"},
-        {val: "infinity", label: "Open Ended (∞)"},
-    ];
-    let optionsHtml = options.map(opt => `<option value="${opt.val}" ${sessionValueStr === opt.val ? 'selected' : ''}>${opt.label}</option>`).join('');
-    
-    return `
-        <div style="margin-bottom: 20px; text-align:center;">
-            <label for="sprint-select" style="color:#777; font-size:0.8rem; display:block; margin-bottom:5px; text-transform:uppercase; letter-spacing:1px;">Session Length</label>
-            <select id="sprint-select" class="modal-select">${optionsHtml}</select>
-        </div>`;
-}
-
-function showStartModal(title, btnText) {
-    isModalOpen = true; 
-    isInputBlocked = false; 
-    modalActionCallback = startGame;
-
-    const modal = document.getElementById('modal');
-    document.getElementById('modal-title').innerText = title;
-    
-    const html = `
-        ${getDropdownHTML()}
-        <p style="font-size:0.8rem; color:#777; margin-top: 15px;">
-            Type the first letter or press <b>ENTER</b> to start.<br>
-            Press <b>ESC</b> anytime to pause.
-        </p>
-    `;
-    document.getElementById('modal-body').innerHTML = html;
-    
-    const btn = document.getElementById('action-btn');
-    btn.innerText = btnText;
-    btn.onclick = startGame;
-    btn.disabled = false;
-    btn.style.display = 'inline-block';
-    
-    modal.classList.remove('hidden');
-}
-
-function showStatsModal(title, stats, btnText, callback) {
-    isModalOpen = true; 
-    isInputBlocked = true; 
-    modalActionCallback = () => { closeModal(); if(callback) callback(); };
-
-    const modal = document.getElementById('modal');
-    document.getElementById('modal-title').innerText = title;
-    
-    const html = `
-        <div class="stat-grid" style="display:flex; justify-content:center; gap:20px; margin:20px 0;">
-            <div class="stat-box">
-                <div style="font-size:1.8em; font-weight:bold;">${stats.wpm}</div>
-                <div style="font-size:0.9em; color:#777;">WPM</div>
-            </div>
-            <div class="stat-box">
-                <div style="font-size:1.8em; font-weight:bold;">${stats.acc}%</div>
-                <div style="font-size:0.9em; color:#777;">Accuracy</div>
-            </div>
-            <div class="stat-box">
-                <div style="font-size:1.8em; font-weight:bold;">${formatTime(stats.time)}</div>
-                <div style="font-size:0.9em; color:#777;">Time</div>
-            </div>
-        </div>
-        <div class="stat-subtext">
-            Today: <span class="highlight">${stats.today}</span><br>
-            Week: <span class="highlight">${stats.week}</span>
-        </div>
-    `;
-    
-    document.getElementById('modal-body').innerHTML = html;
-    
-    const btn = document.getElementById('action-btn');
-    btn.innerText = "Wait..."; 
-    btn.onclick = modalActionCallback;
-    btn.disabled = true; 
-    btn.style.opacity = '0.5'; 
-    
-    modal.classList.remove('hidden');
-
-    setTimeout(() => {
-        isInputBlocked = false;
-        if(document.getElementById('action-btn')) {
-            const b = document.getElementById('action-btn');
-            b.style.opacity = '1';
-            b.innerText = btnText; 
-            b.disabled = false;
-        }
-    }, SPRINT_COOLDOWN_MS);
-}
-
-function closeModal() {
-    isModalOpen = false;
-    isInputBlocked = false;
-    document.getElementById('modal').classList.add('hidden');
-    
-    const keyboard = document.getElementById('virtual-keyboard');
-    if(keyboard) keyboard.focus();
-}
-
-function openMenuModal() {
-    if (isGameActive) pauseGameForBreak();
-    
-    isModalOpen = true;
-    isInputBlocked = false;
-    modalActionCallback = () => { closeModal(); startGame(); };
-    
-    const modal = document.getElementById('modal');
-    document.getElementById('modal-title').innerText = "Settings";
-    
-    let chapterOptions = "";
-    for(let i=1; i<=5; i++) {
-        let sel = (i === currentChapterNum) ? "selected" : "";
-        chapterOptions += `<option value="${i}" ${sel}>Chapter ${i}</option>`;
-    }
-
-    document.getElementById('modal-body').innerHTML = `
-        <div class="menu-section">
-            <div class="menu-label">Navigation</div>
-            <div style="display:flex; gap:10px;">
-                <select id="chapter-nav-select" class="modal-select" style="margin:0; flex-grow:1;">
-                    ${chapterOptions}
-                </select>
-                <button id="go-btn" class="modal-btn" style="width:auto; padding:0 20px;">Go</button>
-            </div>
-        </div>
-        <div class="menu-section">
-            <div class="menu-label">Session Control</div>
-            ${getDropdownHTML()}
-        </div>
-    `;
-    
-    document.getElementById('go-btn').onclick = () => {
-        const val = parseInt(document.getElementById('chapter-nav-select').value);
-        if(val !== currentChapterNum) {
-            handleChapterSwitch(val);
-        } else {
-            if(confirm(`Restart Chapter ${val} from the beginning?`)) {
-                switchChapterHot(val);
-            }
-        }
-    };
-
-    const btn = document.getElementById('action-btn');
-    btn.innerText = "Close";
-    btn.onclick = () => { closeModal(); if(!isGameActive && savedCharIndex > 0) startGame(); };
-    btn.disabled = false;
-    
-    modal.classList.remove('hidden');
-}
-
-function handleChapterSwitch(newChapter) {
-    if (newChapter > currentChapterNum) {
-        switchChapterHot(newChapter);
-    } else {
-        if(confirm(`Go back to Chapter ${newChapter}? Unsaved progress in current chapter will be lost.`)) {
-            switchChapterHot(newChapter);
-        }
-    }
-}
-
-async function switchChapterHot(newChapter) {
-    await setDoc(doc(db, "users", currentUser.uid, "progress", BOOK_ID), {
-        chapter: newChapter,
-        charIndex: 0
-    }, { merge: true });
-    
-    currentChapterNum = newChapter;
-    savedCharIndex = 0;
-    currentCharIndex = 0;
-    lastSavedIndex = 0;
-    
-    closeModal();
-    textStream.innerHTML = "Switching chapters...";
-    loadChapter(newChapter);
-}
-
-// --- KEYBOARD UI ---
-const rows = [
-    ['q','w','e','r','t','y','u','i','o','p','[',']','\\'],
-    ['a','s','d','f','g','h','j','k','l',';',"'"],
-    ['z','x','c','v','b','n','m',',','.','/']
-];
-const shiftRows = [
-    ['Q','W','E','R','T','Y','U','I','O','P','{','}','|'],
-    ['A','S','D','F','G','H','J','K','L',':','"'],
-    ['Z','X','C','V','B','N','M','<','>','?']
-];
-
-function createKeyboard() {
-    keyboardDiv.innerHTML = '';
-    
-    rows.forEach((rowChars, rIndex) => {
-        const rowDiv = document.createElement('div');
-        rowDiv.className = 'kb-row'; 
-        
-        let leftSpecial = null;
-        if (rIndex === 1) leftSpecial = "CAPS";
-        if (rIndex === 2) leftSpecial = "SHIFT";
-        if (leftSpecial) addSpecialKey(rowDiv, leftSpecial);
-        
-        rowChars.forEach((char, cIndex) => {
-            const key = document.createElement('div');
-            key.className = 'key';
-            key.innerText = char;
-            key.dataset.char = char;
-            key.dataset.shift = shiftRows[rIndex][cIndex];
-            key.id = `key-${char}`;
-            rowDiv.appendChild(key);
-        });
-        
-        let rightSpecial = null;
-        if (rIndex === 0) rightSpecial = "BACK";
-        if (rIndex === 1) rightSpecial = "ENTER";
-        if (rIndex === 2) rightSpecial = "SHIFT";
-        if (rightSpecial) addSpecialKey(rowDiv, rightSpecial);
-        
-        keyboardDiv.appendChild(rowDiv);
-    });
-    
-    const spaceRow = document.createElement('div');
-    spaceRow.className = 'kb-row'; 
-    const space = document.createElement('div');
-    space.className = 'key space'; 
-    space.innerText = ""; 
-    space.id = "key- ";
-    spaceRow.appendChild(space);
-    keyboardDiv.appendChild(spaceRow);
-}
-
-function addSpecialKey(parent, text) {
-    const key = document.createElement('div');
-    key.className = 'key wide';
-    key.innerText = text;
-    key.id = `key-${text}`;
-    parent.appendChild(key);
-}
-
-function toggleKeyboardCase(isShift) {
-    document.querySelectorAll('.key').forEach(k => {
-        if (k.dataset.char) {
-            k.innerText = isShift ? k.dataset.shift : k.dataset.char;
-        }
-        if (k.id === 'key-SHIFT') {
-            isShift ? k.classList.add('shift-active') : k.classList.remove('shift-active');
-        }
-    });
-}
-
-function highlightKey(char) {
-    document.querySelectorAll('.key').forEach(k => k.classList.remove('target'));
-    
-    let targetId = '';
-    let needsShift = false;
-    
-    if (char === ' ') targetId = 'key- ';
-    else if (char === '\t') targetId = 'key-TAB'; 
-    else if (char === '\n') targetId = 'key-ENTER'; 
-    else {
-        const keys = Array.from(document.querySelectorAll('.key'));
-        const found = keys.find(k => k.dataset.char === char || k.dataset.shift === char);
-        if (found) {
-            targetId = found.id;
-            if (found.dataset.shift === char) needsShift = true;
-        }
-    }
-    
-    const el = document.getElementById(targetId);
-    if (el) el.classList.add('target');
-    
-    toggleKeyboardCase(needsShift);
-}
-
-function flashKey(char) {
-    let targetId = '';
-    if (char === ' ') targetId = 'key- ';
-    else if (char === '\t' || char === 'Tab') targetId = 'key-TAB';
-    else if (char === '\n' || char === 'Enter') targetId = 'key-ENTER'; 
-    else {
-        const keys = Array.from(document.querySelectorAll('.key'));
-        const found = keys.find(k => k.dataset.char === char || k.dataset.shift === char);
-        if (found) targetId = found.id;
-    }
-    const el = document.getElementById(targetId);
-    if (el) {
-        el.style.backgroundColor = 'var(--brute-force-color)';
-        setTimeout(() => el.style.backgroundColor = '', 200);
-    }
-}
-
-window.onload = init;
+        if (currentLetterStatus === 'clean
