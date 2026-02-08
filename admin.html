@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>TypeThatBook Admin v1.9.7.4</title>
+    <title>TypeThatBook Admin v1.9.7.5</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
         body { background: #111; color: #eee; font-family: 'Courier New', monospace; padding: 20px; }
@@ -48,7 +48,7 @@
         .chap-actions { display: flex; gap: 5px; }
         .chap-actions button { width: auto; padding: 5px 10px; font-size: 0.7em; margin: 0; }
 
-        .checkbox-wrapper { display: flex; align-items: center; margin-bottom: 15px; }
+        .checkbox-wrapper { display: flex; align-items: center; margin-bottom: 10px; }
         .checkbox-wrapper input { width: auto; margin: 0 10px 0 0; }
         .checkbox-wrapper label { margin: 0; text-transform: none; color: #ddd; }
 
@@ -142,7 +142,14 @@
                     <input type="checkbox" id="clean-newlines" checked>
                     <label for="clean-newlines">Aggressive Cleaning (Remove line breaks inside paragraphs)</label>
                 </div>
-                <div style="font-size: 0.8em; color: #888; margin-bottom: 10px;">* Em-dashes (—) automatically converted to double-dashes (--)</div>
+                <div class="checkbox-wrapper">
+                    <input type="checkbox" id="normalize-chars">
+                    <label for="normalize-chars">Normalize Characters (Convert accents: é→e, ñ→n, etc.)</label>
+                </div>
+                
+                <div style="font-size: 0.8em; color: #888; margin-bottom: 10px; margin-top:10px;">
+                    * Auto-fixes applied: Smart Quotes ("" ''), Em-Dashes (--), Ellipsis (...)
+                </div>
 
                 <div id="chapter-list"></div>
                 
