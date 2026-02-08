@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>TypeThatBook Admin v1.9.4</title>
+    <title>TypeThatBook Admin v1.9.5</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
         body { background: #111; color: #eee; font-family: 'Courier New', monospace; padding: 20px; }
@@ -75,11 +75,18 @@
             align-items: center;
             justify-content: space-between;
             background: #111;
+            transition: background 0.2s;
         }
         .chapter-item:hover { background: #151515; }
+        .chapter-item.uploaded { border-left: 4px solid #00ff41; background: #0a220a; }
+        .chapter-item.error { border-left: 4px solid #ff3333; background: #220a0a; }
+
         .chap-info { flex-grow: 1; margin-right: 15px; }
         .chap-title { font-weight: bold; color: #4B9CD3; font-size: 0.9em; }
         .chap-meta { font-size: 0.8em; color: #666; }
+        .chap-status { font-size: 0.8em; color: #888; margin-left: 10px; }
+        .chap-status.ok { color: #00ff41; font-weight: bold; }
+
         .chap-actions { display: flex; gap: 5px; }
         .chap-actions button { width: auto; padding: 5px 10px; font-size: 0.7em; margin: 0; }
 
@@ -96,84 +103,87 @@
 </head>
 <body>
 
-<div class="container">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 30px;">
+<div class=\"container\">
+    <div style=\"display:flex; justify-content:space-between; align-items:center; margin-bottom: 30px;\">
         <h1>ADMIN PANEL</h1>
-        <a href="index.html">Back to Game</a>
+        <a href=\"index.html\">Back to Game</a>
     </div>
 
-    <div class="status-bar" id="status">Initializing...</div>
+    <div class=\"status-bar\" id=\"status\">Initializing...</div>
     
-    <div id="login-section" class="hidden">
+    <div id=\"login-section\" class=\"hidden\">
         <p>You must log in to edit the database.</p>
-        <button id="login-btn">Log In with Google</button>
+        <button id=\"login-btn\">Log In with Google</button>
     </div>
 
-    <div id="editor-section" class="hidden">
+    <div id=\"editor-section\" class=\"hidden\">
         
-        <h2>Book Importer</h2>
-        <div class="import-box">
-            <div class="row">
-                <div class="col">
-                    <label>Target Book ID</label>
-                    <input type="text" id="import-book-id" value="wizard_of_oz">
+        <div class=\"import-box\" style=\"border-color: #4B9CD3;\">
+            <h3 style=\"margin-top:0;\">Database Manager</h3>
+            <div class=\"row\">
+                <div class=\"col\">
+                    <label>Book ID (e.g. wizard_of_oz)</label>
+                    <input type=\"text\" id=\"import-book-id\" value=\"wizard_of_oz\">
                 </div>
-                <div class="col">
-                    <label>Load EPUB File</label>
-                    <input type="file" id="epub-file" accept=".epub">
+                <div class=\"col\" style=\"display:flex; align-items:flex-end;\">
+                    <button id=\"load-db-btn\" class=\"secondary-btn\">Load from Database</button>
+                </div>
+            </div>
+        </div>
+
+        <h2>Content Staging</h2>
+        <div class=\"import-box\">
+            <div class=\"row\">
+                <div class=\"col\">
+                    <label>Load New EPUB File</label>
+                    <input type=\"file\" id=\"epub-file\" accept=\".epub\">
                 </div>
             </div>
             
-            <div class="checkbox-wrapper">
-                <input type="checkbox" id="clean-newlines" checked>
-                <label for="clean-newlines">Aggressive Cleaning (Remove line breaks inside paragraphs)</label>
+            <div class=\"checkbox-wrapper\">
+                <input type=\"checkbox\" id=\"clean-newlines\" checked>
+                <label for=\"clean-newlines\">Aggressive Cleaning (Remove line breaks inside paragraphs)</label>
             </div>
 
-            <div id="processing-ui" class="hidden">
+            <div id=\"processing-ui\" class=\"hidden\">
                 <label>Staging Area (Edit/Delete before Upload)</label>
-                <div id="chapter-list"></div>
+                <div id=\"chapter-list\"></div>
                 
-                <div class="row">
-                    <div class="col">
-                        <button id="upload-all-btn">Upload All (Save Book)</button>
-                    </div>
-                    <div class="col">
-                        <button id="download-imgs-btn" class="secondary-btn">Download Images (ZIP)</button>
+                <div class=\"row\">
+                    <div class=\"col\">
+                        <button id=\"upload-all-btn\">Upload All to Database (Overwrite)</button>
                     </div>
                 </div>
             </div>
         </div>
 
-        <hr style="border-color:#333; margin: 30px 0;">
-
-        <details id="manual-details">
-            <summary style="cursor:pointer; color:#4B9CD3; margin-bottom:10px;">Manual Chapter Editor</summary>
-            <div style="padding: 15px; border:1px solid #333; margin-bottom:20px;">
-                <div class="row">
-                    <div class="col">
-                        <label>Chapter Title (Optional)</label>
-                        <input type="text" id="manual-chap-title" placeholder="e.g. The Cyclone">
+        <hr style=\"border-color:#333; margin: 30px 0;\">\n\n        <details id=\"manual-details\">
+            <summary style=\"cursor:pointer; color:#4B9CD3; margin-bottom:10px;\">Manual Chapter Editor</summary>
+            <div style=\"padding: 15px; border:1px solid #333; margin-bottom:20px;\">
+                <div class=\"row\">
+                    <div class=\"col\">
+                        <label>Chapter Title (Visible in Menu)</label>
+                        <input type=\"text\" id=\"manual-chap-title\" placeholder=\"e.g. The Cyclone\">
                     </div>
-                    <div class="col">
+                    <div class=\"col\">
                         <label>Chapter Number</label>
-                        <input type="number" id="manual-chap-num" value="1">
+                        <input type=\"number\" id=\"manual-chap-num\" value=\"1\">
                     </div>
                 </div>
                 <label>JSON Segments</label>
-                <textarea id="json-content" rows="15" placeholder='{ "segments": [ { "text": "..." } ] }'></textarea>
+                <textarea id=\"json-content\" rows=\"15\" placeholder='{ \"segments\": [ { \"text\": \"...\" } ] }'></textarea>
                 
-                <div style="display:flex; gap:10px;">
-                    <button id="update-staged-btn" class="hidden">Update Staged Chapter</button>
-                    <button id="save-btn">Save Directly to DB</button>
-                </div>
+                <div style=\"display:flex; gap:10px;\">
+                    <button id=\"update-staged-btn\" class=\"hidden\">Update Staged Chapter</button>
+                    </div>
             </div>
         </details>
 
     </div>
 </div>
 
-<footer id="admin-footer">Admin JS: Loading...</footer>
+<footer id=\"admin-footer\">Admin JS: Loading...</footer>
 
-<script type="module" src="admin.js"></script>
+<script type=\"module\" src=\"admin.js\"></script>
 </body>
 </html>
