@@ -1,9 +1,9 @@
-// v1.9.5 - Book Manager & Visual Fixes
+// v1.9.3.2 - Book Manager & Visual Fixes
 import { db, auth } from "./firebase-config.js";
 import { doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const ADMIN_VERSION = "1.9.5";
+const ADMIN_VERSION = "1.9.3.2";
 
 // DOM Elements
 const statusEl = document.getElementById('status');
@@ -26,11 +26,13 @@ const manualTitle = document.getElementById('manual-chap-title');
 const manualNum = document.getElementById('manual-chap-num');
 const jsonContent = document.getElementById('json-content');
 const updateStagedBtn = document.getElementById('update-staged-btn');
+const saveDirectBtn = document.getElementById('save-btn'); // For direct save
 const manualDetails = document.getElementById('manual-details');
 
 let stagedChapters = [];
 let editingIndex = -1;
 
+// Init Display
 if(footerEl) footerEl.innerText = `Admin JS: v${ADMIN_VERSION}`;
 
 // --- AUTH ---
@@ -53,6 +55,25 @@ loginBtn.onclick = async () => {
     catch (e) { alert(e.message); }
 };
 
+// --- DIRECT SAVE (Single) ---
+saveDirectBtn.onclick = async () => {
+    const bookId = importBookId.value.trim();
+    const chapNum = manualNum.value.trim();
+    const jsonStr = jsonContent.value.trim();
+    if (!bookId || !chapNum || !jsonStr) return alert("Fill all fields");
+
+    try {
+        const data = JSON.parse(jsonStr);
+        statusEl.innerText = `Saving Chapter ${chapNum}...`;
+        await setDoc(doc(db, "books", bookId, "chapters", "chapter_" + chapNum), data);
+        statusEl.innerText = `Success! Chapter ${chapNum} saved directly.`;
+        statusEl.style.borderColor = "#00ff41";
+    } catch (e) {
+        statusEl.innerText = "Error: " + e.message;
+        statusEl.style.borderColor = "#ff3333";
+    }
+};
+
 // --- LOAD FROM DB ---
 loadDbBtn.onclick = async () => {
     const bookId = importBookId.value.trim();
@@ -64,7 +85,6 @@ loadDbBtn.onclick = async () => {
     stagedChapters = [];
 
     try {
-        // 1. Get Metadata
         const metaSnap = await getDoc(doc(db, "books", bookId));
         if(!metaSnap.exists()) throw new Error("Book not found.");
         
@@ -73,11 +93,9 @@ loadDbBtn.onclick = async () => {
         
         statusEl.innerText = `Found ${chapters.length} chapters. Fetching content...`;
 
-        // 2. Fetch Content for each chapter
         for (let i = 0; i < chapters.length; i++) {
-            const chapId = chapters[i].id; // e.g. chapter_1
+            const chapId = chapters[i].id; 
             const chapTitle = chapters[i].title;
-            
             const contentSnap = await getDoc(doc(db, "books", bookId, "chapters", chapId));
             if(contentSnap.exists()) {
                 stagedChapters.push({
@@ -86,11 +104,9 @@ loadDbBtn.onclick = async () => {
                 });
             }
         }
-        
         renderChapterList();
         statusEl.innerText = `Loaded ${stagedChapters.length} chapters from DB.`;
         statusEl.style.borderColor = "#00ff41";
-
     } catch (e) {
         console.error(e);
         statusEl.innerText = "Load Error: " + e.message;
@@ -111,7 +127,6 @@ epubInput.addEventListener('change', async (e) => {
     try {
         const zip = await JSZip.loadAsync(file);
         
-        // Find OPF
         let opfPath = null;
         const files = Object.keys(zip.files);
         const containerInfo = await zip.file("META-INF/container.xml")?.async("string");
@@ -123,20 +138,17 @@ epubInput.addEventListener('change', async (e) => {
         }
         if (!opfPath) throw new Error("No OPF file found.");
 
-        // Parse OPF
         const opfContent = await zip.file(opfPath).async("string");
         const opfDoc = new DOMParser().parseFromString(opfContent, "text/xml");
         const manifest = opfDoc.getElementsByTagName("manifest")[0];
         const spine = opfDoc.getElementsByTagName("spine")[0];
         const basePath = opfPath.substring(0, opfPath.lastIndexOf('/') + 1);
 
-        // Map IDs
         const idToHref = {};
         Array.from(manifest.getElementsByTagName("item")).forEach(item => {
             idToHref[item.getAttribute("id")] = item.getAttribute("href");
         });
 
-        // Process Spine
         const spineItems = Array.from(spine.getElementsByTagName("itemref"));
         let counter = 1;
 
@@ -148,7 +160,7 @@ epubInput.addEventListener('change', async (e) => {
             const content = await zip.file(fullPath).async("string");
             const doc = new DOMParser().parseFromString(content, "application/xhtml+xml");
             
-            // Extract Title - FIX: Only look in BODY to avoid book title in HEAD
+            // Extract Title - Only check body tags
             let title = `Chapter ${counter}`;
             const hTag = doc.body.querySelector('h1, h2, h3');
             if(hTag) title = hTag.innerText.trim().substring(0, 60);
@@ -231,6 +243,7 @@ function editChapter(index) {
     manualNum.value = index + 1;
     jsonContent.value = JSON.stringify({ segments: chap.segments }, null, 2);
     updateStagedBtn.classList.remove('hidden');
+    saveDirectBtn.classList.add('hidden');
     manualDetails.open = true;
     manualDetails.scrollIntoView({ behavior: 'smooth' });
 }
@@ -241,9 +254,12 @@ updateStagedBtn.onclick = () => {
         const data = JSON.parse(jsonContent.value);
         stagedChapters[editingIndex].title = manualTitle.value;
         stagedChapters[editingIndex].segments = data.segments;
+        
         editingIndex = -1;
         updateStagedBtn.classList.add('hidden');
+        saveDirectBtn.classList.remove('hidden');
         manualDetails.open = false;
+        
         renderChapterList();
         statusEl.innerText = "Updated staged chapter.";
     } catch (e) { alert("Invalid JSON"); }
@@ -282,7 +298,6 @@ uploadAllBtn.onclick = async () => {
                 uiStatus.className = "chap-status ok";
             }
             
-            // Mark row green
             const row = document.getElementById(`ui-chap-${i}`);
             if(row) row.classList.add('uploaded');
 
