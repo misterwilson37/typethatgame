@@ -1,9 +1,9 @@
-// v1.9.7.6 - Chapter 0 Fix & Untypable Wizard
+// v1.9.7.7 - Restored Missing UI Buttons
 import { db, auth } from "./firebase-config.js";
 import { doc, setDoc, getDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const ADMIN_VERSION = "1.9.7.6";
+const ADMIN_VERSION = "1.9.7.7";
 
 // DOM Elements
 const statusEl = document.getElementById('status');
@@ -14,19 +14,23 @@ const footerEl = document.getElementById('admin-footer');
 
 // Top Section
 const bookSelect = document.getElementById('book-select');
+const editExistingUI = document.getElementById('edit-existing-ui');
+const createNewUI = document.getElementById('create-new-ui');
 const openBookBtn = document.getElementById('open-book-btn');
 
-// Staging
+// Create New Inputs
+const newBookId = document.getElementById('new-book-id');
+const newBookTitle = document.getElementById('new-book-title');
+const newEpubFile = document.getElementById('new-epub-file');
+const createParseBtn = document.getElementById('create-parse-btn');
+
+// Staging Area
 const stagingArea = document.getElementById('staging-area');
-const newBookInput = document.getElementById('new-book-input');
 const activeBookTitle = document.getElementById('active-book-title');
 const saveTitleBtn = document.getElementById('save-title-btn');
 const overwriteSection = document.getElementById('overwrite-section');
 const overwriteEpubFile = document.getElementById('overwrite-epub-file');
 const overwriteBtn = document.getElementById('overwrite-btn');
-const createSection = document.getElementById('create-section');
-const newEpubFile = document.getElementById('new-epub-file');
-const createParseBtn = document.getElementById('create-parse-btn');
 const chapterListEl = document.getElementById('chapter-list');
 const uploadAllBtn = document.getElementById('upload-all-btn');
 const cleanNewlinesCb = document.getElementById('clean-newlines');
@@ -85,7 +89,7 @@ loginBtn.onclick = async () => {
     catch (e) { alert(e.message); }
 };
 
-// --- BOOK LIST ---
+// --- BOOK LIST & SELECTION ---
 async function loadBookList() {
     bookSelect.innerHTML = "<option>Loading...</option>";
     bookTitlesMap = {};
@@ -93,6 +97,7 @@ async function loadBookList() {
         const querySnapshot = await getDocs(collection(db, "books"));
         bookSelect.innerHTML = "";
         
+        // Add Create Option First
         const createOpt = document.createElement("option");
         createOpt.value = "__NEW__";
         createOpt.text = "➕ Create New Book...";
@@ -109,10 +114,12 @@ async function loadBookList() {
             bookSelect.appendChild(option);
         });
         
+        // Select first book if available
         if(querySnapshot.size > 0) bookSelect.selectedIndex = 1;
         bookSelect.dispatchEvent(new Event('change'));
 
     } catch (e) {
+        console.error(e);
         bookSelect.innerHTML = "<option>Error</option>";
     }
 }
@@ -120,106 +127,112 @@ async function loadBookList() {
 bookSelect.onchange = () => {
     stagingArea.classList.add('hidden'); 
     if (bookSelect.value === "__NEW__") {
-        newBookInput.classList.remove('hidden');
-        activeBookId = "";
-        activeBookTitle.value = "";
-        // Show Create Flow
-        createSection.classList.remove('hidden');
-        overwriteSection.classList.add('hidden');
-        // Show empty staging right away so user can see what happens
-        stagingArea.classList.remove('hidden');
+        createNewUI.classList.remove('hidden');
+        editExistingUI.classList.add('hidden');
+        newBookId.value = "";
+        newBookTitle.value = "";
+        newEpubFile.value = "";
     } else {
-        newBookInput.classList.add('hidden');
+        createNewUI.classList.add('hidden');
+        editExistingUI.classList.remove('hidden');
         activeBookId = bookSelect.value;
-        activeBookTitle.value = bookTitlesMap[activeBookId] || activeBookId;
-        // Show Open Flow
-        document.getElementById('edit-existing-ui').classList.remove('hidden');
-        createSection.classList.add('hidden');
     }
 };
 
-// --- LOAD FROM DB ---
-document.getElementById('load-db-btn').onclick = async () => {
-    if(!activeBookId && newBookInput.value.trim()) activeBookId = newBookInput.value.trim();
-    if(!activeBookId) return alert("Select or enter a book ID");
+// --- ACTION: CREATE NEW BOOK ---
+createParseBtn.onclick = async () => {
+    const id = newBookId.value.trim();
+    const title = newBookTitle.value.trim();
+    const file = newEpubFile.files[0];
 
+    if(!id || !title || !file) return alert("Please fill ID, Title, and select a File.");
+    
+    activeBookId = id;
+    activeBookTitle.value = title;
+    
+    await parseEpubFile(file);
+    
+    stagingArea.classList.remove('hidden');
+    overwriteSection.classList.add('hidden'); 
+    statusEl.innerText = "New Book Staged. Review and Upload.";
+};
+
+// --- ACTION: OPEN EXISTING BOOK ---
+openBookBtn.onclick = async () => {
+    if(!activeBookId) return;
+    
     statusEl.innerText = `Loading ${activeBookId}...`;
     chapterListEl.innerHTML = "Loading...";
     stagedChapters = [];
     
     try {
         const metaSnap = await getDoc(doc(db, "books", activeBookId));
-        if(metaSnap.exists()) {
-            const meta = metaSnap.data();
-            activeBookTitle.value = meta.title || activeBookId;
-            const chapters = meta.chapters || [];
+        if(!metaSnap.exists()) throw new Error("Book not found");
+        
+        const meta = metaSnap.data();
+        activeBookTitle.value = meta.title || activeBookId;
+        
+        const chapters = meta.chapters || [];
+        statusEl.innerText = `Fetching ${chapters.length} chapters...`;
+
+        for (let i = 0; i < chapters.length; i++) {
+            const chapId = chapters[i].id; 
+            const chapNum = chapId.replace("chapter_", "");
             
-            for (let i = 0; i < chapters.length; i++) {
-                // Ensure we read ID from metadata, or fallback to sequential
-                const chapId = chapters[i].id; 
-                // Number is whatever follows "chapter_"
-                const chapNum = chapId.replace("chapter_", "");
-                
-                const contentSnap = await getDoc(doc(db, "books", activeBookId, "chapters", chapId));
-                if(contentSnap.exists()) {
-                    stagedChapters.push({
-                        id: chapNum, // Store specific ID (0, 1.1, etc)
-                        title: chapters[i].title,
-                        segments: contentSnap.data().segments || []
-                    });
-                }
+            const contentSnap = await getDoc(doc(db, "books", activeBookId, "chapters", chapId));
+            if(contentSnap.exists()) {
+                stagedChapters.push({
+                    id: chapNum, 
+                    title: chapters[i].title,
+                    segments: contentSnap.data().segments || []
+                });
             }
         }
         
         renderChapterList();
         stagingArea.classList.remove('hidden');
-        overwriteSection.classList.remove('hidden');
-        statusEl.innerText = "Loaded from DB.";
+        overwriteSection.classList.remove('hidden'); 
+        statusEl.innerText = "Book Loaded.";
         statusEl.style.borderColor = "#00ff41";
 
-    } catch(e) { statusEl.innerText = "Error: " + e.message; }
+    } catch(e) {
+        statusEl.innerText = "Error: " + e.message;
+        statusEl.style.borderColor = "#ff3333";
+    }
 };
 
-// --- CREATE NEW PARSE ---
-createParseBtn.onclick = async () => {
-    const id = newBookInput.value.trim();
-    if(!id) return alert("Enter Book ID");
-    activeBookId = id;
-    
-    const file = newEpubFile.files[0];
-    if(!file) return alert("Select EPUB");
-    
-    await parseEpubFile(file);
-    // Note: Staging area already visible
-};
-
-// --- OVERWRITE ---
+// --- ACTION: OVERWRITE DATA ---
 overwriteBtn.onclick = () => {
-    if(!overwriteEpubFile.files[0]) return alert("Select file");
+    if(!overwriteEpubFile.files[0]) return alert("Select a file first.");
     warningModal.classList.remove('hidden');
 };
+
 cancelOverwriteBtn.onclick = () => warningModal.classList.add('hidden');
+
 confirmOverwriteBtn.onclick = async () => {
     warningModal.classList.add('hidden');
-    await parseEpubFile(overwriteEpubFile.files[0]);
+    const file = overwriteEpubFile.files[0];
+    await parseEpubFile(file);
+    statusEl.innerText = "Staging Overwritten with new EPUB.";
 };
 
-// --- EPUB PARSER WITH ERROR QUEUE ---
+// --- EPUB PARSER (SHARED) ---
 async function parseEpubFile(file) {
-    statusEl.innerText = "Parsing...";
+    statusEl.innerText = "Parsing EPUB...";
+    chapterListEl.innerHTML = "Parsing...";
     stagedChapters = [];
-    importErrors = []; // Reset errors
     
+    importErrors = [];
+
     try {
         const zip = await JSZip.loadAsync(file);
         
-        // Find OPF
+        // Locate OPF
         let opfPath = null;
         const files = Object.keys(zip.files);
         const containerInfo = await zip.file("META-INF/container.xml")?.async("string");
         if (containerInfo) {
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(containerInfo, "text/xml");
+            const doc = new DOMParser().parseFromString(containerInfo, "text/xml");
             opfPath = doc.querySelector("rootfile").getAttribute("full-path");
         } else {
             opfPath = files.find(f => f.endsWith(".opf"));
@@ -254,12 +267,11 @@ async function parseEpubFile(file) {
             if(hTag) title = hTag.innerText.trim().substring(0, 60);
 
             const segments = [];
-            
-            // Convert to Array to use forEach
             const pTags = Array.from(doc.body.querySelectorAll("p"));
             
             pTags.forEach((el, segIdx) => {
                 let text = el.textContent;
+                
                 if (cleanNewlinesCb.checked) text = text.replace(/[\r\n]+/g, ' '); 
                 text = text.replace(/\s\s+/g, ' ').trim();
                 
@@ -276,18 +288,16 @@ async function parseEpubFile(file) {
                 if (text.length > 0) {
                     if (!text.startsWith('\t')) text = '\t' + text;
                     
-                    // Create segment object
                     const segObj = { text: text };
                     segments.push(segObj);
 
                     // --- DETECT UNTYPABLE ---
                     const badMatches = text.match(/[^ -~\t\n]/g);
                     if (badMatches) {
-                        // Add to error queue
                         importErrors.push({
                             chapTitle: title,
-                            segmentRef: segObj, // Reference to object in array
-                            badChar: badMatches[0], // First bad char found
+                            segmentRef: segObj, 
+                            badChar: badMatches[0], 
                             fullText: text
                         });
                     }
@@ -296,15 +306,14 @@ async function parseEpubFile(file) {
 
             if (segments.length > 0) {
                 stagedChapters.push({ 
-                    id: counter, // Default ID
+                    id: counter, 
                     title: title, 
                     segments: segments 
                 });
                 counter++;
             }
         }
-
-        // --- CHECK ERRORS ---
+        
         if (importErrors.length > 0) {
             currentErrorIdx = 0;
             showErrorWizard();
@@ -324,7 +333,6 @@ async function parseEpubFile(file) {
 // --- WIZARD LOGIC ---
 function showErrorWizard() {
     if (currentErrorIdx >= importErrors.length) {
-        // Done
         wizardModal.classList.add('hidden');
         renderChapterList();
         statusEl.innerText = "Errors resolved. Ready to upload.";
@@ -335,11 +343,8 @@ function showErrorWizard() {
     const err = importErrors[currentErrorIdx];
     wizardStep.innerText = `${currentErrorIdx + 1} / ${importErrors.length}`;
     
-    // Highlight bad char in preview
     const safeText = err.segmentRef.text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
     const charSafe = err.badChar.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    
-    // Simple highlight replace (first occurrence)
     const highlighted = safeText.replace(charSafe, `<span class="bad-char-highlight">${charSafe}</span>`);
     
     wizardPreview.innerHTML = `<b>${err.chapTitle}</b><br><br>${highlighted}`;
@@ -354,7 +359,6 @@ wizardIgnoreBtn.onclick = () => {
 };
 
 wizardSaveBtn.onclick = () => {
-    // Update the referenced object directly
     importErrors[currentErrorIdx].segmentRef.text = wizardInput.value;
     currentErrorIdx++;
     showErrorWizard();
@@ -370,7 +374,7 @@ wizardCancelBtn.onclick = () => {
     }
 };
 
-// --- RENDER LIST (Uses stored ID) ---
+// --- RENDER LIST ---
 function renderChapterList() {
     chapterListEl.innerHTML = "";
     stagedChapters.forEach((chap, index) => {
@@ -406,7 +410,7 @@ function editChapter(index) {
     editingIndex = index;
     const chap = stagedChapters[index];
     manualTitle.value = chap.title;
-    manualNum.value = chap.id; // Load stored ID
+    manualNum.value = chap.id; 
     jsonContent.value = JSON.stringify({ segments: chap.segments }, null, 2);
     
     updateStagedBtn.classList.remove('hidden');
@@ -419,9 +423,8 @@ updateStagedBtn.onclick = () => {
     if (editingIndex < 0) return;
     try {
         const data = JSON.parse(jsonContent.value);
-        // Update stored ID and Title
         stagedChapters[editingIndex].title = manualTitle.value;
-        stagedChapters[editingIndex].id = manualNum.value.trim(); // Save custom ID
+        stagedChapters[editingIndex].id = manualNum.value.trim(); 
         stagedChapters[editingIndex].segments = data.segments;
         
         editingIndex = -1;
@@ -432,7 +435,21 @@ updateStagedBtn.onclick = () => {
     } catch (e) { alert("Invalid JSON"); }
 };
 
-// --- UPLOAD ALL (Respects custom IDs) ---
+// --- SAVE TITLE ONLY ---
+saveTitleBtn.onclick = async () => {
+    if (!activeBookId) return alert("No active book.");
+    const newTitle = activeBookTitle.value.trim();
+    if (!newTitle) return alert("Title required.");
+
+    try {
+        await setDoc(doc(db, "books", activeBookId), { title: newTitle }, { merge: true });
+        bookTitlesMap[activeBookId] = newTitle;
+        statusEl.innerText = "Title Updated.";
+        statusEl.style.borderColor = "#00ff41";
+    } catch(e) { alert(e.message); }
+};
+
+// --- UPLOAD ALL ---
 uploadAllBtn.onclick = async () => {
     if (stagedChapters.length === 0) return alert("Nothing to upload.");
     if (!activeBookId) return alert("No active book.");
@@ -444,7 +461,6 @@ uploadAllBtn.onclick = async () => {
 
     for (let i = 0; i < stagedChapters.length; i++) {
         const chapData = stagedChapters[i];
-        // USE THE ID stored in the object, not the index
         const chapId = chapData.id; 
         
         const uiStatus = document.querySelector(`#ui-chap-${i} .chap-status`);
@@ -478,16 +494,29 @@ uploadAllBtn.onclick = async () => {
     } catch (e) { alert("Metadata Save Failed: " + e.message); }
 };
 
-// --- SAVE TITLE ONLY ---
-saveTitleBtn.onclick = async () => {
+// --- DIRECT SAVE ---
+saveDirectBtn.onclick = async () => {
     if (!activeBookId) return alert("No active book.");
-    const newTitle = activeBookTitle.value.trim();
-    if (!newTitle) return alert("Title required.");
-
+    const chapNum = manualNum.value.trim();
+    if(chapNum === "") return alert("Chapter ID required");
+    
     try {
-        await setDoc(doc(db, "books", activeBookId), { title: newTitle }, { merge: true });
-        bookTitlesMap[activeBookId] = newTitle;
-        statusEl.innerText = "Title Updated.";
+        const data = JSON.parse(jsonContent.value);
+        await setDoc(doc(db, "books", activeBookId, "chapters", "chapter_" + chapNum), data);
+        statusEl.innerText = `Saved Chapter ${chapNum}`;
         statusEl.style.borderColor = "#00ff41";
     } catch(e) { alert(e.message); }
 };
+
+function resolvePath(base, relative) {
+    if(base === "") return relative;
+    const stack = base.split("/");
+    const parts = relative.split("/");
+    stack.pop(); 
+    for (let i = 0; i < parts.length; i++) {
+        if (parts[i] === ".") continue;
+        if (parts[i] === "..") stack.pop();
+        else stack.push(parts[i]);
+    }
+    return stack.join("/");
+}
