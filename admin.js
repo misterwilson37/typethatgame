@@ -1,9 +1,9 @@
-// v1.9.7.7 - Restored Missing UI Buttons
+// v1.9.7.8 - Chapter 0 Fix & Smart Error Wizard
 import { db, auth } from "./firebase-config.js";
 import { doc, setDoc, getDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const ADMIN_VERSION = "1.9.7.7";
+const ADMIN_VERSION = "1.9.7.8";
 
 // DOM Elements
 const statusEl = document.getElementById('status');
@@ -24,7 +24,7 @@ const newBookTitle = document.getElementById('new-book-title');
 const newEpubFile = document.getElementById('new-epub-file');
 const createParseBtn = document.getElementById('create-parse-btn');
 
-// Staging Area
+// Staging
 const stagingArea = document.getElementById('staging-area');
 const activeBookTitle = document.getElementById('active-book-title');
 const saveTitleBtn = document.getElementById('save-title-btn');
@@ -52,6 +52,7 @@ const cancelOverwriteBtn = document.getElementById('cancel-overwrite-btn');
 // Wizard Modals
 const wizardModal = document.getElementById('error-wizard-modal');
 const wizardStep = document.getElementById('wizard-step');
+const wizardCharDisplay = document.getElementById('wizard-char-display');
 const wizardPreview = document.getElementById('wizard-preview');
 const wizardInput = document.getElementById('wizard-edit-input');
 const wizardIgnoreBtn = document.getElementById('wizard-ignore-btn');
@@ -89,7 +90,7 @@ loginBtn.onclick = async () => {
     catch (e) { alert(e.message); }
 };
 
-// --- BOOK LIST & SELECTION ---
+// --- BOOK LIST ---
 async function loadBookList() {
     bookSelect.innerHTML = "<option>Loading...</option>";
     bookTitlesMap = {};
@@ -97,7 +98,6 @@ async function loadBookList() {
         const querySnapshot = await getDocs(collection(db, "books"));
         bookSelect.innerHTML = "";
         
-        // Add Create Option First
         const createOpt = document.createElement("option");
         createOpt.value = "__NEW__";
         createOpt.text = "➕ Create New Book...";
@@ -114,14 +114,10 @@ async function loadBookList() {
             bookSelect.appendChild(option);
         });
         
-        // Select first book if available
         if(querySnapshot.size > 0) bookSelect.selectedIndex = 1;
         bookSelect.dispatchEvent(new Event('change'));
 
-    } catch (e) {
-        console.error(e);
-        bookSelect.innerHTML = "<option>Error</option>";
-    }
+    } catch (e) { bookSelect.innerHTML = "<option>Error</option>"; }
 }
 
 bookSelect.onchange = () => {
@@ -131,108 +127,92 @@ bookSelect.onchange = () => {
         editExistingUI.classList.add('hidden');
         newBookId.value = "";
         newBookTitle.value = "";
-        newEpubFile.value = "";
     } else {
         createNewUI.classList.add('hidden');
         editExistingUI.classList.remove('hidden');
         activeBookId = bookSelect.value;
+        activeBookTitle.value = bookTitlesMap[activeBookId] || activeBookId;
     }
 };
 
-// --- ACTION: CREATE NEW BOOK ---
-createParseBtn.onclick = async () => {
-    const id = newBookId.value.trim();
-    const title = newBookTitle.value.trim();
-    const file = newEpubFile.files[0];
-
-    if(!id || !title || !file) return alert("Please fill ID, Title, and select a File.");
-    
-    activeBookId = id;
-    activeBookTitle.value = title;
-    
-    await parseEpubFile(file);
-    
-    stagingArea.classList.remove('hidden');
-    overwriteSection.classList.add('hidden'); 
-    statusEl.innerText = "New Book Staged. Review and Upload.";
-};
-
-// --- ACTION: OPEN EXISTING BOOK ---
+// --- LOAD FROM DB ---
 openBookBtn.onclick = async () => {
     if(!activeBookId) return;
-    
     statusEl.innerText = `Loading ${activeBookId}...`;
     chapterListEl.innerHTML = "Loading...";
     stagedChapters = [];
     
     try {
         const metaSnap = await getDoc(doc(db, "books", activeBookId));
-        if(!metaSnap.exists()) throw new Error("Book not found");
-        
-        const meta = metaSnap.data();
-        activeBookTitle.value = meta.title || activeBookId;
-        
-        const chapters = meta.chapters || [];
-        statusEl.innerText = `Fetching ${chapters.length} chapters...`;
-
-        for (let i = 0; i < chapters.length; i++) {
-            const chapId = chapters[i].id; 
-            const chapNum = chapId.replace("chapter_", "");
+        if(metaSnap.exists()) {
+            const meta = metaSnap.data();
+            activeBookTitle.value = meta.title || activeBookId;
+            const chapters = meta.chapters || [];
             
-            const contentSnap = await getDoc(doc(db, "books", activeBookId, "chapters", chapId));
-            if(contentSnap.exists()) {
-                stagedChapters.push({
-                    id: chapNum, 
-                    title: chapters[i].title,
-                    segments: contentSnap.data().segments || []
-                });
+            for (let i = 0; i < chapters.length; i++) {
+                const chapId = chapters[i].id; 
+                // Extract number from ID (chapter_0 -> 0)
+                const chapNum = chapId.replace("chapter_", "");
+                
+                const contentSnap = await getDoc(doc(db, "books", activeBookId, "chapters", chapId));
+                if(contentSnap.exists()) {
+                    stagedChapters.push({
+                        id: chapNum, 
+                        title: chapters[i].title,
+                        segments: contentSnap.data().segments || []
+                    });
+                }
             }
         }
-        
         renderChapterList();
         stagingArea.classList.remove('hidden');
-        overwriteSection.classList.remove('hidden'); 
-        statusEl.innerText = "Book Loaded.";
+        overwriteSection.classList.remove('hidden');
+        statusEl.innerText = "Loaded.";
         statusEl.style.borderColor = "#00ff41";
-
-    } catch(e) {
-        statusEl.innerText = "Error: " + e.message;
-        statusEl.style.borderColor = "#ff3333";
-    }
+    } catch(e) { statusEl.innerText = "Error: " + e.message; }
 };
 
-// --- ACTION: OVERWRITE DATA ---
+// --- CREATE NEW PARSE ---
+createParseBtn.onclick = async () => {
+    const id = newBookId.value.trim();
+    const title = newBookTitle.value.trim();
+    const file = newEpubFile.files[0];
+    if(!id || !title || !file) return alert("Fill all fields.");
+    
+    activeBookId = id;
+    activeBookTitle.value = title;
+    await parseEpubFile(file);
+    stagingArea.classList.remove('hidden');
+    overwriteSection.classList.add('hidden'); 
+};
+
+// --- OVERWRITE ---
 overwriteBtn.onclick = () => {
-    if(!overwriteEpubFile.files[0]) return alert("Select a file first.");
+    if(!overwriteEpubFile.files[0]) return alert("Select file");
     warningModal.classList.remove('hidden');
 };
-
 cancelOverwriteBtn.onclick = () => warningModal.classList.add('hidden');
-
 confirmOverwriteBtn.onclick = async () => {
     warningModal.classList.add('hidden');
-    const file = overwriteEpubFile.files[0];
-    await parseEpubFile(file);
-    statusEl.innerText = "Staging Overwritten with new EPUB.";
+    await parseEpubFile(overwriteEpubFile.files[0]);
 };
 
-// --- EPUB PARSER (SHARED) ---
+// --- EPUB PARSER & ERROR SCANNER ---
 async function parseEpubFile(file) {
-    statusEl.innerText = "Parsing EPUB...";
+    statusEl.innerText = "Parsing...";
     chapterListEl.innerHTML = "Parsing...";
     stagedChapters = [];
+    importErrors = []; 
     
-    importErrors = [];
-
     try {
         const zip = await JSZip.loadAsync(file);
         
-        // Locate OPF
         let opfPath = null;
         const files = Object.keys(zip.files);
         const containerInfo = await zip.file("META-INF/container.xml")?.async("string");
         if (containerInfo) {
-            const doc = new DOMParser().parseFromString(containerInfo, "text/xml");
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(containerInfo, "text/xml");
             opfPath = doc.querySelector("rootfile").getAttribute("full-path");
         } else {
             opfPath = files.find(f => f.endsWith(".opf"));
@@ -242,8 +222,8 @@ async function parseEpubFile(file) {
         const opfContent = await zip.file(opfPath).async("string");
         const parser = new DOMParser();
         const opfDoc = parser.parseFromString(opfContent, "text/xml");
-        const manifest = opfDoc.getElementsByTagName("manifest")[0];
         const spine = opfDoc.getElementsByTagName("spine")[0];
+        const manifest = opfDoc.getElementsByTagName("manifest")[0];
         const basePath = opfPath.substring(0, opfPath.lastIndexOf('/') + 1);
 
         const idToHref = {};
@@ -269,9 +249,8 @@ async function parseEpubFile(file) {
             const segments = [];
             const pTags = Array.from(doc.body.querySelectorAll("p"));
             
-            pTags.forEach((el, segIdx) => {
+            pTags.forEach((el) => {
                 let text = el.textContent;
-                
                 if (cleanNewlinesCb.checked) text = text.replace(/[\r\n]+/g, ' '); 
                 text = text.replace(/\s\s+/g, ' ').trim();
                 
@@ -287,11 +266,11 @@ async function parseEpubFile(file) {
 
                 if (text.length > 0) {
                     if (!text.startsWith('\t')) text = '\t' + text;
-                    
                     const segObj = { text: text };
                     segments.push(segObj);
 
                     // --- DETECT UNTYPABLE ---
+                    // Allow: Space(32) to Tilde(126), Tab(9), Newline(10)
                     const badMatches = text.match(/[^ -~\t\n]/g);
                     if (badMatches) {
                         importErrors.push({
@@ -343,12 +322,38 @@ function showErrorWizard() {
     const err = importErrors[currentErrorIdx];
     wizardStep.innerText = `${currentErrorIdx + 1} / ${importErrors.length}`;
     
-    const safeText = err.segmentRef.text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    const charSafe = err.badChar.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    const highlighted = safeText.replace(charSafe, `<span class="bad-char-highlight">${charSafe}</span>`);
+    // Character Display
+    const badCharCode = err.badChar.charCodeAt(0).toString(16).toUpperCase();
+    wizardCharDisplay.innerText = `"${err.badChar}" (U+${badCharCode})`;
     
-    wizardPreview.innerHTML = `<b>${err.chapTitle}</b><br><br>${highlighted}`;
-    wizardInput.value = err.segmentRef.text;
+    // Context Extractor (Sentence or Window)
+    let contextHTML = "";
+    const text = err.segmentRef.text;
+    const charIndex = text.indexOf(err.badChar);
+    
+    // Find sentence bounds (naive split)
+    let start = Math.max(0, text.lastIndexOf('.', charIndex) + 1);
+    let end = text.indexOf('.', charIndex);
+    if(end === -1) end = text.length;
+    else end += 1; // include period
+    
+    // If text too long, just use window
+    if ((end - start) > 400 || charIndex === -1) {
+        start = Math.max(0, charIndex - 150);
+        end = Math.min(text.length, charIndex + 150);
+    }
+    
+    let sub = text.substring(start, end);
+    // Highlight
+    const safeSub = sub.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const safeChar = err.badChar.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const highlightHtml = `<span class="bad-char-highlight">${safeChar}</span>`;
+    
+    // Highlight all instances in this snippet
+    const previewText = safeSub.split(safeChar).join(highlightHtml);
+    
+    wizardPreview.innerHTML = `... ${previewText} ...`;
+    wizardInput.value = err.segmentRef.text; // Edit full text
     
     wizardModal.classList.remove('hidden');
 }
@@ -359,18 +364,32 @@ wizardIgnoreBtn.onclick = () => {
 };
 
 wizardSaveBtn.onclick = () => {
-    importErrors[currentErrorIdx].segmentRef.text = wizardInput.value;
-    currentErrorIdx++;
-    showErrorWizard();
+    const newText = wizardInput.value;
+    
+    // Re-validate
+    const badMatches = newText.match(/[^ -~\t\n]/g);
+    
+    if (badMatches) {
+        // Still bad! Update error object and loop same index
+        importErrors[currentErrorIdx].segmentRef.text = newText;
+        importErrors[currentErrorIdx].badChar = badMatches[0];
+        importErrors[currentErrorIdx].fullText = newText;
+        
+        alert(`Still found untypable character: "${badMatches[0]}"`);
+        showErrorWizard(); // Refresh view
+    } else {
+        // Clean! Save and Move on
+        importErrors[currentErrorIdx].segmentRef.text = newText;
+        currentErrorIdx++;
+        showErrorWizard();
+    }
 };
 
 wizardCancelBtn.onclick = () => {
-    if(confirm("Stop import? All progress will be lost.")) {
+    if(confirm("Stop import?")) {
         stagedChapters = [];
         wizardModal.classList.add('hidden');
-        statusEl.innerText = "Import Cancelled.";
-        statusEl.style.borderColor = "#ff3333";
-        chapterListEl.innerHTML = "";
+        statusEl.innerText = "Cancelled.";
     }
 };
 
@@ -410,9 +429,8 @@ function editChapter(index) {
     editingIndex = index;
     const chap = stagedChapters[index];
     manualTitle.value = chap.title;
-    manualNum.value = chap.id; 
+    manualNum.value = chap.id; // Load stored ID
     jsonContent.value = JSON.stringify({ segments: chap.segments }, null, 2);
-    
     updateStagedBtn.classList.remove('hidden');
     saveDirectBtn.classList.add('hidden');
     manualDetails.open = true;
@@ -424,6 +442,7 @@ updateStagedBtn.onclick = () => {
     try {
         const data = JSON.parse(jsonContent.value);
         stagedChapters[editingIndex].title = manualTitle.value;
+        // IMPORTANT: Save user defined ID (allows '0')
         stagedChapters[editingIndex].id = manualNum.value.trim(); 
         stagedChapters[editingIndex].segments = data.segments;
         
@@ -435,12 +454,11 @@ updateStagedBtn.onclick = () => {
     } catch (e) { alert("Invalid JSON"); }
 };
 
-// --- SAVE TITLE ONLY ---
+// --- SAVE TITLE ---
 saveTitleBtn.onclick = async () => {
     if (!activeBookId) return alert("No active book.");
     const newTitle = activeBookTitle.value.trim();
     if (!newTitle) return alert("Title required.");
-
     try {
         await setDoc(doc(db, "books", activeBookId), { title: newTitle }, { merge: true });
         bookTitlesMap[activeBookId] = newTitle;
@@ -449,7 +467,7 @@ saveTitleBtn.onclick = async () => {
     } catch(e) { alert(e.message); }
 };
 
-// --- UPLOAD ALL ---
+// --- UPLOAD ALL (Fixed for ID 0) ---
 uploadAllBtn.onclick = async () => {
     if (stagedChapters.length === 0) return alert("Nothing to upload.");
     if (!activeBookId) return alert("No active book.");
@@ -461,7 +479,8 @@ uploadAllBtn.onclick = async () => {
 
     for (let i = 0; i < stagedChapters.length; i++) {
         const chapData = stagedChapters[i];
-        const chapId = chapData.id; 
+        // USE STORED ID (allows 0, 1.1), fallback to sequential if missing
+        const chapId = (chapData.id !== undefined && chapData.id !== "") ? chapData.id : (i + 1);
         
         const uiStatus = document.querySelector(`#ui-chap-${i} .chap-status`);
         
@@ -492,20 +511,6 @@ uploadAllBtn.onclick = async () => {
         statusEl.style.borderColor = "#00ff41";
         await loadBookList();
     } catch (e) { alert("Metadata Save Failed: " + e.message); }
-};
-
-// --- DIRECT SAVE ---
-saveDirectBtn.onclick = async () => {
-    if (!activeBookId) return alert("No active book.");
-    const chapNum = manualNum.value.trim();
-    if(chapNum === "") return alert("Chapter ID required");
-    
-    try {
-        const data = JSON.parse(jsonContent.value);
-        await setDoc(doc(db, "books", activeBookId, "chapters", "chapter_" + chapNum), data);
-        statusEl.innerText = `Saved Chapter ${chapNum}`;
-        statusEl.style.borderColor = "#00ff41";
-    } catch(e) { alert(e.message); }
 };
 
 function resolvePath(base, relative) {
