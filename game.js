@@ -1,286 +1,885 @@
-/* v1.9.3.7 - Full Width, Hidden Images, Modal Hints */
-:root {
-    --bg-color: #ffffff;
-    --text-color: #333333;
-    --carolina-blue: #4B9CD3; 
-    --corrected-color: #0047AB; 
-    --brute-force-color: #D32F2F; 
-    --error-bg: #ffcccc; 
-    --fixed-bg: #d1e7f7; 
-    --accent-grey: #e0e0e0;
-    --black: #000000;
+// v1.9.3.7 - Auto-Pause, Capitalization Hints, Chapter Titles
+import { db, auth } from "./firebase-config.js";
+import { doc, getDoc, setDoc, getDocs, collection } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { 
+    signInAnonymously, 
+    onAuthStateChanged, 
+    GoogleAuthProvider, 
+    signInWithPopup, 
+    signOut 
+} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+
+const VERSION = "1.9.3.7";
+const DEFAULT_BOOK = "wizard_of_oz";
+const IDLE_THRESHOLD = 2000; 
+const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
+const SPRINT_COOLDOWN_MS = 1500; 
+const SPAM_THRESHOLD = 5; 
+
+// STATE
+let currentBookId = localStorage.getItem('currentBookId') || DEFAULT_BOOK;
+let currentUser = null;
+let bookData = null;
+let bookMetadata = null; 
+let fullText = "";
+let currentCharIndex = 0;
+let savedCharIndex = 0; 
+let lastSavedIndex = 0; 
+let currentChapterNum = 1;
+
+// Stats
+let sessionLimit = 30; 
+let sessionValueStr = "30"; 
+let statsData = { secondsToday:0, secondsWeek:0, charsToday:0, charsWeek:0, mistakesToday:0, mistakesWeek:0, lastDate:"", weekStart:0 };
+
+// Game Vars
+let mistakes = 0; let sprintMistakes = 0; 
+let consecutiveMistakes = 0; 
+let activeSeconds = 0; let sprintSeconds = 0; 
+let sprintCharStart = 0; let timerInterval = null;
+let isGameActive = false; let isOvertime = false;
+let isModalOpen = false; let isInputBlocked = false; 
+let isHardStop = false; 
+let modalActionCallback = null;
+let lastInputTime = 0; let timeAccumulator = 0;
+let wpmHistory = []; let accuracyHistory = [];
+let currentLetterStatus = 'clean'; 
+
+// DOM
+const textStream = document.getElementById('text-stream');
+const keyboardDiv = document.getElementById('virtual-keyboard');
+const timerDisplay = document.getElementById('timer-display');
+const accDisplay = document.getElementById('acc-display');
+const wpmDisplay = document.getElementById('wpm-display');
+const loginBtn = document.getElementById('login-btn');
+const logoutBtn = document.getElementById('logout-btn');
+const userInfo = document.getElementById('user-info');
+const userNameDisplay = document.getElementById('user-name');
+
+async function init() {
+    console.log("Initializing JS v" + VERSION);
+    const footer = document.querySelector('footer');
+    if(footer) footer.innerText = `JS: v${VERSION}`;
+    
+    if (!document.getElementById('menu-btn')) {
+        const btn = document.createElement('button');
+        btn.id = 'menu-btn';
+        btn.innerHTML = '&#9881;'; 
+        btn.onclick = openMenuModal;
+        document.body.appendChild(btn);
+    }
+    
+    createKeyboard();
+    setupAuthListeners();
+    
+    onAuthStateChanged(auth, async (user) => {
+        if (user) {
+            currentUser = user;
+            updateAuthUI(true);
+            try {
+                await loadBookMetadata(); 
+                await loadUserProgress(); 
+                await loadUserStats();    
+            } catch(e) { console.error("Init Error:", e); }
+        } else {
+            signInAnonymously(auth);
+        }
+    });
 }
 
-body {
-    background-color: var(--bg-color);
-    color: var(--text-color);
-    font-family: 'Courier Prime', 'Courier New', monospace;
-    margin: 0;
-    height: 100vh;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    user-select: none;
-    -webkit-user-select: none;
+function setupAuthListeners() {
+    loginBtn.addEventListener('click', async () => {
+        try { await signInWithPopup(auth, new GoogleAuthProvider()); } 
+        catch (e) { alert("Login failed: " + e.message); }
+    });
+    logoutBtn.addEventListener('click', async () => {
+        try { await signOut(auth); location.reload(); } 
+        catch (e) { console.error(e); }
+    });
 }
 
-/* --- HUD --- */
-#hud {
-    height: 60px;
-    padding: 0 20px;
-    background: var(--black);
-    color: white;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-weight: bold;
-    border-bottom: 4px solid var(--carolina-blue);
-    flex-shrink: 0; 
-    z-index: 10;
-    box-sizing: border-box;
+function updateAuthUI(isLoggedIn) {
+    if (isLoggedIn && !currentUser.isAnonymous) {
+        loginBtn.classList.add('hidden');
+        userInfo.classList.remove('hidden');
+        userNameDisplay.innerText = currentUser.displayName || "Reader";
+    } else {
+        loginBtn.classList.remove('hidden');
+        userInfo.classList.add('hidden');
+    }
 }
 
-.hud-section { flex: 1; display: flex; align-items: center; }
-.hud-section.left { justify-content: flex-start; }
-.hud-section.center { justify-content: center; font-size: 1.1em; }
-.hud-section.right { justify-content: flex-end; gap: 15px; font-size: 14px; }
-
-.action-btn {
-    background: var(--carolina-blue);
-    color: white;
-    border: none;
-    padding: 6px 14px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-family: inherit;
-    font-weight: bold;
-    font-size: 13px;
-    transition: background 0.2s;
-}
-.action-btn:hover { background: #4a90e2; }
-
-.text-btn {
-    background: none;
-    border: none;
-    color: #999;
-    text-decoration: underline;
-    cursor: pointer;
-    font-family: inherit;
-    font-size: 12px;
-    padding: 0;
-}
-.text-btn:hover { color: white; }
-#user-name { color: white; margin-right: 5px; }
-
-/* --- GAME AREA --- */
-#game-container {
-    flex-grow: 1;
-    position: relative;
-    overflow: hidden; 
-    background: #fafafa;
-    display: flex;
-    justify-content: center;
+async function loadBookMetadata() {
+    try {
+        const docRef = doc(db, "books", currentBookId);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+            bookMetadata = docSnap.data();
+        } else {
+            if(currentBookId !== DEFAULT_BOOK) {
+                currentBookId = DEFAULT_BOOK;
+                localStorage.setItem('currentBookId', DEFAULT_BOOK);
+                await loadBookMetadata(); 
+            }
+        }
+    } catch (e) { console.warn("Meta Error:", e); }
 }
 
-#text-stream {
-    position: absolute;
-    top: 0; 
-    left: 10%;
-    width: 80%;
-    max-width: none; 
-    transition: transform 0.2s ease-out; 
-    padding-bottom: 300px; 
+async function loadUserStats() {
+    try {
+        const today = new Date();
+        const dateStr = today.toISOString().split('T')[0]; 
+        const weekStart = getWeekStart(today); 
+        const docRef = doc(db, "users", currentUser.uid, "stats", "time_tracking");
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+            const data = docSnap.data();
+            if (data.lastDate === dateStr) {
+                statsData.secondsToday = data.secondsToday || 0;
+                statsData.charsToday = data.charsToday || 0;
+                statsData.mistakesToday = data.mistakesToday || 0;
+            } else {
+                statsData.secondsToday = 0; statsData.charsToday = 0; statsData.mistakesToday = 0;
+            }
+            if (data.weekStart === weekStart) {
+                statsData.secondsWeek = data.secondsWeek || 0;
+                statsData.charsWeek = data.charsWeek || 0;
+                statsData.mistakesWeek = data.mistakesWeek || 0;
+            } else {
+                statsData.secondsWeek = 0; statsData.charsWeek = 0; statsData.mistakesWeek = 0;
+            }
+        }
+        statsData.lastDate = dateStr;
+        statsData.weekStart = weekStart;
+    } catch (e) {}
 }
 
-/* Image Panel Hidden */
-#image-panel {
-    display: none !important;
+function getWeekStart(date) {
+    const d = new Date(date);
+    const day = d.getDay(); 
+    const diff = (day + 1) % 7; 
+    d.setDate(d.getDate() - diff);
+    d.setHours(0,0,0,0);
+    return d.getTime();
 }
 
-/* WORD WRAPPING */
-.word {
-    display: inline-block; 
-    white-space: pre; 
-    line-height: 2.5em; 
-    font-size: 24px; 
-    color: #ccc; 
+async function loadUserProgress() {
+    textStream.innerHTML = "Loading progress...";
+    try {
+        const docRef = doc(db, "users", currentUser.uid, "progress", currentBookId);
+        const docSnap = await getDoc(docRef);
+        currentChapterNum = 1;
+        savedCharIndex = 0;
+        if (docSnap.exists()) {
+            const data = docSnap.data();
+            if (data.chapter !== undefined && data.chapter !== null) currentChapterNum = data.chapter;
+            if (data.charIndex !== undefined) savedCharIndex = data.charIndex;
+        }
+        lastSavedIndex = savedCharIndex; 
+        loadChapter(currentChapterNum);
+    } catch (e) { loadChapter(1); }
 }
 
-/* LETTERS */
-.letter {
-    display: inline-block; 
-    vertical-align: bottom; 
-    min-width: 14.4px;
-    line-height: 2.0em; 
-    padding: 0 1px; 
-    position: relative; 
-    color: #ccc;
-    border-radius: 3px;
+async function loadChapter(chapterNum) {
+    textStream.innerHTML = `Loading Chapter...`;
+    const chapterId = "chapter_" + chapterNum;
+    try {
+        const docRef = doc(db, "books", currentBookId, "chapters", chapterId);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+            bookData = docSnap.data();
+            currentChapterNum = chapterNum;
+            setupGame();
+        } else {
+            if(chapterNum !== 1 && chapterNum !== "1") {
+                alert(`Chapter ${chapterNum} not found. Returning to start.`);
+                currentChapterNum = 1;
+                savedCharIndex = 0;
+                loadChapter(1);
+            } else {
+                textStream.innerText = "Book content not found.";
+            }
+        }
+    } catch (e) { 
+        console.error(e);
+        textStream.innerHTML = "Error loading content."; 
+    }
 }
 
-/* SPACES */
-.letter.space { 
-    min-width: 14.4px; 
-    border-bottom: none !important;
-    text-decoration: none !important;
+function setupGame() {
+    fullText = bookData.segments.map(s => s.text).join("\n");
+    fullText = fullText.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
+    
+    renderText();
+    currentCharIndex = savedCharIndex;
+    
+    if (currentCharIndex > 0) {
+        for (let i = 0; i < currentCharIndex; i++) {
+            const el = document.getElementById(`char-${i}`);
+            if (el) {
+                el.classList.remove('active');
+                if (!el.classList.contains('space') && !el.classList.contains('enter') && !el.classList.contains('tab')) {
+                    el.classList.add('done-perfect');
+                }
+            }
+        }
+    }
+
+    highlightCurrentChar(); 
+    centerView(); 
+    
+    accDisplay.innerText = "---"; wpmDisplay.innerText = "0"; timerDisplay.innerText = "00:00";
+    
+    let btnLabel = "Resume";
+    if (savedCharIndex === 0) btnLabel = "Start Reading";
+    
+    if (!isGameActive) showStartModal(btnLabel);
 }
 
-/* TAB CHARACTER (→) */
-.letter.tab {
-    width: 50px; 
-    text-align: center;
-    border-bottom: 1px dotted #ddd;
-    color: transparent; 
-}
-.letter.tab::before {
-    content: '→';
-    font-size: 32px; 
-    font-weight: 800; 
-    color: #999; 
-    position: absolute;
-    left: 50%; 
-    top: 38%; 
-    transform: translate(-50%, -50%);
-    opacity: 0.5;
-}
-.letter.tab.done-perfect, .letter.tab.done-fixed { border-bottom: none; }
-.letter.tab.done-perfect::before, .letter.tab.done-fixed::before { opacity: 0.1; }
+function renderText() {
+    textStream.innerHTML = '';
+    const container = document.createDocumentFragment();
+    let wordBuffer = document.createElement('span');
+    wordBuffer.className = 'word';
 
-/* ENTER CHARACTER (↵) */
-.letter.enter {
-    width: 24px;
-    text-align: center;
-    margin-left: 2px;
-    color: transparent; 
-}
-.letter.enter::before {
-    content: '↵';
-    font-size: 28px; 
-    font-weight: 800; 
-    color: #999;
-    position: absolute;
-    left: 50%; 
-    top: 38%; 
-    transform: translate(-50%, -50%);
-    opacity: 0.5;
-}
-.letter.enter.done-perfect::before { opacity: 0.1; }
-
-/* ACTIVE STATES */
-.letter.active { 
-    background-color: var(--carolina-blue); 
-    color: white !important; 
-    z-index: 2;
-}
-.letter.active.error-state { background-color: var(--error-bg); color: black !important; }
-
-/* Active Special Keys - Icon White */
-.letter.tab.active::before,
-.letter.enter.active::before {
-    color: white;
-    opacity: 1;
+    for (let i = 0; i < fullText.length; i++) {
+        const char = fullText[i];
+        if (char === '\n') {
+            const span = document.createElement('span');
+            span.className = 'letter enter'; span.innerHTML = '&nbsp;'; span.id = `char-${i}`;
+            wordBuffer.appendChild(span);
+            container.appendChild(wordBuffer);
+            container.appendChild(document.createElement('br'));
+            wordBuffer = document.createElement('span'); wordBuffer.className = 'word';
+        } else if (char === ' ') {
+            const span = document.createElement('span');
+            span.className = 'letter space'; span.innerText = ' '; span.id = `char-${i}`;
+            wordBuffer.appendChild(span);
+            container.appendChild(wordBuffer);
+            wordBuffer = document.createElement('span'); wordBuffer.className = 'word';
+        } else if (char === '\t') {
+            if (wordBuffer.hasChildNodes()) { container.appendChild(wordBuffer); wordBuffer = document.createElement('span'); wordBuffer.className = 'word'; }
+            const tabSpan = document.createElement('span'); tabSpan.className = 'word'; 
+            const span = document.createElement('span'); span.className = 'letter tab'; span.innerHTML = '&nbsp;'; span.id = `char-${i}`;
+            tabSpan.appendChild(span); container.appendChild(tabSpan);
+        } else {
+            const span = document.createElement('span'); span.className = 'letter'; span.innerText = char; span.id = `char-${i}`;
+            wordBuffer.appendChild(span);
+        }
+    }
+    if (wordBuffer.hasChildNodes()) container.appendChild(wordBuffer);
+    textStream.appendChild(container);
 }
 
-.letter.done-perfect { color: var(--black); } 
-.letter.done-fixed { color: var(--corrected-color); font-weight: bold; } 
-.letter.done-dirty { color: var(--brute-force-color); } 
-.letter.space.done-perfect { background: transparent; }
-.letter.space.done-fixed { background-color: var(--fixed-bg); }
-.letter.space.done-dirty { background-color: var(--error-bg); }
+function startGame() {
+    const select = document.getElementById('sprint-select');
+    if (select) {
+        sessionValueStr = select.value;
+        sessionLimit = (sessionValueStr === 'infinity') ? 'infinity' : parseInt(sessionValueStr);
+    }
+    
+    sprintSeconds = 0; sprintMistakes = 0; sprintCharStart = currentCharIndex; 
+    activeSeconds = 0; timeAccumulator = 0; lastInputTime = Date.now(); 
+    consecutiveMistakes = 0; 
+    wpmHistory = []; accuracyHistory = [];
+    
+    highlightCurrentChar(); centerView(); closeModal();
+    isGameActive = true; isOvertime = false; isHardStop = false;
+    accDisplay.innerText = "100%"; wpmDisplay.innerText = "0";
+    timerDisplay.style.color = 'white'; timerDisplay.style.opacity = '1';
 
-/* --- KEYBOARD --- */
-#virtual-keyboard {
-    height: 260px;
-    background: var(--accent-grey);
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 5px; border-top: 4px solid var(--black); padding: 10px 0; flex-shrink: 0;
-}
-.kb-row { display: flex; gap: 5px; }
-.key {
-    min-width: 40px; height: 40px; background: white; border: 1px solid #999;
-    border-radius: 4px; display: flex; align-items: center; justify-content: center;
-    font-weight: bold; font-size: 16px; color: var(--black);
-}
-.key.target { background-color: var(--carolina-blue); color: white; transform: translateY(2px); }
-.key.space { width: 300px; }
-.key.wide { width: 80px; font-size: 12px; }
-.key.shift-active { background-color: #ffd700; color: black; } 
-
-/* --- MODAL --- */
-.modal {
-    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-    background: rgba(0, 0, 0, 0.3);
-    display: flex; flex-direction: column; justify-content: flex-end; 
-    z-index: 100; pointer-events: none; 
-}
-.modal-content {
-    pointer-events: auto; background: white; width: 100%;
-    border-top: 6px solid var(--carolina-blue); padding: 30px; 
-    padding-bottom: 50px; 
-    text-align: center;
-    box-shadow: 0 -10px 30px rgba(0,0,0,0.2); animation: slideUp 0.3s ease-out;
-    box-sizing: border-box;
-}
-@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
-
-.stat-row { display: flex; justify-content: center; gap: 40px; margin: 20px 0; font-size: 1.2em; color: #333; }
-.stat-item span { display: block; font-size: 2em; font-weight: bold; color: var(--black); }
-
-/* --- MODAL HEADERS & HINTS --- */
-.modal-book-title {
-    font-size: 0.8rem;
-    color: #888;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    margin-bottom: 5px;
-}
-.modal-chap-info {
-    font-size: 1.5rem;
-    font-weight: bold;
-    color: var(--black);
-    margin-bottom: 20px;
-}
-.modal-hint-text {
-    font-size: 0.8em;
-    color: #888;
-    margin-top: 5px;
-    font-weight: bold;
-    text-transform: uppercase;
+    if (timerInterval) clearInterval(timerInterval);
+    timerInterval = setInterval(gameTick, 100); 
 }
 
-.modal-btn {
-    padding: 15px 40px; background: var(--carolina-blue); color: white; 
-    border: none; font-size: 18px; font-weight: bold; cursor: pointer;
-    border-radius: 4px; box-shadow: 0 4px 0 #2b7ca8;
-    transition: opacity 0.2s, background 0.2s;
+function gameTick() {
+    if (!isGameActive) return;
+    const now = Date.now();
+    
+    // AUTO PAUSE FOR INACTIVITY
+    if (now - lastInputTime > AFK_THRESHOLD && !isModalOpen) {
+        triggerHardStop(fullText[currentCharIndex], true);
+        return;
+    }
+
+    if (now - lastInputTime < IDLE_THRESHOLD) {
+        timeAccumulator += 100;
+        timerDisplay.style.opacity = '1';
+        if (timeAccumulator >= 1000) {
+            activeSeconds++; sprintSeconds++;
+            statsData.secondsToday++; statsData.secondsWeek++;
+            timeAccumulator -= 1000;
+            updateTimerUI();
+        }
+    } else {
+        timerDisplay.style.opacity = '0.5';
+        wpmDisplay.innerText = "0"; 
+        wpmHistory = []; 
+    }
 }
-.modal-btn:active { transform: translateY(2px); box-shadow: 0 2px 0 #2b7ca8; }
-.modal-btn:disabled { background: #999; cursor: not-allowed; box-shadow: none; }
 
-select.modal-select {
-    width: auto; min-width: 150px; max-width: 100%; display: block; margin: 5px auto 20px auto; 
-    background-color: #222; color: #eee; border: 1px solid #444; padding: 10px 30px 10px 15px; 
-    border-radius: 4px; font-family: inherit; font-size: 1rem; outline: none; cursor: pointer;
-    appearance: none; -webkit-appearance: none;
-    background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2300ff41%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E");
-    background-repeat: no-repeat; background-position: right 10px top 50%; background-size: 10px auto;
+function updateTimerUI() {
+    const mins = Math.floor(activeSeconds / 60).toString().padStart(2, '0');
+    const secs = (activeSeconds % 60).toString().padStart(2, '0');
+    timerDisplay.innerText = `${mins}:${secs}`;
+    if (sessionLimit !== 'infinity' && sprintSeconds >= sessionLimit) {
+        isOvertime = true;
+        timerDisplay.style.color = '#FFA500'; 
+    }
 }
-.menu-section select.modal-select { margin: 0; flex-grow: 1; min-width: 0; }
 
-.hidden { display: none !important; }
-footer { position: fixed; bottom: 5px; right: 10px; font-size: 0.7em; color: #666; background: rgba(255,255,255,0.8); z-index: 101; padding: 2px 5px; border-radius: 3px; }
+function updateRunningWPM() {
+    const now = Date.now();
+    wpmHistory.push(now);
+    if (wpmHistory.length > 20) wpmHistory.shift();
+    if (wpmHistory.length > 1) {
+        const timeDiffMs = now - wpmHistory[0];
+        const timeDiffMin = timeDiffMs / 60000;
+        const chars = wpmHistory.length - 1; 
+        if (timeDiffMin > 0) {
+            const wpm = Math.round((chars / 5) / timeDiffMin);
+            wpmDisplay.innerText = wpm;
+        }
+    }
+}
 
-.stat-subtext { margin-top: 15px; font-size: 0.9em; color: #666; text-align: center; line-height: 1.5; }
-.stat-subtext span.highlight { color: var(--carolina-blue); font-weight: bold; border-bottom: 1px solid #ccc; }
+function updateRunningAccuracy(isCorrect) {
+    accuracyHistory.push(isCorrect ? 1 : 0);
+    if (accuracyHistory.length > 50) accuracyHistory.shift();
+    const correctCount = accuracyHistory.filter(val => val === 1).length;
+    const total = accuracyHistory.length;
+    if (total > 0) accDisplay.innerText = Math.round((correctCount / total) * 100) + "%";
+}
 
-#menu-btn { position: absolute; top: 20px; right: 20px; background: transparent; border: none; color: #555; font-size: 1.5rem; cursor: pointer; z-index: 1000; padding: 10px; }
-#menu-btn:hover { color: #00ff41; }
+document.addEventListener('keydown', (e) => {
+    if (isModalOpen) {
+        if (isInputBlocked) return; 
+        
+        // --- HARD STOP / PAUSE LOGIC ---
+        if (isHardStop) {
+            let targetChar = fullText[currentCharIndex];
+            let isMatch = (e.key === targetChar);
+            if (targetChar === '\n' && e.key === 'Enter') isMatch = true;
+            if (targetChar === '\t' && e.key === 'Tab') isMatch = true;
+            
+            if (isMatch) {
+                resumeGame();
+                handleTyping(e.key);
+            }
+            return;
+        }
 
-.menu-section { margin-bottom: 25px; text-align: left; border-bottom: 1px solid #333; padding-bottom: 20px; }
-.menu-section:last-child { border-bottom: none; }
-.menu-label { color: #888; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; display: block; }
+        // --- SMART START LOGIC ---
+        let shouldStart = false;
+        let shouldSkip = false;
+        
+        const targetChar = fullText[currentCharIndex];
+        
+        if (e.key === targetChar) shouldStart = true;
+        if (targetChar === '\n' && e.key === 'Enter') shouldStart = true;
+        if (targetChar === '\t' && e.key === 'Tab') shouldStart = true;
+        
+        if (!shouldStart && (targetChar === ' ' || targetChar === '\n')) {
+            const nextCharIndex = currentCharIndex + 1;
+            if (nextCharIndex < fullText.length) {
+                const nextChar = fullText[nextCharIndex];
+                if (e.key === nextChar) { shouldStart = true; shouldSkip = true; }
+                else if (nextChar === '\t' && e.key === 'Tab') { shouldStart = true; shouldSkip = true; }
+            }
+        }
 
-button.danger-btn { background-color: #2a0a0a; border: 1px solid #551111; color: #ff9999; margin-top: 10px; width: 100%; font-size: 0.9rem; padding: 10px; }
-button.danger-btn:hover { background-color: #441111; border-color: #ff3333; color: #fff; }
-button.secondary-btn { background-color: transparent; border: 1px solid #444; color: #aaa; margin-top: 10px; width: 100%; }
-button.secondary-btn:hover { border-color: #888; color: #fff; }
+        if (shouldStart && modalActionCallback) {
+            e.preventDefault();
+            modalActionCallback(); 
+            if (shouldSkip) {
+                const skippedEl = document.getElementById(`char-${currentCharIndex}`);
+                if(skippedEl) skippedEl.classList.add('done-perfect');
+                currentCharIndex++;
+            }
+            handleTyping(e.key);
+            return;
+        }
+        return;
+    }
+    
+    if (e.key === "Escape" && isGameActive) { pauseGameForBreak(); return; }
+    if (e.key === "Shift") toggleKeyboardCase(true);
+    if (!isGameActive) return;
+    if (["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(e.key)) return; 
+    if (e.key === " " || e.key === "Tab" || e.key === "Enter") e.preventDefault();
+    handleTyping(e.key);
+});
+
+function handleTyping(key) {
+    lastInputTime = Date.now();
+    timerDisplay.style.opacity = '1';
+
+    let inputChar = key;
+    if (key === "Tab") inputChar = "\t";
+    if (key === "Enter") inputChar = "\n";
+
+    const targetChar = fullText[currentCharIndex];
+    const currentEl = document.getElementById(`char-${currentCharIndex}`);
+
+    if (key === "Backspace") {
+        if (currentLetterStatus === 'error') {
+            currentLetterStatus = 'fixed';
+            currentEl.classList.remove('error-state');
+        }
+        return;
+    }
+
+    if (inputChar === targetChar) {
+        statsData.charsToday++; statsData.charsWeek++;
+        consecutiveMistakes = 0; 
+
+        currentEl.classList.remove('active'); currentEl.classList.remove('error-state');
+        if (currentLetterStatus === 'clean') currentEl.classList.add('done-perfect'); 
+        else if (currentLetterStatus === 'fixed') currentEl.classList.add('done-fixed'); 
+        else currentEl.classList.add('done-dirty'); 
+
+        currentCharIndex++; currentLetterStatus = 'clean'; 
+        
+        if (['.', '!', '?', '\n'].includes(targetChar)) saveProgress();
+        else if (['"', "'"].includes(targetChar) && currentCharIndex >= 2) {
+            const prevChar = fullText[currentCharIndex - 2];
+            if (['.', '!', '?'].includes(prevChar)) saveProgress();
+        }
+
+        updateRunningWPM(); updateRunningAccuracy(true);
+
+        if (isOvertime) {
+            if (['.', '!', '?', '\n'].includes(targetChar)) {
+                const nextChar = fullText[currentCharIndex]; 
+                if (nextChar !== '"' && nextChar !== "'") { triggerStop(); return; }
+            }
+        }
+
+        if (currentCharIndex >= fullText.length) { finishChapter(); return; }
+        
+        highlightCurrentChar(); centerView();
+    } else {
+        mistakes++; sprintMistakes++;
+        consecutiveMistakes++; 
+        
+        statsData.mistakesToday++; statsData.mistakesWeek++;
+        if (currentLetterStatus === 'clean') currentLetterStatus = 'error';
+        const errEl = document.getElementById(`char-${currentCharIndex}`);
+        if(errEl) errEl.classList.add('error-state'); 
+        flashKey(key); updateRunningAccuracy(false);
+
+        if (consecutiveMistakes >= SPAM_THRESHOLD) {
+            triggerHardStop(targetChar, false);
+        }
+    }
+}
+
+function triggerStop() {
+    updateImageDisplay(); highlightCurrentChar(); centerView(); pauseGameForBreak();
+}
+
+function triggerHardStop(targetChar, isAfk) {
+    isGameActive = false;
+    clearInterval(timerInterval);
+    isHardStop = true; 
+    
+    let friendlyKey = targetChar;
+    if (targetChar === ' ') friendlyKey = 'Space';
+    if (targetChar === '\n') friendlyKey = 'Enter';
+    if (targetChar === '\t') friendlyKey = 'Tab';
+
+    // Capitalization Hint Logic
+    let hintHtml = "";
+    if (friendlyKey.length === 1 && friendlyKey.match(/[A-Z]/)) {
+        hintHtml = `<div class="modal-hint-text">(Requires Shift)</div>`;
+    }
+
+    const modal = document.getElementById('modal');
+    document.getElementById('modal-title').innerText = isAfk ? "Session Paused (Inactive)" : "Pausing for Accuracy";
+    
+    let msg = isAfk ? "You've been away for a while." : "Too many errors!";
+    
+    document.getElementById('modal-body').innerHTML = `
+        <div style="font-size: 1.1em; margin: 20px 0;">
+            ${msg}<br><br>
+            Please type <b style="color: #D32F2F; font-size: 1.5em; border: 1px solid #ccc; padding: 2px 8px; border-radius: 4px;">${friendlyKey}</b> to resume.
+            ${hintHtml}
+        </div>
+    `;
+    const btn = document.getElementById('action-btn');
+    btn.style.display = 'none'; 
+    modal.classList.remove('hidden');
+    isModalOpen = true; 
+    isInputBlocked = false;
+}
+
+function resumeGame() {
+    isModalOpen = false;
+    isHardStop = false;
+    document.getElementById('modal').classList.add('hidden');
+    isGameActive = true;
+    timerInterval = setInterval(gameTick, 100); 
+    consecutiveMistakes = 0;
+    lastInputTime = Date.now(); 
+    
+    const keyboard = document.getElementById('virtual-keyboard'); 
+    if(keyboard) keyboard.focus();
+}
+
+document.addEventListener('keyup', (e) => { if (e.key === "Shift") toggleKeyboardCase(false); });
+
+// --- VIEW LOGIC ---
+function centerView() {
+    const currentEl = document.getElementById(`char-${currentCharIndex}`);
+    if (!currentEl) return;
+    const container = document.getElementById('game-container');
+    const offset = (container.clientHeight / 2) - currentEl.offsetTop - 25; 
+    textStream.style.transform = `translateY(${offset}px)`;
+}
+
+function highlightCurrentChar() {
+    document.querySelectorAll('.letter.active').forEach(el => el.classList.remove('active'));
+    const el = document.getElementById(`char-${currentCharIndex}`);
+    if (el) { el.classList.add('active'); highlightKey(fullText[currentCharIndex]); }
+}
+
+function updateImageDisplay() {
+    const p = document.getElementById('image-panel');
+    if(p) p.style.display = 'none';
+}
+
+async function saveProgress(force = false) {
+    if (!currentUser) return;
+    try {
+        if (currentCharIndex > lastSavedIndex || force) {
+            await setDoc(doc(db, "users", currentUser.uid, "progress", currentBookId), {
+                chapter: currentChapterNum,
+                charIndex: currentCharIndex,
+                lastUpdated: new Date()
+            }, { merge: true });
+            lastSavedIndex = currentCharIndex;
+        }
+        await setDoc(doc(db, "users", currentUser.uid, "stats", "time_tracking"), statsData, { merge: true });
+    } catch (e) { console.warn("Save failed:", e); }
+}
+
+function formatTime(seconds) {
+    if (!seconds) return "0m 0s"; 
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}m ${s}s`;
+}
+
+function calculateAverageWPM(chars, seconds) {
+    if(!seconds || seconds <= 0) return 0;
+    const mins = seconds / 60;
+    return Math.round((chars / 5) / mins);
+}
+
+function calculateAverageAcc(chars, mistakes) {
+    if(!chars || chars <= 0) return 100;
+    const total = chars + mistakes;
+    if(total === 0) return 100;
+    return Math.round((chars / total) * 100);
+}
+
+function pauseGameForBreak() {
+    isGameActive = false; clearInterval(timerInterval); saveProgress(); 
+    const charsTyped = currentCharIndex - sprintCharStart;
+    const sprintMinutes = sprintSeconds / 60;
+    const sprintWPM = (sprintMinutes > 0) ? Math.round((charsTyped / 5) / sprintMinutes) : 0;
+    const sprintTotalEntries = charsTyped + sprintMistakes;
+    const sprintAcc = (sprintTotalEntries > 0) ? Math.round((charsTyped / sprintTotalEntries) * 100) : 100;
+
+    const todayWPM = calculateAverageWPM(statsData.charsToday, statsData.secondsToday);
+    const todayAcc = calculateAverageAcc(statsData.charsToday, statsData.mistakesToday);
+    const weekWPM = calculateAverageWPM(statsData.charsWeek, statsData.secondsWeek);
+    const weekAcc = calculateAverageAcc(statsData.charsWeek, statsData.mistakesWeek);
+
+    const stats = { 
+        time: sprintSeconds, wpm: sprintWPM, acc: sprintAcc,
+        today: `${formatTime(statsData.secondsToday)} (${todayWPM} WPM | ${todayAcc}%)`,
+        week: `${formatTime(statsData.secondsWeek)} (${weekWPM} WPM | ${weekAcc}%)`
+    };
+    showStatsModal("Sprint Complete", stats, "Continue", startGame);
+}
+
+function finishChapter() {
+    isGameActive = false; clearInterval(timerInterval);
+    
+    let nextChapterId = null;
+    if (bookMetadata && bookMetadata.chapters) {
+        const currentIdx = bookMetadata.chapters.findIndex(c => c.id == "chapter_" + currentChapterNum);
+        if (currentIdx !== -1 && currentIdx + 1 < bookMetadata.chapters.length) {
+            const nextChap = bookMetadata.chapters[currentIdx + 1];
+            nextChapterId = nextChap.id.replace("chapter_", "");
+        }
+    }
+    
+    if (!nextChapterId) {
+        if (!isNaN(currentChapterNum)) nextChapterId = parseFloat(currentChapterNum) + 1;
+        else nextChapterId = 1;
+    }
+    
+    const charsTyped = currentCharIndex - sprintCharStart;
+    const sprintMinutes = sprintSeconds / 60;
+    const sprintWPM = (sprintMinutes > 0) ? Math.round((charsTyped / 5) / sprintMinutes) : 0;
+    const sprintTotalEntries = charsTyped + sprintMistakes;
+    const sprintAcc = (sprintTotalEntries > 0) ? Math.round((charsTyped / sprintTotalEntries) * 100) : 100;
+
+    const todayWPM = calculateAverageWPM(statsData.charsToday, statsData.secondsToday);
+    const todayAcc = calculateAverageAcc(statsData.charsToday, statsData.mistakesToday);
+    const weekWPM = calculateAverageWPM(statsData.charsWeek, statsData.secondsWeek);
+    const weekAcc = calculateAverageAcc(statsData.charsWeek, statsData.mistakesWeek);
+
+    const stats = {
+        time: sprintSeconds, wpm: sprintWPM, acc: sprintAcc, 
+        today: `${formatTime(statsData.secondsToday)} (${todayWPM} WPM | ${todayAcc}%)`,
+        week: `${formatTime(statsData.secondsWeek)} (${weekWPM} WPM | ${weekAcc}%)`
+    };
+    
+    showStatsModal(`Chapter ${currentChapterNum} Complete!`, stats, `Start Next`, async () => {
+        await saveProgress(true); 
+        currentChapterNum = nextChapterId;
+        savedCharIndex = 0; currentCharIndex = 0; lastSavedIndex = 0;
+        await setDoc(doc(db, "users", currentUser.uid, "progress", currentBookId), {
+            chapter: currentChapterNum, charIndex: 0
+        }, { merge: true });
+        loadChapter(nextChapterId);
+    });
+}
+
+function getHeaderHTML() {
+    let bookTitle = (bookMetadata && bookMetadata.title) ? bookMetadata.title : currentBookId.replace(/_/g, ' ');
+    
+    let displayChapTitle = `Chapter ${currentChapterNum}`;
+    
+    if (bookMetadata && bookMetadata.chapters) {
+        const c = bookMetadata.chapters.find(ch => ch.id == "chapter_" + currentChapterNum);
+        if (c && c.title) {
+            if(c.title != currentChapterNum) {
+                if(c.title.toLowerCase().startsWith('chapter')) {
+                    displayChapTitle = c.title;
+                } else {
+                    displayChapTitle = `Chapter ${currentChapterNum} | ${c.title}`;
+                }
+            }
+        }
+    }
+    
+    return `<div class="modal-book-title">${bookTitle}</div><div class="modal-chap-info">${displayChapTitle}</div>`;
+}
+
+function showStartModal(btnText) {
+    isModalOpen = true; isInputBlocked = false; 
+    modalActionCallback = startGame;
+    const modal = document.getElementById('modal');
+    document.getElementById('modal-title').style.display = 'none'; 
+    
+    const html = `
+        ${getHeaderHTML()}
+        ${getDropdownHTML()}
+        <p style="font-size:0.8rem; color:#777; margin-top: 15px;">
+            Type the first character to start.<br>
+            (You can skip Space or Enter at the start, but Tabs are required.)<br>
+            Press <b>ESC</b> anytime to pause.
+        </p>
+    `;
+    document.getElementById('modal-body').innerHTML = html;
+    
+    const btn = document.getElementById('action-btn');
+    btn.innerText = btnText; btn.onclick = startGame; btn.disabled = false; btn.style.display = 'inline-block';
+    modal.classList.remove('hidden');
+}
+
+function showStatsModal(title, stats, btnText, callback) {
+    isModalOpen = true; isInputBlocked = true; 
+    modalActionCallback = () => { closeModal(); if(callback) callback(); };
+    const modal = document.getElementById('modal');
+    document.getElementById('modal-title').style.display = 'none'; 
+    
+    const html = `
+        ${getHeaderHTML()}
+        <div style="font-size:1.2em; font-weight:bold; color:#4B9CD3; margin-bottom:15px;">${title}</div>
+        <div class="stat-grid" style="display:flex; justify-content:center; gap:20px; margin:20px 0;">
+            <div class="stat-box"><div style="font-size:1.8em; font-weight:bold;">${stats.wpm}</div><div style="font-size:0.9em; color:#777;">WPM</div></div>
+            <div class="stat-box"><div style="font-size:1.8em; font-weight:bold;">${stats.acc}%</div><div style="font-size:0.9em; color:#777;">Accuracy</div></div>
+            <div class="stat-box"><div style="font-size:1.8em; font-weight:bold;">${formatTime(stats.time)}</div><div style="font-size:0.9em; color:#777;">Time</div></div>
+        </div>
+        <div class="stat-subtext">Today: <span class="highlight">${stats.today}</span><br>Week: <span class="highlight">${stats.week}</span></div>
+    `;
+    
+    document.getElementById('modal-body').innerHTML = html;
+    const btn = document.getElementById('action-btn');
+    btn.innerText = "Wait..."; btn.onclick = modalActionCallback; btn.disabled = true; btn.style.opacity = '0.5'; 
+    modal.classList.remove('hidden');
+    setTimeout(() => {
+        isInputBlocked = false;
+        if(document.getElementById('action-btn')) {
+            const b = document.getElementById('action-btn');
+            b.style.opacity = '1'; b.innerText = btnText; b.disabled = false;
+        }
+    }, SPRINT_COOLDOWN_MS);
+}
+
+function getDropdownHTML() {
+    const options = [{val: "30", label: "30 Seconds"}, {val: "60", label: "1 Minute"}, {val: "120", label: "2 Minutes"}, {val: "300", label: "5 Minutes"}, {val: "infinity", label: "Open Ended (∞)"}];
+    let optionsHtml = options.map(opt => `<option value="${opt.val}" ${sessionValueStr === opt.val ? 'selected' : ''}>${opt.label}</option>`).join('');
+    return `<div style="margin-bottom: 20px; text-align:center;"><label for="sprint-select" style="color:#777; font-size:0.8rem; display:block; margin-bottom:5px; text-transform:uppercase; letter-spacing:1px;">Session Length</label><select id="sprint-select" class="modal-select">${optionsHtml}</select></div>`;
+}
+
+function closeModal() {
+    isModalOpen = false; isInputBlocked = false; document.getElementById('modal').classList.add('hidden');
+    const keyboard = document.getElementById('virtual-keyboard'); if(keyboard) keyboard.focus();
+}
+
+async function openMenuModal() {
+    if (isGameActive) pauseGameForBreak();
+    isModalOpen = true; isInputBlocked = false; 
+    modalActionCallback = () => { closeModal(); startGame(); };
+    
+    const modal = document.getElementById('modal');
+    document.getElementById('modal-title').style.display = 'block'; 
+    document.getElementById('modal-title').innerText = "Settings";
+    
+    let chapterOptions = "";
+    if (bookMetadata && bookMetadata.chapters) {
+        bookMetadata.chapters.forEach((chap) => {
+            const num = chap.id.replace("chapter_", "");
+            let sel = (num == currentChapterNum) ? "selected" : "";
+            
+            let label = `Chapter ${num}`;
+            if(chap.title && chap.title != num) {
+                if(chap.title.toLowerCase().startsWith('chapter')) label = chap.title;
+                else label = `Chapter ${num}: ${chap.title}`;
+            }
+            chapterOptions += `<option value="${num}" ${sel}>${label}</option>`;
+        });
+    }
+
+    let bookOptions = "";
+    try {
+        const querySnapshot = await getDocs(collection(db, "books"));
+        querySnapshot.forEach((doc) => {
+            const b = doc.data();
+            const id = doc.id;
+            const title = b.title || id;
+            const sel = (id === currentBookId) ? "selected" : "";
+            bookOptions += `<option value="${id}" ${sel}>${title}</option>`;
+        });
+    } catch(e) { console.warn(e); }
+
+    document.getElementById('modal-body').innerHTML = `
+        <div class="menu-section">
+            <div class="menu-label">Current Book</div>
+            <select id="book-select" class="modal-select">${bookOptions}</select>
+        </div>
+        <div class="menu-section">
+            <div class="menu-label">Chapter</div>
+            <div style="display:flex; gap:10px;">
+                <select id="chapter-nav-select" class="modal-select" style="margin:0; flex-grow:1;">${chapterOptions}</select>
+                <button id="go-btn" class="modal-btn" style="width:auto; padding:0 20px;">Go</button>
+            </div>
+        </div>
+        <div class="menu-section">
+            <div class="menu-label">Session</div>
+            ${getDropdownHTML()}
+        </div>
+    `;
+    
+    document.getElementById('book-select').onchange = (e) => {
+        if(confirm("Switch book? Progress saved.")) {
+            currentBookId = e.target.value;
+            localStorage.setItem('currentBookId', currentBookId);
+            loadBookMetadata().then(() => {
+                loadUserProgress(); 
+                closeModal();
+            });
+        }
+    };
+
+    document.getElementById('go-btn').onclick = () => {
+        const val = document.getElementById('chapter-nav-select').value;
+        if(val != currentChapterNum) {
+            handleChapterSwitch(val);
+        } else {
+            if(confirm(`Restart Chapter ${val}?`)) switchChapterHot(val);
+        }
+    };
+
+    const btn = document.getElementById('action-btn');
+    btn.innerText = "Close";
+    btn.onclick = () => { closeModal(); if(!isGameActive && savedCharIndex > 0) startGame(); };
+    btn.disabled = false;
+    modal.classList.remove('hidden');
+}
+
+function handleChapterSwitch(newChapter) {
+    if (newChapter != currentChapterNum) switchChapterHot(newChapter);
+    else if(confirm(`Go back to Chapter ${newChapter}?`)) switchChapterHot(newChapter);
+}
+
+async function switchChapterHot(newChapter) {
+    await setDoc(doc(db, "users", currentUser.uid, "progress", currentBookId), {
+        chapter: newChapter, charIndex: 0
+    }, { merge: true });
+    currentChapterNum = newChapter; savedCharIndex = 0; currentCharIndex = 0; lastSavedIndex = 0;
+    closeModal(); textStream.innerHTML = "Switching..."; loadChapter(newChapter);
+}
+
+const rows = [['q','w','e','r','t','y','u','i','o','p','[',']','\\'],['a','s','d','f','g','h','j','k','l',';',"'"],['z','x','c','v','b','n','m',',','.','/']];
+const shiftRows = [['Q','W','E','R','T','Y','U','I','O','P','{','}','|'],['A','S','D','F','G','H','J','K','L',':','"'],['Z','X','C','V','B','N','M','<','>','?']];
+
+function createKeyboard() {
+    keyboardDiv.innerHTML = '';
+    rows.forEach((rowChars, rIndex) => {
+        const rowDiv = document.createElement('div'); rowDiv.className = 'kb-row'; 
+        if (rIndex === 1) addSpecialKey(rowDiv, "CAPS"); if (rIndex === 2) addSpecialKey(rowDiv, "SHIFT");
+        rowChars.forEach((char, cIndex) => {
+            const key = document.createElement('div'); key.className = 'key'; key.innerText = char; key.dataset.char = char; key.dataset.shift = shiftRows[rIndex][cIndex]; key.id = `key-${char}`; rowDiv.appendChild(key);
+        });
+        if (rIndex === 0) addSpecialKey(rowDiv, "BACK"); if (rIndex === 1) addSpecialKey(rowDiv, "ENTER"); if (rIndex === 2) addSpecialKey(rowDiv, "SHIFT");
+        keyboardDiv.appendChild(rowDiv);
+    });
+    const spaceRow = document.createElement('div'); spaceRow.className = 'kb-row'; 
+    const space = document.createElement('div'); space.className = 'key space'; space.innerText = ""; space.id = "key- ";
+    spaceRow.appendChild(space); keyboardDiv.appendChild(spaceRow);
+}
+
+function addSpecialKey(parent, text) {
+    const key = document.createElement('div'); key.className = 'key wide'; key.innerText = text; key.id = `key-${text}`; parent.appendChild(key);
+}
+
+function toggleKeyboardCase(isShift) {
+    document.querySelectorAll('.key').forEach(k => {
+        if (k.dataset.char) k.innerText = isShift ? k.dataset.shift : k.dataset.char;
+        if (k.id === 'key-SHIFT') isShift ? k.classList.add('shift-active') : k.classList.remove('shift-active');
+    });
+}
+
+function highlightKey(char) {
+    document.querySelectorAll('.key').forEach(k => k.classList.remove('target'));
+    let targetId = ''; let needsShift = false;
+    if (char === ' ') targetId = 'key- '; else if (char === '\t') targetId = 'key-TAB'; else if (char === '\n') targetId = 'key-ENTER'; 
+    else {
+        const keys = Array.from(document.querySelectorAll('.key'));
+        const found = keys.find(k => k.dataset.char === char || k.dataset.shift === char);
+        if (found) { targetId = found.id; if (found.dataset.shift === char) needsShift = true; }
+    }
+    const el = document.getElementById(targetId); if (el) el.classList.add('target');
+    toggleKeyboardCase(needsShift);
+}
+
+function flashKey(char) {
+    let targetId = '';
+    if (char === ' ') targetId = 'key- '; else if (char === '\t' || char === 'Tab') targetId = 'key-TAB'; else if (char === '\\n' || char === 'Enter') targetId = 'key-ENTER'; 
+    else {
+        const keys = Array.from(document.querySelectorAll('.key'));
+        const found = keys.find(k => k.dataset.char === char || k.dataset.shift === char);
+        if (found) targetId = found.id;
+    }
+    const el = document.getElementById(targetId);
+    if (el) { el.style.backgroundColor = 'var(--brute-force-color)'; setTimeout(() => el.style.backgroundColor = '', 200); }
+}
+
+window.onload = init;
