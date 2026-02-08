@@ -1,4 +1,4 @@
-// v1.9.2 - Strict Typing, Robust Highlights
+// v1.9.2.1 - Accurate Stats & Historical Tracking
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,7 +9,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.9.2";
+const VERSION = "1.9.2.1";
 const BOOK_ID = "wizard_of_oz"; 
 const IDLE_THRESHOLD = 2000; 
 const SPRINT_COOLDOWN_MS = 1500; 
@@ -27,8 +27,13 @@ let currentChapterNum = 1;
 let sessionLimit = 30; 
 let sessionValueStr = "30"; 
 
-// Time Stats State
-let statsData = { secondsToday: 0, secondsWeek: 0, lastDate: "", weekStart: 0 };
+// Time & Accuracy Stats
+let statsData = { 
+    secondsToday: 0, secondsWeek: 0, 
+    charsToday: 0, charsWeek: 0,
+    mistakesToday: 0, mistakesWeek: 0,
+    lastDate: "", weekStart: 0 
+};
 
 // Game State
 let mistakes = 0; 
@@ -128,11 +133,27 @@ async function loadUserStats() {
         
         if (docSnap.exists()) {
             const data = docSnap.data();
-            statsData.secondsToday = (data.lastDate === dateStr) ? (data.secondsToday || 0) : 0;
-            statsData.secondsWeek = (data.weekStart === weekStart) ? (data.secondsWeek || 0) : 0;
-        } else {
-            statsData.secondsToday = 0;
-            statsData.secondsWeek = 0;
+            // Load or Reset Daily
+            if (data.lastDate === dateStr) {
+                statsData.secondsToday = data.secondsToday || 0;
+                statsData.charsToday = data.charsToday || 0;
+                statsData.mistakesToday = data.mistakesToday || 0;
+            } else {
+                statsData.secondsToday = 0;
+                statsData.charsToday = 0;
+                statsData.mistakesToday = 0;
+            }
+            
+            // Load or Reset Weekly
+            if (data.weekStart === weekStart) {
+                statsData.secondsWeek = data.secondsWeek || 0;
+                statsData.charsWeek = data.charsWeek || 0;
+                statsData.mistakesWeek = data.mistakesWeek || 0;
+            } else {
+                statsData.secondsWeek = 0;
+                statsData.charsWeek = 0;
+                statsData.mistakesWeek = 0;
+            }
         }
         statsData.lastDate = dateStr;
         statsData.weekStart = weekStart;
@@ -201,7 +222,7 @@ function setupGame() {
     renderText();
     currentCharIndex = savedCharIndex;
     
-    // SKIP LOGIC: Start of session skip allowed
+    // Auto-advance if starting exactly on skipped chars
     while (currentCharIndex < fullText.length && (fullText[currentCharIndex] === ' ' || fullText[currentCharIndex] === '\n')) {
         const charEl = document.getElementById(`char-${currentCharIndex}`);
         if (charEl) charEl.classList.add('done-perfect');
@@ -236,7 +257,7 @@ function setupGame() {
     }
 }
 
-// --- ENGINE (FIXED RENDERER) ---
+// --- ENGINE ---
 function renderText() {
     textStream.innerHTML = '';
     const container = document.createDocumentFragment();
@@ -249,10 +270,9 @@ function renderText() {
         if (char === '\n') {
             const span = document.createElement('span');
             span.className = 'letter enter';
-            span.innerHTML = '&nbsp;'; // FIX: Non-breaking space for height
+            span.innerHTML = '&nbsp;'; 
             span.id = `char-${i}`;
             wordBuffer.appendChild(span);
-            
             container.appendChild(wordBuffer);
             container.appendChild(document.createElement('br'));
             wordBuffer = document.createElement('span');
@@ -264,7 +284,6 @@ function renderText() {
             span.innerText = ' ';
             span.id = `char-${i}`;
             wordBuffer.appendChild(span);
-            
             container.appendChild(wordBuffer);
             wordBuffer = document.createElement('span');
             wordBuffer.className = 'word';
@@ -275,12 +294,11 @@ function renderText() {
                 wordBuffer = document.createElement('span');
                 wordBuffer.className = 'word';
             }
-
             const tabSpan = document.createElement('span');
             tabSpan.className = 'word'; 
             const span = document.createElement('span');
             span.className = 'letter tab';
-            span.innerHTML = '&nbsp;'; // FIX: Non-breaking space for height
+            span.innerHTML = '&nbsp;'; 
             span.id = `char-${i}`;
             tabSpan.appendChild(span);
             container.appendChild(tabSpan);
@@ -293,7 +311,6 @@ function renderText() {
             wordBuffer.appendChild(span);
         }
     }
-    
     if (wordBuffer.hasChildNodes()) container.appendChild(wordBuffer);
     textStream.appendChild(container);
 }
@@ -305,33 +322,30 @@ function startGame() {
         sessionLimit = (sessionValueStr === 'infinity') ? 'infinity' : parseInt(sessionValueStr);
     }
 
-    // SKIP LOGIC at Start of Sprint
+    // Skip logic ONLY at start
     while (currentCharIndex < fullText.length && (fullText[currentCharIndex] === ' ' || fullText[currentCharIndex] === '\n')) {
         const charEl = document.getElementById(`char-${currentCharIndex}`);
         if (charEl) charEl.classList.add('done-perfect');
         currentCharIndex++;
     }
     
-    highlightCurrentChar();
-    centerView();
-
-    closeModal();
-    isGameActive = true;
-    isOvertime = false;
-    
     sprintSeconds = 0;
     sprintMistakes = 0;
     sprintCharStart = currentCharIndex; 
-    
     activeSeconds = 0; 
     timeAccumulator = 0;
     lastInputTime = Date.now(); 
-    
     wpmHistory = []; 
     accuracyHistory = [];
+    
+    highlightCurrentChar();
+    centerView();
+    closeModal();
+    
+    isGameActive = true;
+    isOvertime = false;
     accDisplay.innerText = "100%";
     wpmDisplay.innerText = "0";
-    
     timerDisplay.style.color = 'white'; 
     timerDisplay.style.opacity = '1';
 
@@ -393,30 +407,14 @@ function updateRunningAccuracy(isCorrect) {
     if (total > 0) accDisplay.innerText = Math.round((correctCount / total) * 100) + "%";
 }
 
-// --- INPUT LOGIC ---
-
 document.addEventListener('keydown', (e) => {
     if (isModalOpen) {
         if (isInputBlocked) return; 
-
-        // SMART START: Check if key matches current char OR next valid char (skipping space/enter)
-        let tempIndex = currentCharIndex;
-        // Look ahead for next REAL char (skip space/enter)
-        while (tempIndex < fullText.length && (fullText[tempIndex] === ' ' || fullText[tempIndex] === '\n')) {
-            tempIndex++;
-        }
-        let nextChar = fullText[tempIndex];
-
+        // Simple start check
         const isStartKey = (e.key === "Enter") || (e.key === " ");
-        let isMatchKey = (e.key === nextChar);
-        if (nextChar === '\t' && e.key === 'Tab') isMatchKey = true;
-
-        if ((isStartKey || isMatchKey) && modalActionCallback) {
+        if (isStartKey && modalActionCallback) {
             e.preventDefault();
             modalActionCallback(); 
-            // If they typed the next REAL char, use it.
-            if (isMatchKey) handleTyping(e.key); 
-            // If they typed Space/Enter, let game start and wait for space/enter input (don't type it automatically)
             return;
         }
         return;
@@ -430,7 +428,6 @@ document.addEventListener('keydown', (e) => {
     if (e.key === "Shift") toggleKeyboardCase(true);
     if (!isGameActive) return;
     if (["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(e.key)) return; 
-    
     if (e.key === " " || e.key === "Tab" || e.key === "Enter") e.preventDefault();
 
     handleTyping(e.key);
@@ -440,16 +437,13 @@ function handleTyping(key) {
     lastInputTime = Date.now();
     timerDisplay.style.opacity = '1';
 
-    // 1. Determine Input Char
     let inputChar = key;
     if (key === "Tab") inputChar = "\t";
     if (key === "Enter") inputChar = "\n";
 
-    // 2. Identify Target
     const targetChar = fullText[currentCharIndex];
     const currentEl = document.getElementById(`char-${currentCharIndex}`);
 
-    // 3. Handle Backspace (Error Correction)
     if (key === "Backspace") {
         if (currentLetterStatus === 'error') {
             currentLetterStatus = 'fixed';
@@ -458,10 +452,12 @@ function handleTyping(key) {
         return;
     }
 
-    // 4. STRICT MATCHING LOGIC (No Skipping)
-    let isCorrect = (inputChar === targetChar);
+    // STRICT MATCHING
+    if (inputChar === targetChar) {
+        // Track Stats
+        statsData.charsToday++;
+        statsData.charsWeek++;
 
-    if (isCorrect) {
         currentEl.classList.remove('active');
         currentEl.classList.remove('error-state');
         
@@ -472,10 +468,8 @@ function handleTyping(key) {
         currentCharIndex++;
         currentLetterStatus = 'clean'; 
         
-        // Save Logic
-        const currentChar = fullText[currentCharIndex - 1]; 
-        if (['.', '!', '?', '\n'].includes(currentChar)) saveProgress();
-        else if (['"', "'"].includes(currentChar) && currentCharIndex >= 2) {
+        if (['.', '!', '?', '\n'].includes(targetChar)) saveProgress();
+        else if (['"', "'"].includes(targetChar) && currentCharIndex >= 2) {
             const prevChar = fullText[currentCharIndex - 2];
             if (['.', '!', '?'].includes(prevChar)) saveProgress();
         }
@@ -484,7 +478,7 @@ function handleTyping(key) {
         updateRunningAccuracy(true);
 
         if (isOvertime) {
-            if (['.', '!', '?', '\n'].includes(currentChar)) {
+            if (['.', '!', '?', '\n'].includes(targetChar)) {
                 const nextChar = fullText[currentCharIndex]; 
                 if (nextChar !== '"' && nextChar !== "'") { triggerStop(); return; }
             }
@@ -503,6 +497,9 @@ function handleTyping(key) {
         // Mistake
         mistakes++;
         sprintMistakes++;
+        statsData.mistakesToday++;
+        statsData.mistakesWeek++;
+
         if (currentLetterStatus === 'clean') currentLetterStatus = 'error';
         const errEl = document.getElementById(`char-${currentCharIndex}`);
         if(errEl) errEl.classList.add('error-state'); 
@@ -565,12 +562,7 @@ async function saveProgress(force = false) {
             }, { merge: true });
             lastSavedIndex = currentCharIndex;
         }
-        await setDoc(doc(db, "users", currentUser.uid, "stats", "time_tracking"), {
-            secondsToday: statsData.secondsToday,
-            secondsWeek: statsData.secondsWeek,
-            lastDate: statsData.lastDate,
-            weekStart: statsData.weekStart
-        }, { merge: true });
+        await setDoc(doc(db, "users", currentUser.uid, "stats", "time_tracking"), statsData, { merge: true });
     } catch (e) { console.warn("Save failed:", e); }
 }
 
@@ -581,22 +573,48 @@ function formatTime(seconds) {
     return `${m}m ${s}s`;
 }
 
+function calculateAverageWPM(chars, seconds) {
+    if(!seconds || seconds <= 0) return 0;
+    const mins = seconds / 60;
+    return Math.round((chars / 5) / mins);
+}
+
+function calculateAverageAcc(chars, mistakes) {
+    if(!chars || chars <= 0) return 100;
+    // Accuracy = (Correct / TotalKeypresses) * 100
+    // TotalKeypresses = chars + mistakes
+    const total = chars + mistakes;
+    if(total === 0) return 100;
+    return Math.round((chars / total) * 100);
+}
+
 function pauseGameForBreak() {
     isGameActive = false;
     clearInterval(timerInterval); 
     saveProgress(); 
 
     const charsTyped = currentCharIndex - sprintCharStart;
-    const minutes = sprintSeconds / 60;
-    const sprintWPM = (minutes > 0) ? Math.round((charsTyped / 5) / minutes) : 0;
     
-    const todayStr = formatTime(statsData.secondsToday);
-    const weekStr = formatTime(statsData.secondsWeek);
+    // Sprint Calc
+    const sprintMinutes = sprintSeconds / 60;
+    const sprintWPM = (sprintMinutes > 0) ? Math.round((charsTyped / 5) / sprintMinutes) : 0;
+    const sprintTotalEntries = charsTyped + sprintMistakes;
+    const sprintAcc = (sprintTotalEntries > 0) ? Math.round((charsTyped / sprintTotalEntries) * 100) : 100;
+
+    // Daily/Weekly Calcs
+    const todayWPM = calculateAverageWPM(statsData.charsToday, statsData.secondsToday);
+    const todayAcc = calculateAverageAcc(statsData.charsToday, statsData.mistakesToday);
     
+    const weekWPM = calculateAverageWPM(statsData.charsWeek, statsData.secondsWeek);
+    const weekAcc = calculateAverageAcc(statsData.charsWeek, statsData.mistakesWeek);
+
+    const todayStr = `${formatTime(statsData.secondsToday)} (${todayWPM} WPM | ${todayAcc}%)`;
+    const weekStr = `${formatTime(statsData.secondsWeek)} (${weekWPM} WPM | ${weekAcc}%)`;
+
     const stats = { 
         time: sprintSeconds, 
         wpm: sprintWPM, 
-        acc: 100,
+        acc: sprintAcc,
         today: todayStr,
         week: weekStr
     };
@@ -610,12 +628,17 @@ function finishChapter() {
     
     const nextChapter = currentChapterNum + 1;
     
+    const todayWPM = calculateAverageWPM(statsData.charsToday, statsData.secondsToday);
+    const todayAcc = calculateAverageAcc(statsData.charsToday, statsData.mistakesToday);
+    const weekWPM = calculateAverageWPM(statsData.charsWeek, statsData.secondsWeek);
+    const weekAcc = calculateAverageAcc(statsData.charsWeek, statsData.mistakesWeek);
+
     const stats = {
         time: sprintSeconds,
         wpm: 0, 
         acc: 100,
-        today: formatTime(statsData.secondsToday),
-        week: formatTime(statsData.secondsWeek)
+        today: `${formatTime(statsData.secondsToday)} (${todayWPM} WPM | ${todayAcc}%)`,
+        week: `${formatTime(statsData.secondsWeek)} (${weekWPM} WPM | ${weekAcc}%)`
     };
     
     showStatsModal(`Chapter ${currentChapterNum} Complete!`, stats, `Start Chapter ${nextChapter}`, async () => {
@@ -701,7 +724,7 @@ function showStatsModal(title, stats, btnText, callback) {
             </div>
         </div>
         <div class="stat-subtext">
-            Today: <span class="highlight">${stats.today}</span> | 
+            Today: <span class="highlight">${stats.today}</span><br>
             Week: <span class="highlight">${stats.week}</span>
         </div>
     `;
