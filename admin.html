@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>TypeThatBook Admin v1.9.7.7</title>
+    <title>TypeThatBook Admin v1.9.7.8</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
         body { background: #111; color: #eee; font-family: 'Courier New', monospace; padding: 20px; }
@@ -52,7 +52,7 @@
         .checkbox-wrapper input { width: auto; margin: 0 10px 0 0; }
         .checkbox-wrapper label { margin: 0; text-transform: none; color: #ddd; }
 
-        /* MODALS */
+        /* WARNING MODAL */
         #warning-modal, #error-wizard-modal {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.8); z-index: 200;
@@ -63,8 +63,10 @@
             max-width: 500px; text-align: center;
         }
         .error-wizard-content {
-            background: #222; border: 2px solid #ffaa00; padding: 25px;
-            max-width: 700px; width: 90%; text-align: left;
+            background: #151515; border: 2px solid #ffaa00; padding: 25px;
+            max-width: 800px; width: 90%; text-align: left;
+            max-height: 90vh; overflow-y: auto;
+            box-shadow: 0 0 20px rgba(255, 170, 0, 0.2);
         }
 
         footer { position: fixed; bottom: 5px; right: 10px; font-size: 0.7em; color: #666; background: rgba(255,255,255,0.8); z-index: 101; padding: 2px 5px; border-radius: 3px; }
@@ -110,7 +112,7 @@
                         <input type="text" id="new-book-title">
                     </div>
                 </div>
-                <label>Initial EPUB File (Required for new book)</label>
+                <label>Initial EPUB File (Required)</label>
                 <input type="file" id="new-epub-file" accept=".epub">
                 <button id="create-parse-btn" style="margin-top:10px;">Parse & Initialize Staging</button>
             </div>
@@ -150,7 +152,7 @@
                     <input type="checkbox" id="normalize-chars">
                     <label for="normalize-chars">Normalize Characters (Convert accents: é→e, ñ→n, etc.)</label>
                 </div>
-                <div style="font-size: 0.8em; color: #888; margin-bottom: 10px;">* Auto-fixes applied: Smart Quotes ("" ''), Em-Dashes (--), Ellipsis (...)</div>
+                <div style="font-size: 0.8em; color: #888; margin-bottom: 10px;">* Auto-fixes applied: Smart Quotes, Em-Dashes, Ellipsis</div>
 
                 <div id="chapter-list"></div>
                 
@@ -189,8 +191,7 @@
 <div id="warning-modal" class="hidden">
     <div class="warning-content">
         <h2 style="color:#ff3333; margin-top:0;">⚠️ WARNING</h2>
-        <p>This will replace all chapters currently in the Staging Area with the content from the new EPUB file.</p>
-        <p>This action cannot be undone.</p>
+        <p>This will replace all chapters currently in the Staging Area.</p>
         <div class="row" style="margin-top:20px;">
             <div class="col"><button id="confirm-overwrite-btn" class="danger-btn">Yes, Overwrite</button></div>
             <div class="col"><button id="cancel-overwrite-btn" class="secondary-btn">Cancel</button></div>
@@ -200,25 +201,27 @@
 
 <div id="error-wizard-modal" class="hidden">
     <div class="error-wizard-content">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-            <h3 style="margin:0; color:#ffaa00;">Import Issue found</h3>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; border-bottom:1px solid #444; padding-bottom:10px;">
+            <h3 style="margin:0; color:#ffaa00;">Import Issue Detected</h3>
             <span id="wizard-step" style="color:#888;"></span>
         </div>
         
-        <p style="color:#ccc; font-size:0.9em; margin-bottom:5px;">
-            The highlighted character cannot be typed on a standard US keyboard.
-        </p>
+        <div style="margin-bottom:15px;">
+            <span style="color:#ccc;">Problem Character:</span> 
+            <span id="wizard-char-display" style="font-weight:bold; color:#ff3333; border:1px solid #555; padding:2px 5px; margin-left:5px;"></span>
+        </div>
         
-        <div style="background:#000; padding:15px; border:1px solid #444; margin-bottom:20px;">
-            <div id="wizard-preview" style="font-family:'Courier New'; white-space:pre-wrap; line-height:1.5;"></div>
+        <label>Context (Sentence / Snippet):</label>
+        <div style="background:#000; padding:15px; border:1px solid #444; margin-bottom:20px; border-radius:4px;">
+            <div id="wizard-preview" style="font-family:'Courier New'; white-space:pre-wrap; line-height:1.6; font-size:1.1em;"></div>
         </div>
         
         <label>Edit Sentence to Fix:</label>
-        <textarea id="wizard-edit-input" rows="3" style="width:100%; background:#111; color:white; border:1px solid #555; padding:10px;"></textarea>
+        <textarea id="wizard-edit-input" rows="4" style="width:100%; background:#111; color:white; border:1px solid #555; padding:10px; font-family:'Courier New'; font-size:1.1em;"></textarea>
         
         <div class="row" style="margin-top:20px;">
             <div class="col"><button id="wizard-ignore-btn" class="secondary-btn">Ignore (Keep Char)</button></div>
-            <div class="col"><button id="wizard-save-btn">Save Changes</button></div>
+            <div class="col"><button id="wizard-save-btn" style="background:#0047AB;">Save & Check</button></div>
             <div class="col"><button id="wizard-cancel-btn" class="danger-btn">Cancel Import</button></div>
         </div>
     </div>
