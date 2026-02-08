@@ -2,10 +2,11 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>TypeThatBook Admin v1.3</title>
+    <title>TypeThatBook Admin v1.9.3</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
         body { background: #111; color: #eee; font-family: 'Courier New', monospace; padding: 20px; }
-        .container { max-width: 800px; margin: 0 auto; padding-bottom: 50px; }
+        .container { max-width: 900px; margin: 0 auto; padding-bottom: 80px; }
         
         /* Form Elements */
         input, textarea, button, select { 
@@ -25,9 +26,14 @@
             font-weight: bold; 
             text-transform: uppercase;
             border: none;
+            transition: background 0.2s;
         }
         button:hover { background: #4B9CD3; }
+        button:disabled { background: #555; cursor: not-allowed; }
         
+        button.secondary-btn { background: #444; border: 1px solid #666; }
+        button.secondary-btn:hover { background: #666; }
+
         label { display: block; margin-bottom: 8px; color: #888; text-transform: uppercase; font-size: 0.8rem; }
         
         /* Utilities */
@@ -38,11 +44,38 @@
             background: #222; 
             border-left: 4px solid #555;
         }
+        
         .row { display: flex; gap: 20px; }
         .col { flex: 1; }
         
         a { color: #888; text-decoration: none; border-bottom: 1px dotted #888; }
         a:hover { color: #fff; }
+
+        /* Import Section Styles */
+        .import-box {
+            background: #1a1a1a;
+            border: 1px dashed #444;
+            padding: 20px;
+            margin-bottom: 30px;
+        }
+        
+        #chapter-list {
+            max-height: 300px;
+            overflow-y: auto;
+            background: #000;
+            border: 1px solid #333;
+            padding: 10px;
+            margin-bottom: 20px;
+            font-size: 0.8em;
+        }
+        .chapter-item {
+            padding: 5px;
+            border-bottom: 1px solid #222;
+            display: flex;
+            justify-content: space-between;
+        }
+        .chapter-item.uploaded { color: #00ff41; }
+        .chapter-item.error { color: #ff3333; }
 
         footer {
             position: fixed; bottom: 5px; right: 10px; font-size: 0.7em; color: #666; 
@@ -66,21 +99,56 @@
     </div>
 
     <div id="editor-section" class="hidden">
-        <div class="row">
-            <div class="col">
-                <label>Book ID</label>
-                <input type="text" id="book-id" value="wizard_of_oz">
+        
+        <details>
+            <summary style="cursor:pointer; color:#4B9CD3; margin-bottom:10px;">Manual Editor (Click to Expand)</summary>
+            <div style="padding: 15px; border:1px solid #333; margin-bottom:20px;">
+                <div class="row">
+                    <div class="col">
+                        <label>Book ID</label>
+                        <input type="text" id="manual-book-id" value="wizard_of_oz">
+                    </div>
+                    <div class="col">
+                        <label>Chapter Number</label>
+                        <input type="number" id="manual-chap-num" value="1">
+                    </div>
+                </div>
+                <label>JSON Content</label>
+                <textarea id="json-content" rows="10" placeholder='{ "segments": [ { "text": "..." } ] }'></textarea>
+                <button id="save-btn">Save Single Chapter</button>
             </div>
-            <div class="col">
-                <label>Chapter Number</label>
-                <input type="number" id="chap-num" value="1">
+        </details>
+
+        <hr style="border-color:#333; margin: 30px 0;">
+
+        <h2>EPUB Batch Import</h2>
+        <div class="import-box">
+            <div class="row">
+                <div class="col">
+                    <label>Target Book ID</label>
+                    <input type="text" id="import-book-id" value="wizard_of_oz">
+                </div>
+                <div class="col">
+                    <label>Select EPUB File</label>
+                    <input type="file" id="epub-file" accept=".epub">
+                </div>
+            </div>
+
+            <div id="processing-ui" class="hidden">
+                <label>Detected Chapters / Files</label>
+                <div id="chapter-list">Waiting for file...</div>
+                
+                <div class="row">
+                    <div class="col">
+                        <button id="upload-all-btn">Upload All to Database</button>
+                    </div>
+                    <div class="col">
+                        <button id="download-imgs-btn" class="secondary-btn">Download Images (ZIP)</button>
+                    </div>
+                </div>
             </div>
         </div>
 
-        <label>JSON Content (Paste Segments Here)</label>
-        <textarea id="json-content" rows="15" placeholder='{ "segments": [ { "text": "..." } ] }'></textarea>
-        
-        <button id="save-btn">Save Chapter</button>
     </div>
 </div>
 
