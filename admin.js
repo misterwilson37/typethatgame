@@ -1,9 +1,9 @@
-// v1.9.7 - Content Staging Title Editor
+// v1.9.7.1 - Decimal/Zero Chapter Support
 import { db, auth } from "./firebase-config.js";
 import { doc, setDoc, getDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const ADMIN_VERSION = "1.9.7";
+const ADMIN_VERSION = "1.9.7.1";
 
 // DOM Elements
 const statusEl = document.getElementById('status');
@@ -16,7 +16,7 @@ const footerEl = document.getElementById('admin-footer');
 const bookSelect = document.getElementById('book-select');
 const newBookInput = document.getElementById('new-book-input');
 const bookTitleInput = document.getElementById('book-title'); 
-const saveTitleBtn = document.getElementById('save-title-btn'); // NEW
+const saveTitleBtn = document.getElementById('save-title-btn');
 const loadDbBtn = document.getElementById('load-db-btn');
 const epubInput = document.getElementById('epub-file');
 const processingUI = document.getElementById('processing-ui');
@@ -124,11 +124,8 @@ saveTitleBtn.onclick = async () => {
             title: newTitle
         }, { merge: true });
         
-        // Update local cache and dropdown text
         bookTitlesMap[bookId] = newTitle;
-        // Refresh dropdown
         await loadBookList();
-        // Restore selection
         bookSelect.value = bookId;
         
         statusEl.innerText = `Title updated to: ${newTitle}`;
@@ -139,12 +136,13 @@ saveTitleBtn.onclick = async () => {
     }
 };
 
-// --- DIRECT SAVE (Single Chapter) ---
+// --- DIRECT SAVE (Single) ---
 saveDirectBtn.onclick = async () => {
     const bookId = getActiveBookId();
     const chapNum = manualNum.value.trim();
     const jsonStr = jsonContent.value.trim();
-    if (!bookId || !chapNum || !jsonStr) return alert("Fill all fields");
+    // Allow 0 as valid chapNum
+    if (!bookId || chapNum === "" || !jsonStr) return alert("Fill all fields");
 
     try {
         const data = JSON.parse(jsonStr);
@@ -360,28 +358,44 @@ uploadAllBtn.onclick = async () => {
         displayTitle = bookId.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
     }
 
-    if (!confirm(`Overwrite book "${bookId}" (Title: ${displayTitle}) with ${stagedChapters.length} chapters?`)) return;
+    if (!confirm(`Overwrite book "${bookId}" (Title: ${displayTitle}) with ${stagedChapters.length} chapters? This cannot be undone.`)) return;
 
     statusEl.innerText = "Uploading...";
     const chapterMeta = [];
 
     for (let i = 0; i < stagedChapters.length; i++) {
-        const chapNum = i + 1;
+        const chapNum = i + 1; // You might want to allow custom numbering here too? 
+        // For batch upload, sequential is standard, but manual editing via UI allows numbering.
+        
         const chapData = stagedChapters[i];
         const uiStatus = document.querySelector(`#ui-chap-${i} .chap-status`);
         
         try {
             if(uiStatus) uiStatus.innerText = "...";
+            
             await setDoc(doc(db, "books", bookId, "chapters", "chapter_" + chapNum), {
                 segments: chapData.segments
             });
-            chapterMeta.push({ id: "chapter_" + chapNum, title: chapData.title });
-            if(uiStatus) { uiStatus.innerText = "✔ OK"; uiStatus.className = "chap-status ok"; }
+            
+            chapterMeta.push({
+                id: "chapter_" + chapNum,
+                title: chapData.title
+            });
+
+            if(uiStatus) {
+                uiStatus.innerText = "✔ OK";
+                uiStatus.className = "chap-status ok";
+            }
+            
             const row = document.getElementById(`ui-chap-${i}`);
             if(row) row.classList.add('uploaded');
+
         } catch (e) {
             console.error(e);
-            if(uiStatus) { uiStatus.innerText = "FAIL"; uiStatus.style.color = "red"; }
+            if(uiStatus) {
+                uiStatus.innerText = "FAIL";
+                uiStatus.style.color = "red";
+            }
             return alert(`Upload failed at Chapter ${chapNum}`);
         }
     }
