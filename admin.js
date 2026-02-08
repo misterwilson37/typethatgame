@@ -1,9 +1,9 @@
-// v1.9.3.2 - Book Manager & Visual Fixes
+// v1.9.6 - Book Dropdown & UI Improvements
 import { db, auth } from "./firebase-config.js";
-import { doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { doc, setDoc, getDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const ADMIN_VERSION = "1.9.3.2";
+const ADMIN_VERSION = "1.9.6";
 
 // DOM Elements
 const statusEl = document.getElementById('status');
@@ -13,7 +13,8 @@ const loginBtn = document.getElementById('login-btn');
 const footerEl = document.getElementById('admin-footer');
 
 // Elements
-const importBookId = document.getElementById('import-book-id');
+const bookSelect = document.getElementById('book-select');
+const newBookInput = document.getElementById('new-book-input');
 const loadDbBtn = document.getElementById('load-db-btn');
 const epubInput = document.getElementById('epub-file');
 const processingUI = document.getElementById('processing-ui');
@@ -26,7 +27,7 @@ const manualTitle = document.getElementById('manual-chap-title');
 const manualNum = document.getElementById('manual-chap-num');
 const jsonContent = document.getElementById('json-content');
 const updateStagedBtn = document.getElementById('update-staged-btn');
-const saveDirectBtn = document.getElementById('save-btn'); // For direct save
+const saveDirectBtn = document.getElementById('save-btn'); 
 const manualDetails = document.getElementById('manual-details');
 
 let stagedChapters = [];
@@ -36,12 +37,13 @@ let editingIndex = -1;
 if(footerEl) footerEl.innerText = `Admin JS: v${ADMIN_VERSION}`;
 
 // --- AUTH ---
-onAuthStateChanged(auth, (user) => {
+onAuthStateChanged(auth, async (user) => {
     if (user) {
         statusEl.innerText = "Logged in as: " + user.email;
         statusEl.style.borderColor = "#00ff41"; 
         loginSec.classList.add('hidden');
         editorSec.classList.remove('hidden');
+        await loadBookList();
     } else {
         statusEl.innerText = "Access Restricted.";
         statusEl.style.borderColor = "#ff3333"; 
@@ -55,16 +57,61 @@ loginBtn.onclick = async () => {
     catch (e) { alert(e.message); }
 };
 
+// --- BOOK LIST ---
+async function loadBookList() {
+    bookSelect.innerHTML = "<option>Loading...</option>";
+    try {
+        const querySnapshot = await getDocs(collection(db, "books"));
+        bookSelect.innerHTML = "";
+        
+        querySnapshot.forEach((doc) => {
+            const b = doc.data();
+            const option = document.createElement("option");
+            option.value = doc.id;
+            option.text = b.title ? `${b.title} (${doc.id})` : doc.id;
+            bookSelect.appendChild(option);
+        });
+
+        // Add Create Option
+        const createOpt = document.createElement("option");
+        createOpt.value = "__NEW__";
+        createOpt.text = "➕ Create New Book...";
+        createOpt.style.color = "#4B9CD3";
+        createOpt.style.fontWeight = "bold";
+        bookSelect.appendChild(createOpt);
+
+    } catch (e) {
+        console.error(e);
+        bookSelect.innerHTML = "<option>Error loading list</option>";
+    }
+}
+
+bookSelect.onchange = () => {
+    if (bookSelect.value === "__NEW__") {
+        newBookInput.classList.remove('hidden');
+        newBookInput.focus();
+    } else {
+        newBookInput.classList.add('hidden');
+    }
+};
+
+function getActiveBookId() {
+    if (bookSelect.value === "__NEW__") {
+        return newBookInput.value.trim();
+    }
+    return bookSelect.value;
+}
+
 // --- DIRECT SAVE (Single) ---
 saveDirectBtn.onclick = async () => {
-    const bookId = importBookId.value.trim();
+    const bookId = getActiveBookId();
     const chapNum = manualNum.value.trim();
     const jsonStr = jsonContent.value.trim();
     if (!bookId || !chapNum || !jsonStr) return alert("Fill all fields");
 
     try {
         const data = JSON.parse(jsonStr);
-        statusEl.innerText = `Saving Chapter ${chapNum}...`;
+        statusEl.innerText = `Saving Chapter ${chapNum} to ${bookId}...`;
         await setDoc(doc(db, "books", bookId, "chapters", "chapter_" + chapNum), data);
         statusEl.innerText = `Success! Chapter ${chapNum} saved directly.`;
         statusEl.style.borderColor = "#00ff41";
@@ -76,8 +123,8 @@ saveDirectBtn.onclick = async () => {
 
 // --- LOAD FROM DB ---
 loadDbBtn.onclick = async () => {
-    const bookId = importBookId.value.trim();
-    if(!bookId) return alert("Enter a Book ID");
+    const bookId = getActiveBookId();
+    if(!bookId) return alert("Select or enter a Book ID");
     
     statusEl.innerText = `Loading ${bookId} from database...`;
     chapterListEl.innerHTML = "Loading...";
@@ -160,12 +207,10 @@ epubInput.addEventListener('change', async (e) => {
             const content = await zip.file(fullPath).async("string");
             const doc = new DOMParser().parseFromString(content, "application/xhtml+xml");
             
-            // Extract Title - Only check body tags
             let title = `Chapter ${counter}`;
             const hTag = doc.body.querySelector('h1, h2, h3');
             if(hTag) title = hTag.innerText.trim().substring(0, 60);
 
-            // Extract Text
             const segments = [];
             doc.body.querySelectorAll("p").forEach(el => {
                 let text = el.textContent;
@@ -268,8 +313,8 @@ updateStagedBtn.onclick = () => {
 // --- UPLOAD ---
 uploadAllBtn.onclick = async () => {
     if (stagedChapters.length === 0) return alert("Nothing to upload.");
-    const bookId = importBookId.value.trim();
-    if (!bookId) return alert("Book ID required.");
+    const bookId = getActiveBookId();
+    if (!bookId) return alert("Select or enter a Book ID.");
     
     if (!confirm(`Overwrite book "${bookId}" with ${stagedChapters.length} chapters? This cannot be undone.`)) return;
 
@@ -312,14 +357,22 @@ uploadAllBtn.onclick = async () => {
     }
 
     try {
+        // If getting real book title from metadata would be better, we could add a field for it.
+        // For now, prettify the ID.
+        let prettyTitle = bookId.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        
         await setDoc(doc(db, "books", bookId), {
-            title: bookId.replace(/_/g, ' '),
+            title: prettyTitle,
             totalChapters: stagedChapters.length,
             chapters: chapterMeta
         }, { merge: true });
         
         statusEl.innerText = "Upload Complete!";
         statusEl.style.borderColor = "#00ff41";
+        
+        // Refresh list to show new book if created
+        await loadBookList();
+        
     } catch (e) { alert("Metadata Save Failed: " + e.message); }
 };
 
