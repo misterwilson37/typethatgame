@@ -1,4 +1,4 @@
-// v1.9.1.9.5 - Strict Typing (No Space/Enter Skipping)
+// v1.9.2 - Strict Typing, Robust Highlights
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,7 +9,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.9.1.9.5";
+const VERSION = "1.9.2";
 const BOOK_ID = "wizard_of_oz"; 
 const IDLE_THRESHOLD = 2000; 
 const SPRINT_COOLDOWN_MS = 1500; 
@@ -247,50 +247,40 @@ function renderText() {
         const char = fullText[i];
         
         if (char === '\n') {
-            // Append Enter Key to the current word
             const span = document.createElement('span');
             span.className = 'letter enter';
-            span.innerText = ''; 
+            span.innerHTML = '&nbsp;'; // FIX: Non-breaking space for height
             span.id = `char-${i}`;
             wordBuffer.appendChild(span);
             
-            // Close word
             container.appendChild(wordBuffer);
-            
-            // Visual Break
             container.appendChild(document.createElement('br'));
-            
-            // Reset Buffer
             wordBuffer = document.createElement('span');
             wordBuffer.className = 'word';
             
         } else if (char === ' ') {
-            // Append Space TO THE CURRENT WORD
             const span = document.createElement('span');
             span.className = 'letter space';
             span.innerText = ' ';
             span.id = `char-${i}`;
             wordBuffer.appendChild(span);
             
-            // Now close the word
             container.appendChild(wordBuffer);
             wordBuffer = document.createElement('span');
             wordBuffer.className = 'word';
             
         } else if (char === '\t') {
-            // Close previous word if valid
             if (wordBuffer.hasChildNodes()) {
                 container.appendChild(wordBuffer);
                 wordBuffer = document.createElement('span');
                 wordBuffer.className = 'word';
             }
 
-            // Tab is its own word container
             const tabSpan = document.createElement('span');
             tabSpan.className = 'word'; 
             const span = document.createElement('span');
             span.className = 'letter tab';
-            span.innerText = ''; 
+            span.innerHTML = '&nbsp;'; // FIX: Non-breaking space for height
             span.id = `char-${i}`;
             tabSpan.appendChild(span);
             container.appendChild(tabSpan);
