@@ -1,4 +1,4 @@
-/* v1.9 - The User's Layout (Vertical Stream + Bottom Modals) */
+/* v1.9.1.5 - Style Fixes for Layout & Menus */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -24,9 +24,9 @@ body {
     -webkit-user-select: none;
 }
 
-/* --- UNIFIED HUD SECTION --- */
+/* --- HUD --- */
 #hud {
-    height: 60px; /* Fixed height for stability */
+    height: 60px;
     padding: 0 20px;
     background: var(--black);
     color: white;
@@ -40,17 +40,11 @@ body {
     box-sizing: border-box;
 }
 
-/* Three columns for the HUD */
-.hud-section {
-    flex: 1; /* Takes equal width */
-    display: flex;
-    align-items: center;
-}
+.hud-section { flex: 1; display: flex; align-items: center; }
 .hud-section.left { justify-content: flex-start; }
 .hud-section.center { justify-content: center; font-size: 1.1em; }
 .hud-section.right { justify-content: flex-end; gap: 15px; font-size: 14px; }
 
-/* HUD Buttons (Auth) */
 .action-btn {
     background: var(--carolina-blue);
     color: white;
@@ -76,7 +70,6 @@ body {
     padding: 0;
 }
 .text-btn:hover { color: white; }
-
 #user-name { color: white; margin-right: 5px; }
 
 /* --- GAME AREA --- */
@@ -97,35 +90,19 @@ body {
 }
 
 .word {
-    display: inline-block;
-    margin-right: 10px;
-    white-space: pre;
-    line-height: 2.5em;
-    font-size: 24px;
-    color: #ccc; 
+    display: inline-block; margin-right: 10px; white-space: pre;
+    line-height: 2.5em; font-size: 24px; color: #ccc; 
 }
-
-/* UNIFIED LETTER STYLING */
 .letter {
-    display: inline-block;       
-    vertical-align: bottom;      
-    min-width: 14.4px;           
-    padding: 2px 0;              
-    line-height: 1.2;            
-    position: relative;
-    color: #ccc;
+    display: inline-block; vertical-align: bottom; min-width: 14.4px;           
+    padding: 2px 0; line-height: 1.2; position: relative; color: #ccc;
 }
-
 .letter.space { min-width: 14.4px; }
-
-/* Letter States */
 .letter.active { background-color: var(--carolina-blue); color: white !important; border-radius: 2px; }
 .letter.active.error-state { background-color: var(--error-bg); color: black !important; }
-
 .letter.done-perfect { color: var(--black); } 
 .letter.done-fixed { color: var(--corrected-color); font-weight: bold; } 
 .letter.done-dirty { color: var(--brute-force-color); } 
-
 .letter.space.done-perfect { background: transparent; }
 .letter.space.done-fixed { background-color: var(--fixed-bg); }
 .letter.space.done-dirty { background-color: var(--error-bg); }
@@ -161,6 +138,7 @@ body {
     padding-bottom: 50px; 
     text-align: center;
     box-shadow: 0 -10px 30px rgba(0,0,0,0.2); animation: slideUp 0.3s ease-out;
+    box-sizing: border-box;
 }
 @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
 
@@ -174,38 +152,23 @@ body {
     padding: 15px 40px; background: var(--carolina-blue); color: white; 
     border: none; font-size: 18px; font-weight: bold; cursor: pointer;
     border-radius: 4px; box-shadow: 0 4px 0 #2b7ca8;
+    transition: opacity 0.2s, background 0.2s;
 }
 .modal-btn:active { transform: translateY(2px); box-shadow: 0 2px 0 #2b7ca8; }
+.modal-btn:disabled { background: #999; cursor: not-allowed; box-shadow: none; }
 
-/* --- EXTRAS --- */
-.hidden { display: none !important; }
-
-#image-panel {
-    position: absolute; right: 20px; top: 50%; transform: translateY(-50%);
-    width: 250px; display: none; z-index: 5;
-}
-#image-panel img { width: 100%; border: 4px solid var(--black); }
-
-footer {
-    position: fixed; bottom: 5px; right: 10px; font-size: 0.7em; color: #666; 
-    pointer-events: none; 
-    background: rgba(255,255,255,0.8);
-    z-index: 101; 
-    padding: 2px 5px;
-    border-radius: 3px;
-}
-
-/* Centered, Auto-Width Dropdown */
+/* DROPDOWN FIXES */
 select.modal-select {
-    width: auto;             /* Only as wide as needed */
-    min-width: 200px;        /* ...but not too skinny */
-    display: block;          /* Allows centering */
-    margin: 5px auto 20px auto; /* Centers it horizontally */
+    width: auto;             
+    min-width: 150px; /* Reduced to fit menu */
+    max-width: 100%;
+    display: block;          
+    margin: 5px auto 20px auto; 
     
     background-color: #222;
     color: #eee;
     border: 1px solid #444;
-    padding: 10px 30px 10px 15px; /* Extra right padding for the arrow */
+    padding: 10px 30px 10px 15px; 
     border-radius: 4px;
     font-family: inherit;
     font-size: 1rem;
@@ -219,82 +182,30 @@ select.modal-select {
     background-position: right 10px top 50%;
     background-size: 10px auto;
 }
-
-select.modal-select:focus {
-    border-color: #00ff41;
+/* Allow flex shrinking in menu */
+.menu-section select.modal-select {
+    margin: 0;
+    flex-grow: 1;
+    min-width: 0; /* Important for flex containers */
 }
 
-.stat-subtext {
-    margin-top: 15px;
-    font-size: 0.9em;
-    color: #ddd;
-    text-align: center;
-    line-height: 1.5;
-}
-.stat-subtext span.highlight {
-    color: #fff;
-    font-weight: bold;
-    border-bottom: 1px solid #444;
-}
+/* EXTRAS */
+.hidden { display: none !important; }
+#image-panel { position: absolute; right: 20px; top: 50%; transform: translateY(-50%); width: 250px; display: none; z-index: 5; }
+#image-panel img { width: 100%; border: 4px solid var(--black); }
+footer { position: fixed; bottom: 5px; right: 10px; font-size: 0.7em; color: #666; background: rgba(255,255,255,0.8); z-index: 101; padding: 2px 5px; border-radius: 3px; }
 
-/* Top Right Menu Button */
-#menu-btn {
-    position: absolute;
-    top: 20px;
-    right: 20px;
-    background: transparent;
-    border: none;
-    color: #555;
-    font-size: 1.5rem;
-    cursor: pointer;
-    z-index: 1000;
-    transition: color 0.2s;
-    padding: 10px;
-}
+.stat-subtext { margin-top: 15px; font-size: 0.9em; color: #ddd; text-align: center; line-height: 1.5; }
+.stat-subtext span.highlight { color: #fff; font-weight: bold; border-bottom: 1px solid #444; }
+
+#menu-btn { position: absolute; top: 20px; right: 20px; background: transparent; border: none; color: #555; font-size: 1.5rem; cursor: pointer; z-index: 1000; padding: 10px; }
 #menu-btn:hover { color: #00ff41; }
 
-/* Menu Layout */
-.menu-section {
-    margin-bottom: 25px;
-    text-align: left;
-    border-bottom: 1px solid #333;
-    padding-bottom: 20px;
-}
+.menu-section { margin-bottom: 25px; text-align: left; border-bottom: 1px solid #333; padding-bottom: 20px; }
 .menu-section:last-child { border-bottom: none; }
-.menu-label {
-    color: #888;
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    margin-bottom: 10px;
-    display: block;
-}
+.menu-label { color: #888; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; display: block; }
 
-/* Danger Buttons */
-button.danger-btn {
-    background-color: #2a0a0a;
-    border: 1px solid #551111;
-    color: #ff9999;
-    margin-top: 10px;
-    width: 100%;
-    font-size: 0.9rem;
-    padding: 10px;
-}
-button.danger-btn:hover {
-    background-color: #441111;
-    border-color: #ff3333;
-    color: #fff;
-}
-
-/* Secondary Button (Cancel) */
-button.secondary-btn {
-    background-color: transparent;
-    border: 1px solid #444;
-    color: #aaa;
-    margin-top: 10px;
-    width: 100%;
-}
-button.secondary-btn:hover {
-    border-color: #888;
-    color: #fff;
-}
+button.danger-btn { background-color: #2a0a0a; border: 1px solid #551111; color: #ff9999; margin-top: 10px; width: 100%; font-size: 0.9rem; padding: 10px; }
+button.danger-btn:hover { background-color: #441111; border-color: #ff3333; color: #fff; }
+button.secondary-btn { background-color: transparent; border: 1px solid #444; color: #aaa; margin-top: 10px; width: 100%; }
+button.secondary-btn:hover { border-color: #888; color: #fff; }
