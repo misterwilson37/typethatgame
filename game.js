@@ -1,4 +1,4 @@
-// v1.9.1.4 - Fixes: Navigation, Space-Start, & Stat Display
+// v1.9.1.5 - Smart Start, Visual Cooldown, Stats Fixes
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,7 +9,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.9.1.4";
+const VERSION = "1.9.1.5";
 const BOOK_ID = "wizard_of_oz"; 
 const IDLE_THRESHOLD = 2000; 
 const SPRINT_COOLDOWN_MS = 1500; 
@@ -28,12 +28,7 @@ let sessionLimit = 30;
 let sessionValueStr = "30"; 
 
 // Time Stats State
-let statsData = {
-    secondsToday: 0,
-    secondsWeek: 0,
-    lastDate: "",
-    weekStart: 0
-};
+let statsData = { secondsToday: 0, secondsWeek: 0, lastDate: "", weekStart: 0 };
 
 // Game State
 let mistakes = 0; 
@@ -75,7 +70,6 @@ async function init() {
     const footer = document.querySelector('footer');
     if(footer) footer.innerText = `JS: v${VERSION}`;
     
-    // Inject Menu Button
     if (!document.getElementById('menu-btn')) {
         const btn = document.createElement('button');
         btn.id = 'menu-btn';
@@ -135,10 +129,6 @@ async function loadUserStats() {
             const data = docSnap.data();
             statsData.secondsToday = (data.lastDate === dateStr) ? (data.secondsToday || 0) : 0;
             statsData.secondsWeek = (data.weekStart === weekStart) ? (data.secondsWeek || 0) : 0;
-        } else {
-            // Defaults if document doesn't exist
-            statsData.secondsToday = 0;
-            statsData.secondsWeek = 0;
         }
         statsData.lastDate = dateStr;
         statsData.weekStart = weekStart;
@@ -207,15 +197,13 @@ function setupGame() {
     renderText();
     currentCharIndex = savedCharIndex;
     
-    // FIX 2: Handle starting on a space
-    // If we load and are pointing at a space, mark it done and move to next char
+    // Auto-advance if load starts on space
     if (fullText[currentCharIndex] === ' ') {
         const spaceEl = document.getElementById(`char-${currentCharIndex}`);
         if (spaceEl) spaceEl.classList.add('done-perfect');
         currentCharIndex++;
     }
 
-    // Mark previous text as done
     if (currentCharIndex > 0) {
         for (let i = 0; i < currentCharIndex; i++) {
             const el = document.getElementById(`char-${i}`);
@@ -275,13 +263,12 @@ function startGame() {
         sessionLimit = (sessionValueStr === 'infinity') ? 'infinity' : parseInt(sessionValueStr);
     }
 
-    // Double check space skip on start
+    // CHECK FOR SPACE SKIP ON START (Smart Start)
     if (fullText[currentCharIndex] === ' ') {
         const spaceEl = document.getElementById(`char-${currentCharIndex}`);
         if (spaceEl) spaceEl.classList.add('done-perfect');
         currentCharIndex++;
-        highlightCurrentChar();
-        centerView();
+        // NOTE: We don't saveProgress here to avoid excessive writes, it syncs next keypress
     }
 
     closeModal();
@@ -366,23 +353,33 @@ function updateRunningAccuracy(isCorrect) {
 }
 
 document.addEventListener('keydown', (e) => {
-    // 1. MODAL / START SCREEN NAVIGATION
+    // 1. MODAL NAVIGATION
     if (isModalOpen) {
         if (isInputBlocked) return; 
 
-        const targetChar = fullText[currentCharIndex];
-        
-        // FIX 2: Allow starting by typing the target letter (which might be after a space now)
-        if (e.key === targetChar && modalActionCallback) {
+        // SMART START LOGIC
+        // If current char is space, we accept the NEXT char as a trigger too
+        let effectiveTarget = fullText[currentCharIndex];
+        let nextChar = null;
+        if (effectiveTarget === ' ' && currentCharIndex + 1 < fullText.length) {
+            nextChar = fullText[currentCharIndex + 1];
+        }
+
+        const isStartKey = (e.key === "Enter") || (e.key === " ");
+        const isMatchKey = (e.key === effectiveTarget) || (nextChar && e.key === nextChar);
+
+        if ((isStartKey || isMatchKey) && modalActionCallback) {
             e.preventDefault();
             modalActionCallback(); // Start game
-            handleTyping(e.key);   // Process the letter immediately
-            return;
-        }
-        
-        if ((e.key === "Enter" || e.key === " ") && modalActionCallback) {
-            e.preventDefault();
-            modalActionCallback();
+            
+            // If they typed a character (not Enter/Space), process it immediately
+            if (isMatchKey) {
+                // If they hit the 'nextChar' (skipping space), handleTyping will handle the space logic?
+                // Actually handleTyping expects to match 'currentCharIndex'.
+                // If we skipped space in startGame, currentCharIndex is now at nextChar.
+                // So e.key will match. Perfect.
+                handleTyping(e.key); 
+            }
             return;
         }
         return;
@@ -399,7 +396,7 @@ document.addEventListener('keydown', (e) => {
     if (["Shift", "Control", "Alt", "Meta", "CapsLock", "Tab"].includes(e.key)) return;
     if (e.key === " ") e.preventDefault(); 
 
-    // 3. TYPING LOGIC
+    // 3. TYPING
     handleTyping(e.key);
 });
 
@@ -419,6 +416,7 @@ function handleTyping(key) {
     }
 
     if (key === targetChar) {
+        // Correct
         currentEl.classList.remove('active');
         currentEl.classList.remove('error-state');
         
@@ -458,6 +456,7 @@ function handleTyping(key) {
         updateImageDisplay();
     } 
     else {
+        // Mistake
         mistakes++;
         sprintMistakes++;
         if (currentLetterStatus === 'clean') currentLetterStatus = 'error';
@@ -531,6 +530,7 @@ async function saveProgress(force = false) {
 }
 
 function formatTime(seconds) {
+    if (!seconds) return "0m 0s"; // Fallback for 0 or undefined
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
     return `${m}m ${s}s`;
@@ -545,7 +545,7 @@ function pauseGameForBreak() {
     const minutes = sprintSeconds / 60;
     const sprintWPM = (minutes > 0) ? Math.round((charsTyped / 5) / minutes) : 0;
     
-    // FIX 3: Ensure data exists before display
+    // Stats Interpolation Fix
     const todayStr = formatTime(statsData.secondsToday || 0);
     const weekStr = formatTime(statsData.secondsWeek || 0);
 
@@ -627,6 +627,7 @@ function showStartModal(title, btnText) {
     const btn = document.getElementById('action-btn');
     btn.innerText = btnText;
     btn.onclick = startGame;
+    btn.disabled = false;
     btn.style.display = 'inline-block';
     
     modal.classList.remove('hidden');
@@ -664,8 +665,9 @@ function showStatsModal(title, stats, btnText, callback) {
     document.getElementById('modal-body').innerHTML = html;
     
     const btn = document.getElementById('action-btn');
-    btn.innerText = btnText;
+    btn.innerText = "Wait..."; // Visual Feedback
     btn.onclick = modalActionCallback;
+    btn.disabled = true; // Button Disabled during cooldown
     btn.style.opacity = '0.5'; 
     
     modal.classList.remove('hidden');
@@ -673,7 +675,10 @@ function showStatsModal(title, stats, btnText, callback) {
     setTimeout(() => {
         isInputBlocked = false;
         if(document.getElementById('action-btn')) {
-            document.getElementById('action-btn').style.opacity = '1';
+            const b = document.getElementById('action-btn');
+            b.style.opacity = '1';
+            b.innerText = btnText; // "Continue"
+            b.disabled = false;
         }
     }, SPRINT_COOLDOWN_MS);
 }
@@ -698,7 +703,6 @@ function openMenuModal() {
     document.getElementById('modal-title').innerText = "Settings";
     
     let chapterOptions = "";
-    // FIX 1: Ensure Chapter options are selectable even if we are on a later chapter
     for(let i=1; i<=5; i++) {
         let sel = (i === currentChapterNum) ? "selected" : "";
         chapterOptions += `<option value="${i}" ${sel}>Chapter ${i}</option>`;
@@ -720,15 +724,22 @@ function openMenuModal() {
         </div>
     `;
     
-    // Attach event listeners for the dynamic menu
     document.getElementById('go-btn').onclick = () => {
         const val = parseInt(document.getElementById('chapter-nav-select').value);
-        if(val !== currentChapterNum) handleChapterSwitch(val);
+        if(val !== currentChapterNum) {
+            handleChapterSwitch(val);
+        } else {
+            // Restart Current Chapter Logic
+            if(confirm(`Restart Chapter ${val} from the beginning?`)) {
+                switchChapterHot(val);
+            }
+        }
     };
 
     const btn = document.getElementById('action-btn');
     btn.innerText = "Close";
     btn.onclick = () => { closeModal(); if(!isGameActive && savedCharIndex > 0) startGame(); };
+    btn.disabled = false;
     
     modal.classList.remove('hidden');
 }
@@ -737,7 +748,6 @@ function handleChapterSwitch(newChapter) {
     if (newChapter > currentChapterNum) {
         switchChapterHot(newChapter);
     } else {
-        // Warning when going backwards
         if(confirm(`Go back to Chapter ${newChapter}? Unsaved progress in current chapter will be lost.`)) {
             switchChapterHot(newChapter);
         }
@@ -777,7 +787,7 @@ function createKeyboard() {
     
     rows.forEach((rowChars, rIndex) => {
         const rowDiv = document.createElement('div');
-        rowDiv.className = 'kb-row'; // MATCHES CSS
+        rowDiv.className = 'kb-row'; 
         
         let leftSpecial = null;
         if (rIndex === 1) leftSpecial = "CAPS";
@@ -803,7 +813,6 @@ function createKeyboard() {
         keyboardDiv.appendChild(rowDiv);
     });
     
-    // Space Row
     const spaceRow = document.createElement('div');
     spaceRow.className = 'kb-row'; 
     const space = document.createElement('div');
