@@ -1,4 +1,4 @@
-// v1.9.1.9.4 - Strict Mode (No Space Skipping)
+// v1.9.1.9.5 - Strict Typing (No Space/Enter Skipping)
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,7 +9,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.9.1.9.4";
+const VERSION = "1.9.1.9.5";
 const BOOK_ID = "wizard_of_oz"; 
 const IDLE_THRESHOLD = 2000; 
 const SPRINT_COOLDOWN_MS = 1500; 
