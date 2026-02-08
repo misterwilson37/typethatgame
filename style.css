@@ -1,4 +1,4 @@
-/* v1.9.1.9.3 - Thicker Icons & Layout Fixes */
+/* v1.9.1.9.4 - Strict Spaces & High Tab Icons */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -90,7 +90,7 @@ body {
     padding-bottom: 300px; 
 }
 
-/* WORD WRAPPING: Inline-block + Pre for stability */
+/* WORD WRAPPING */
 .word {
     display: inline-block; 
     white-space: pre; 
@@ -104,7 +104,7 @@ body {
     padding: 2px 0; line-height: 1.2; position: relative; color: #ccc;
 }
 
-/* SPACES: No extra styling */
+/* SPACES */
 .letter.space { 
     min-width: 14.4px; 
     border-bottom: none !important;
@@ -117,14 +117,16 @@ body {
     text-align: center;
     border-bottom: 1px dotted #ddd;
     color: #999;
+    vertical-align: middle; /* Helps vertical alignment context */
 }
 .letter.tab::before {
     content: '→';
-    font-size: 24px; /* Larger */
-    font-weight: 800; /* Extra Bold */
+    font-size: 24px; 
+    font-weight: 700; 
     position: absolute;
     left: 50%; 
-    top: 42%; /* Moved UP to align with Caps */
+    /* 30% pulls it up towards the cap-height */
+    top: 30%; 
     transform: translate(-50%, -50%);
     opacity: 0.5;
 }
@@ -154,11 +156,17 @@ body {
 .letter.active { background-color: var(--carolina-blue); color: white !important; border-radius: 2px; }
 .letter.active.error-state { background-color: var(--error-bg); color: black !important; }
 
-/* Active Special Keys */
+/* Active Special Keys - Clean Highlighting */
 .letter.tab.active::before,
 .letter.enter.active::before {
     color: white;
     opacity: 1;
+    z-index: 2; /* Ensure icon sits on top of background */
+}
+
+/* Ensure the background box for Tab/Enter is solid and square-ish */
+.letter.tab.active, .letter.enter.active {
+    border-radius: 4px; /* Slight roundness */
 }
 
 .letter.done-perfect { color: var(--black); } 
