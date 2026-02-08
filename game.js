@@ -1,4 +1,4 @@
-// v1.9.2.1 - Accurate Stats & Historical Tracking
+// v1.9.2.3 - Fixed Syntax, Stats & Strict Typing
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,7 +9,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.9.2.1";
+const VERSION = "1.9.2.3";
 const BOOK_ID = "wizard_of_oz"; 
 const IDLE_THRESHOLD = 2000; 
 const SPRINT_COOLDOWN_MS = 1500; 
@@ -27,7 +27,7 @@ let currentChapterNum = 1;
 let sessionLimit = 30; 
 let sessionValueStr = "30"; 
 
-// Time & Accuracy Stats
+// Time Stats State
 let statsData = { 
     secondsToday: 0, secondsWeek: 0, 
     charsToday: 0, charsWeek: 0,
@@ -257,7 +257,7 @@ function setupGame() {
     }
 }
 
-// --- ENGINE ---
+// --- ENGINE (FIXED RENDERER) ---
 function renderText() {
     textStream.innerHTML = '';
     const container = document.createDocumentFragment();
@@ -273,6 +273,7 @@ function renderText() {
             span.innerHTML = '&nbsp;'; 
             span.id = `char-${i}`;
             wordBuffer.appendChild(span);
+            
             container.appendChild(wordBuffer);
             container.appendChild(document.createElement('br'));
             wordBuffer = document.createElement('span');
@@ -284,6 +285,7 @@ function renderText() {
             span.innerText = ' ';
             span.id = `char-${i}`;
             wordBuffer.appendChild(span);
+            
             container.appendChild(wordBuffer);
             wordBuffer = document.createElement('span');
             wordBuffer.className = 'word';
@@ -581,8 +583,6 @@ function calculateAverageWPM(chars, seconds) {
 
 function calculateAverageAcc(chars, mistakes) {
     if(!chars || chars <= 0) return 100;
-    // Accuracy = (Correct / TotalKeypresses) * 100
-    // TotalKeypresses = chars + mistakes
     const total = chars + mistakes;
     if(total === 0) return 100;
     return Math.round((chars / total) * 100);
@@ -628,6 +628,14 @@ function finishChapter() {
     
     const nextChapter = currentChapterNum + 1;
     
+    // CALCULATE SPRINT STATS FOR THE MODAL
+    const charsTyped = currentCharIndex - sprintCharStart;
+    const sprintMinutes = sprintSeconds / 60;
+    const sprintWPM = (sprintMinutes > 0) ? Math.round((charsTyped / 5) / sprintMinutes) : 0;
+    const sprintTotalEntries = charsTyped + sprintMistakes;
+    const sprintAcc = (sprintTotalEntries > 0) ? Math.round((charsTyped / sprintTotalEntries) * 100) : 100;
+
+    // Daily Stats
     const todayWPM = calculateAverageWPM(statsData.charsToday, statsData.secondsToday);
     const todayAcc = calculateAverageAcc(statsData.charsToday, statsData.mistakesToday);
     const weekWPM = calculateAverageWPM(statsData.charsWeek, statsData.secondsWeek);
@@ -635,8 +643,8 @@ function finishChapter() {
 
     const stats = {
         time: sprintSeconds,
-        wpm: 0, 
-        acc: 100,
+        wpm: sprintWPM, 
+        acc: sprintAcc, 
         today: `${formatTime(statsData.secondsToday)} (${todayWPM} WPM | ${todayAcc}%)`,
         week: `${formatTime(statsData.secondsWeek)} (${weekWPM} WPM | ${weekAcc}%)`
     };
