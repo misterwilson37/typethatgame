@@ -1,4 +1,4 @@
-// v1.9.1.2 - Fixes Start Inputs, Sprint Protection, and Stat Totals
+// v1.9.1.3 - Keyboard Layout Fixed, Instant Start Typing
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,10 +9,10 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.9.1.2";
+const VERSION = "1.9.1.3";
 const BOOK_ID = "wizard_of_oz"; 
 const IDLE_THRESHOLD = 2000; 
-const SPRINT_COOLDOWN_MS = 1500; // 1.5s protection at end of sprint
+const SPRINT_COOLDOWN_MS = 1500; 
 
 // STATE
 let currentUser = null;
@@ -75,11 +75,10 @@ async function init() {
     const footer = document.querySelector('footer');
     if(footer) footer.innerText = `JS: v${VERSION}`;
     
-    // Inject Menu Button
     if (!document.getElementById('menu-btn')) {
         const btn = document.createElement('button');
         btn.id = 'menu-btn';
-        btn.innerHTML = '&#9881;'; // Gear Icon
+        btn.innerHTML = '&#9881;'; 
         btn.onclick = openMenuModal;
         document.body.appendChild(btn);
     }
@@ -219,7 +218,6 @@ function setupGame() {
     highlightCurrentChar(); 
     centerView(); 
     
-    // Reset HUD
     accDisplay.innerText = "---";
     wpmDisplay.innerText = "0";
     timerDisplay.innerText = "00:00";
@@ -352,28 +350,33 @@ function updateRunningAccuracy(isCorrect) {
     if (total > 0) accDisplay.innerText = Math.round((correctCount / total) * 100) + "%";
 }
 
+// --- CORE INPUT LOGIC ---
+
 document.addEventListener('keydown', (e) => {
-    // 1. MODAL / START SCREEN NAVIGATION
+    // 1. MODAL NAVIGATION & STARTING
     if (isModalOpen) {
-        if (isInputBlocked) return; // Sprint Cooldown Protection
+        if (isInputBlocked) return; // Cooldown active
 
-        // Check for triggers to start the game:
-        // A) Enter Key
-        // B) Space Bar
-        // C) The actual first character of the text
         const targetChar = fullText[currentCharIndex];
-        const isStartTrigger = (e.key === "Enter") || (e.key === " ") || (e.key === targetChar);
-
-        if (isStartTrigger && modalActionCallback) { 
-            e.preventDefault(); 
-            modalActionCallback(); 
-            // Note: We don't 'eat' the character for typing here to keep logic simple.
-            // The game starts, and the user types the character again (or if it was Space/Enter, they start typing).
+        
+        // If user types the correct first letter: START & TYPE
+        if (e.key === targetChar && modalActionCallback) {
+            e.preventDefault();
+            modalActionCallback(); // Start game (closes modal)
+            handleTyping(e.key);   // IMMEDIATELY process the letter
+            return;
+        }
+        
+        // If user hits Enter/Space: Just START
+        if ((e.key === "Enter" || e.key === " ") && modalActionCallback) {
+            e.preventDefault();
+            modalActionCallback();
+            return;
         }
         return;
     }
     
-    // 2. GAMEPLAY NAVIGATION
+    // 2. GAME NAVIGATION
     if (e.key === "Escape" && isGameActive) {
         pauseGameForBreak();
         return;
@@ -384,14 +387,18 @@ document.addEventListener('keydown', (e) => {
     if (["Shift", "Control", "Alt", "Meta", "CapsLock", "Tab"].includes(e.key)) return;
     if (e.key === " ") e.preventDefault(); 
 
-    // 3. TYPING LOGIC
+    // 3. TYPING
+    handleTyping(e.key);
+});
+
+function handleTyping(key) {
     lastInputTime = Date.now();
     timerDisplay.style.opacity = '1';
 
     const targetChar = fullText[currentCharIndex];
     const currentEl = document.getElementById(`char-${currentCharIndex}`);
 
-    if (e.key === "Backspace") {
+    if (key === "Backspace") {
         if (currentLetterStatus === 'error') {
             currentLetterStatus = 'fixed';
             currentEl.classList.remove('error-state');
@@ -399,8 +406,8 @@ document.addEventListener('keydown', (e) => {
         return;
     }
 
-    if (e.key === targetChar) {
-        // Correct Input
+    if (key === targetChar) {
+        // Correct
         currentEl.classList.remove('active');
         currentEl.classList.remove('error-state');
         
@@ -411,7 +418,6 @@ document.addEventListener('keydown', (e) => {
         currentCharIndex++;
         currentLetterStatus = 'clean'; 
         
-        // Auto-Save on Punctuation
         if (['.', '!', '?'].includes(targetChar)) saveProgress();
         else if (['"', "'"].includes(targetChar) && currentCharIndex >= 2) {
             const prevChar = fullText[currentCharIndex - 2];
@@ -421,7 +427,6 @@ document.addEventListener('keydown', (e) => {
         updateRunningWPM();
         updateRunningAccuracy(true);
 
-        // Sprint Overtime Checks
         if (isOvertime) {
             if (['.', '!', '?'].includes(targetChar)) {
                 const nextChar = fullText[currentCharIndex]; 
@@ -447,10 +452,10 @@ document.addEventListener('keydown', (e) => {
         sprintMistakes++;
         if (currentLetterStatus === 'clean') currentLetterStatus = 'error';
         currentEl.classList.add('error-state'); 
-        flashKey(e.key);
+        flashKey(key);
         updateRunningAccuracy(false);
     }
-});
+}
 
 function triggerStop() {
     updateImageDisplay();
@@ -555,24 +560,16 @@ function finishChapter() {
         week: formatTime(statsData.secondsWeek)
     };
     
-    // Auto-advance logic without Reload
     showStatsModal(`Chapter ${currentChapterNum} Complete!`, stats, `Start Chapter ${nextChapter}`, async () => {
-        // Hot-load next chapter
-        await saveProgress(true); // force save current completion
-        
-        // Reset state for next chapter
+        await saveProgress(true); 
         currentChapterNum = nextChapter;
         savedCharIndex = 0;
         currentCharIndex = 0;
         lastSavedIndex = 0;
-        
-        // Save new position
         await setDoc(doc(db, "users", currentUser.uid, "progress", BOOK_ID), {
             chapter: currentChapterNum,
             charIndex: 0
         }, { merge: true });
-
-        // Load content immediately
         loadChapter(nextChapter);
     });
 }
@@ -598,7 +595,7 @@ function getDropdownHTML() {
 
 function showStartModal(title, btnText) {
     isModalOpen = true; 
-    isInputBlocked = false; // INPUT ALLOWED immediately for start
+    isInputBlocked = false; 
     modalActionCallback = startGame;
 
     const modal = document.getElementById('modal');
@@ -623,25 +620,25 @@ function showStartModal(title, btnText) {
 
 function showStatsModal(title, stats, btnText, callback) {
     isModalOpen = true; 
-    isInputBlocked = true; // BLOCK INPUTS temporarily
+    isInputBlocked = true; 
     modalActionCallback = () => { closeModal(); if(callback) callback(); };
 
     const modal = document.getElementById('modal');
     document.getElementById('modal-title').innerText = title;
     
     const html = `
-        <div class="stat-grid">
+        <div class="stat-grid" style="display:flex; justify-content:center; gap:20px; margin:20px 0;">
             <div class="stat-box">
-                <div class="stat-val">${stats.wpm}</div>
-                <div class="stat-label">WPM</div>
+                <div style="font-size:1.8em; font-weight:bold;">${stats.wpm}</div>
+                <div style="font-size:0.9em; color:#777;">WPM</div>
             </div>
             <div class="stat-box">
-                <div class="stat-val">${stats.acc}%</div>
-                <div class="stat-label">Accuracy</div>
+                <div style="font-size:1.8em; font-weight:bold;">${stats.acc}%</div>
+                <div style="font-size:0.9em; color:#777;">Accuracy</div>
             </div>
             <div class="stat-box">
-                <div class="stat-val">${formatTime(stats.time)}</div>
-                <div class="stat-label">Time</div>
+                <div style="font-size:1.8em; font-weight:bold;">${formatTime(stats.time)}</div>
+                <div style="font-size:0.9em; color:#777;">Time</div>
             </div>
         </div>
         <div class="stat-subtext">
@@ -655,11 +652,10 @@ function showStatsModal(title, stats, btnText, callback) {
     const btn = document.getElementById('action-btn');
     btn.innerText = btnText;
     btn.onclick = modalActionCallback;
-    btn.style.opacity = '0.5'; // Visual cue for disabled
+    btn.style.opacity = '0.5'; 
     
     modal.classList.remove('hidden');
 
-    // UNBLOCK PROTECTION
     setTimeout(() => {
         isInputBlocked = false;
         if(document.getElementById('action-btn')) {
@@ -673,7 +669,6 @@ function closeModal() {
     isInputBlocked = false;
     document.getElementById('modal').classList.add('hidden');
     
-    // Focus capture for game
     const keyboard = document.getElementById('virtual-keyboard');
     if(keyboard) keyboard.focus();
 }
@@ -723,7 +718,7 @@ function createKeyboard() {
     
     rows.forEach((rowChars, rIndex) => {
         const rowDiv = document.createElement('div');
-        rowDiv.className = 'key-row';
+        rowDiv.className = 'kb-row'; // FIXED: Matches style.css
         
         let leftSpecial = null;
         if (rIndex === 1) leftSpecial = "CAPS";
@@ -753,9 +748,9 @@ function createKeyboard() {
     
     // Space Row
     const spaceRow = document.createElement('div');
-    spaceRow.className = 'key-row';
+    spaceRow.className = 'kb-row'; // FIXED
     const space = document.createElement('div');
-    space.className = 'key space-key';
+    space.className = 'key space'; // FIXED: Matches style.css
     space.innerText = ""; 
     space.id = "key- ";
     spaceRow.appendChild(space);
@@ -789,7 +784,6 @@ function highlightKey(char) {
     
     if (char === ' ') targetId = 'key- ';
     else {
-        // Find key by data-char or data-shift
         const keys = Array.from(document.querySelectorAll('.key'));
         const found = keys.find(k => k.dataset.char === char || k.dataset.shift === char);
         if (found) {
@@ -805,7 +799,6 @@ function highlightKey(char) {
 }
 
 function flashKey(char) {
-    // Simple visual feedback for wrong key
     let targetId = '';
     if (char === ' ') targetId = 'key- ';
     else {
@@ -815,7 +808,7 @@ function flashKey(char) {
     }
     const el = document.getElementById(targetId);
     if (el) {
-        el.style.backgroundColor = '#D32F2F';
+        el.style.backgroundColor = 'var(--brute-force-color)';
         setTimeout(() => el.style.backgroundColor = '', 200);
     }
 }
