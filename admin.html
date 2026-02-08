@@ -2,10 +2,10 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>TypeThatBook Admin v1.1</title>
+    <title>TypeThatBook Admin v1.3</title>
     <style>
         body { background: #111; color: #eee; font-family: 'Courier New', monospace; padding: 20px; }
-        .container { max-width: 800px; margin: 0 auto; }
+        .container { max-width: 800px; margin: 0 auto; padding-bottom: 50px; }
         
         /* Form Elements */
         input, textarea, button, select { 
@@ -43,6 +43,11 @@
         
         a { color: #888; text-decoration: none; border-bottom: 1px dotted #888; }
         a:hover { color: #fff; }
+
+        footer {
+            position: fixed; bottom: 5px; right: 10px; font-size: 0.7em; color: #666; 
+            background: rgba(0,0,0,0.8); z-index: 101; padding: 2px 5px; border-radius: 3px;
+        }
     </style>
 </head>
 <body>
@@ -68,18 +73,19 @@
             </div>
             <div class="col">
                 <label>Chapter Number</label>
-                <input type="number" id="chap-num" value="2">
+                <input type="number" id="chap-num" value="1">
             </div>
         </div>
 
         <label>JSON Content (Paste Segments Here)</label>
-        <textarea id="json-content" rows="20" placeholder='{"title": "...", "segments": [...]}'></textarea>
-
-        <button id="save-btn">Save / Overwrite Chapter</button>
+        <textarea id="json-content" rows="15" placeholder='{ "segments": [ { "text": "..." } ] }'></textarea>
+        
+        <button id="save-btn">Save Chapter</button>
     </div>
 </div>
 
-<script type="module" src="admin.js"></script>
+<footer id="admin-footer">Admin JS: Loading...</footer>
 
+<script type="module" src="admin.js"></script>
 </body>
 </html>
