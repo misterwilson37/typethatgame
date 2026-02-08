@@ -1,4 +1,4 @@
-/* v1.9.1.7 - Added Tab Key Styling */
+/* v1.9.1.8 - Paragraphs, Enter Keys, and Tabs */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -87,40 +87,71 @@ body {
     width: 80%;
     max-width: 800px;
     transition: transform 0.2s ease-out; 
+    padding-bottom: 300px; /* Space for scrolling */
 }
 
+/* Words are inline-block to keep letters together, but we allow wrapping now */
 .word {
-    display: inline-block; margin-right: 10px; white-space: pre;
-    line-height: 2.5em; font-size: 24px; color: #ccc; 
+    display: inline-block; 
+    white-space: pre;
+    line-height: 2.5em; 
+    font-size: 24px; 
+    color: #ccc; 
 }
+
 .letter {
     display: inline-block; vertical-align: bottom; min-width: 14.4px;           
     padding: 2px 0; line-height: 1.2; position: relative; color: #ccc;
 }
 .letter.space { min-width: 14.4px; }
 
-/* TAB CHARACTER STYLING */
+/* TAB CHARACTER (→) */
 .letter.tab {
-    min-width: 40px; /* Tab width */
+    min-width: 40px; 
     position: relative;
+    border-bottom: 1px dashed #eee; /* Faint guide */
 }
-/* Visual cue for Tab */
 .letter.tab::before {
     content: '→';
     position: absolute;
     left: 50%; top: 50%;
     transform: translate(-50%, -50%);
-    font-size: 12px;
-    opacity: 0.3;
+    font-size: 14px;
+    color: #999;
 }
+
+/* ENTER CHARACTER (↵) */
+.letter.enter {
+    min-width: 20px;
+    position: relative;
+    margin-left: 5px;
+}
+.letter.enter::before {
+    content: '↵';
+    position: absolute;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 18px;
+    color: #999;
+    font-weight: bold;
+}
+
+/* Hide symbols when typed correctly */
 .letter.tab.done-perfect::before,
-.letter.tab.done-fixed::before,
-.letter.tab.done-dirty::before {
-    opacity: 0; /* Hide arrow when typed */
+.letter.enter.done-perfect::before {
+    color: var(--corrected-color); /* Keep visible but colored? Or hide? User preference. */
+    opacity: 0.2; /* Fade them out */
 }
 
 .letter.active { background-color: var(--carolina-blue); color: white !important; border-radius: 2px; }
 .letter.active.error-state { background-color: var(--error-bg); color: black !important; }
+
+/* Active State for Special Keys */
+.letter.tab.active::before,
+.letter.enter.active::before {
+    color: white;
+}
+
 .letter.done-perfect { color: var(--black); } 
 .letter.done-fixed { color: var(--corrected-color); font-weight: bold; } 
 .letter.done-dirty { color: var(--brute-force-color); } 
