@@ -1,4 +1,4 @@
-/* v1.9.1.9.5 - Thicker Icons, Taller Highlights, Strict Visuals */
+/* v1.9.2 - Uniform Highlights & Centered Icons */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -94,21 +94,22 @@ body {
 .word {
     display: inline-block; 
     white-space: pre; 
-    line-height: 2.5em; /* Keep line spacing generous */
+    line-height: 2.5em; 
     font-size: 24px; 
     color: #ccc; 
 }
 
-/* LETTERS - Fixed Height/Highlight Issue */
+/* LETTERS - Uniform Alignment */
 .letter {
     display: inline-block; 
-    vertical-align: baseline; 
+    /* Changed to BOTTOM to force backgrounds to align perfectly */
+    vertical-align: bottom; 
     min-width: 14.4px;
-    /* Increased line-height and padding so the 'Active' block isn't smooshed */
-    line-height: 1.8em; 
-    padding: 2px 0; 
+    line-height: 2.0em; 
+    padding: 0 1px; 
     position: relative; 
     color: #ccc;
+    border-radius: 3px;
 }
 
 /* SPACES */
@@ -120,20 +121,20 @@ body {
 
 /* TAB CHARACTER (→) */
 .letter.tab {
-    width: 40px; 
+    width: 50px; 
     text-align: center;
     border-bottom: 1px dotted #ddd;
-    color: #999;
-    vertical-align: middle; 
+    /* Make the invisibe &nbsp; transparent so it doesn't mess with visuals */
+    color: transparent; 
 }
 .letter.tab::before {
     content: '→';
-    font-size: 30px; /* +20% larger */
+    font-size: 32px; /* Bigger */
     font-weight: 800; /* Thicker */
+    color: #999; /* Explicit color since parent is transparent */
     position: absolute;
     left: 50%; 
-    /* 35% is higher up than 50% */
-    top: 35%; 
+    top: 35%; /* Lifted up */
     transform: translate(-50%, -50%);
     opacity: 0.5;
 }
@@ -142,47 +143,37 @@ body {
 
 /* ENTER CHARACTER (↵) */
 .letter.enter {
-    width: 24px; /* Slightly wider */
+    width: 24px;
     text-align: center;
     margin-left: 2px;
-    color: #999;
-    position: relative;
-    vertical-align: middle;
+    color: transparent; /* Hide the &nbsp; */
 }
 .letter.enter::before {
     content: '↵';
-    font-size: 26px; /* Larger */
+    font-size: 28px; /* Bigger */
     font-weight: 800; /* Thicker */
+    color: #999;
     position: absolute;
     left: 50%; 
-    top: 35%; /* Moved up to match Tab */
+    top: 35%; /* Lifted up */
     transform: translate(-50%, -50%);
     opacity: 0.5;
 }
 .letter.enter.done-perfect::before { opacity: 0.1; }
 
-/* ACTIVE STATES - The Blue Cursor */
+/* ACTIVE STATES */
 .letter.active { 
     background-color: var(--carolina-blue); 
     color: white !important; 
-    border-radius: 3px; 
-    /* Ensure the blue box covers vertically */
-    padding-top: 4px;
-    padding-bottom: 4px;
+    z-index: 2;
 }
 .letter.active.error-state { background-color: var(--error-bg); color: black !important; }
 
-/* Active Special Keys - Clean Highlighting */
+/* Active Special Keys - Icon White */
 .letter.tab.active::before,
 .letter.enter.active::before {
     color: white;
     opacity: 1;
-    z-index: 2; 
-}
-
-/* Make Tab/Enter active box look solid */
-.letter.tab.active, .letter.enter.active {
-    border-radius: 4px;
 }
 
 .letter.done-perfect { color: var(--black); } 
