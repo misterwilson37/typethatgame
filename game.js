@@ -1,4 +1,4 @@
-// v1.9.3.1 - Smart Start (Skip Space/Enter), Strict Tab, Dynamic Chapters
+// v1.9.3.2 - Smart Start (Type or Skip), Strict Typing, Book Switching
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc, getDocs, collection } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,7 +9,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.9.3.1";
+const VERSION = "1.9.3.2";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000; 
 const SPRINT_COOLDOWN_MS = 1500; 
@@ -203,7 +203,7 @@ function setupGame() {
     renderText();
     currentCharIndex = savedCharIndex;
     
-    // NOTE: Removed auto-skip loops. Cursor stays exactly where saved.
+    // NOTE: Removed auto-skip loops. User starts exactly where saved.
 
     if (currentCharIndex > 0) {
         for (let i = 0; i < currentCharIndex; i++) {
@@ -276,7 +276,7 @@ function startGame() {
         sessionLimit = (sessionValueStr === 'infinity') ? 'infinity' : parseInt(sessionValueStr);
     }
 
-    // NOTE: Removed auto-skip loops.
+    // No auto-skip loop here. 
     
     sprintSeconds = 0; sprintMistakes = 0; sprintCharStart = currentCharIndex; 
     activeSeconds = 0; timeAccumulator = 0; lastInputTime = Date.now(); 
@@ -353,23 +353,26 @@ document.addEventListener('keydown', (e) => {
         
         const targetChar = fullText[currentCharIndex];
         
-        // 1. Direct Match (User types correct key)
+        // 1. Direct Match (User types correct key, even if it's Space/Enter)
+        // Check standard key matches
         if (e.key === targetChar) shouldStart = true;
         if (targetChar === '\n' && e.key === 'Enter') shouldStart = true;
         if (targetChar === '\t' && e.key === 'Tab') shouldStart = true;
         
-        // 2. Smart Skip (User skips Space/Enter)
-        // Rule: Only ignore Space/Enter. Never ignore Tab.
+        // 2. Smart Skip (User ignores Space/Enter and types the NEXT char)
+        // Rule: Only allow skipping Space/Enter. NEVER ignore Tab (indent).
         if (!shouldStart && (targetChar === ' ' || targetChar === '\n')) {
             const nextCharIndex = currentCharIndex + 1;
             if (nextCharIndex < fullText.length) {
                 const nextChar = fullText[nextCharIndex];
                 
-                let matchNext = (e.key === nextChar);
-                // Allow Tab start if next char is Tab
-                if (nextChar === '\t' && e.key === 'Tab') matchNext = true;
-                
-                if (matchNext) {
+                // Allow match if user types the NEXT char
+                if (e.key === nextChar) {
+                    shouldStart = true;
+                    shouldSkip = true;
+                }
+                // Special case: If next char is Tab, and user hits Tab
+                else if (nextChar === '\t' && e.key === 'Tab') {
                     shouldStart = true;
                     shouldSkip = true;
                 }
@@ -379,17 +382,17 @@ document.addEventListener('keydown', (e) => {
         if (shouldStart && modalActionCallback) {
             e.preventDefault();
             
-            // 1. Activate Game
-            modalActionCallback(); // Calls startGame() which sets isGameActive=true
+            // Activate Game
+            modalActionCallback(); // Sets isGameActive=true
             
-            // 2. Handle Skip if needed
+            // Handle Skip if needed (mark space/enter done)
             if (shouldSkip) {
                 const skippedEl = document.getElementById(`char-${currentCharIndex}`);
                 if(skippedEl) skippedEl.classList.add('done-perfect');
                 currentCharIndex++;
             }
             
-            // 3. Process the typed key immediately
+            // Process the typed key immediately
             handleTyping(e.key);
             return;
         }
