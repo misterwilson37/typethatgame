@@ -1,4 +1,4 @@
-/* v1.9.3.6 - Full Width Layout, Hidden Images, Better Icons */
+/* v1.9.3.7 - Full Width, Hidden Images, Modal Hints */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -85,7 +85,6 @@ body {
 #text-stream {
     position: absolute;
     top: 0; 
-    /* FIXED: Full width relative to container, no max-width cap */
     left: 10%;
     width: 80%;
     max-width: none; 
@@ -227,7 +226,7 @@ body {
 .stat-row { display: flex; justify-content: center; gap: 40px; margin: 20px 0; font-size: 1.2em; color: #333; }
 .stat-item span { display: block; font-size: 2em; font-weight: bold; color: var(--black); }
 
-/* --- MODAL HEADERS --- */
+/* --- MODAL HEADERS & HINTS --- */
 .modal-book-title {
     font-size: 0.8rem;
     color: #888;
@@ -240,6 +239,13 @@ body {
     font-weight: bold;
     color: var(--black);
     margin-bottom: 20px;
+}
+.modal-hint-text {
+    font-size: 0.8em;
+    color: #888;
+    margin-top: 5px;
+    font-weight: bold;
+    text-transform: uppercase;
 }
 
 .modal-btn {
