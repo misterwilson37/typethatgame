@@ -1,4 +1,4 @@
-// v1.9.1.9.2 - Fix Space Skipping & Layout
+// v1.9.1.9.3 - Fixed Space Skipping & Icon Styling
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,7 +9,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.9.1.9.2";
+const VERSION = "1.9.1.9.3";
 const BOOK_ID = "wizard_of_oz"; 
 const IDLE_THRESHOLD = 2000; 
 const SPRINT_COOLDOWN_MS = 1500; 
@@ -201,12 +201,8 @@ function setupGame() {
     renderText();
     currentCharIndex = savedCharIndex;
     
-    // SKIP LOGIC: If starting on Space or Enter, move forward so user doesn't have to
-    while (currentCharIndex < fullText.length && (fullText[currentCharIndex] === ' ' || fullText[currentCharIndex] === '\n')) {
-        const charEl = document.getElementById(`char-${currentCharIndex}`);
-        if (charEl) charEl.classList.add('done-perfect');
-        currentCharIndex++;
-    }
+    // NOTE: Removed the auto-skip loop here. 
+    // We start exactly where the user left off, even if it's a space.
 
     if (currentCharIndex > 0) {
         for (let i = 0; i < currentCharIndex; i++) {
@@ -236,7 +232,7 @@ function setupGame() {
     }
 }
 
-// --- ENGINE (SPACE FIX) ---
+// --- ENGINE (FIXED RENDERER) ---
 function renderText() {
     textStream.innerHTML = '';
     const container = document.createDocumentFragment();
@@ -265,14 +261,14 @@ function renderText() {
             wordBuffer.className = 'word';
             
         } else if (char === ' ') {
-            // Append Space TO THE CURRENT WORD (Fixes layout indent issue)
+            // Append Space TO THE CURRENT WORD
             const span = document.createElement('span');
             span.className = 'letter space';
             span.innerText = ' ';
             span.id = `char-${i}`;
             wordBuffer.appendChild(span);
             
-            // Now close the word so line break can happen AFTER the space
+            // Now close the word
             container.appendChild(wordBuffer);
             wordBuffer = document.createElement('span');
             wordBuffer.className = 'word';
@@ -285,9 +281,9 @@ function renderText() {
                 wordBuffer.className = 'word';
             }
 
-            // Tab is its own word
+            // Tab is its own word container
             const tabSpan = document.createElement('span');
-            tabSpan.className = 'word'; // Wrap tab in word to keep inline behavior
+            tabSpan.className = 'word'; 
             const span = document.createElement('span');
             span.className = 'letter tab';
             span.innerText = ''; 
@@ -315,12 +311,7 @@ function startGame() {
         sessionLimit = (sessionValueStr === 'infinity') ? 'infinity' : parseInt(sessionValueStr);
     }
 
-    // SKIP LOGIC at Start
-    while (currentCharIndex < fullText.length && (fullText[currentCharIndex] === ' ' || fullText[currentCharIndex] === '\n')) {
-        const charEl = document.getElementById(`char-${currentCharIndex}`);
-        if (charEl) charEl.classList.add('done-perfect');
-        currentCharIndex++;
-    }
+    // NOTE: Removed auto-skip loop here too.
     
     highlightCurrentChar();
     centerView();
@@ -409,8 +400,9 @@ document.addEventListener('keydown', (e) => {
     if (isModalOpen) {
         if (isInputBlocked) return; 
 
-        // SMART START: Check if key matches current char OR next valid char (skipping space/enter)
+        // SMART START
         let tempIndex = currentCharIndex;
+        // Look ahead for next REAL char (skip space/enter)
         while (tempIndex < fullText.length && (fullText[tempIndex] === ' ' || fullText[tempIndex] === '\n')) {
             tempIndex++;
         }
@@ -423,8 +415,9 @@ document.addEventListener('keydown', (e) => {
         if ((isStartKey || isMatchKey) && modalActionCallback) {
             e.preventDefault();
             modalActionCallback(); 
-            // If they typed the char that is actually next, handle it (Smart Skip)
+            // If they typed the next REAL char, use it.
             if (isMatchKey) handleTyping(e.key); 
+            // If they typed Space/Enter, let game start and wait for space/enter input (don't type it automatically)
             return;
         }
         return;
@@ -457,7 +450,7 @@ function handleTyping(key) {
     const targetChar = fullText[currentCharIndex];
     const currentEl = document.getElementById(`char-${currentCharIndex}`);
 
-    // 3. Handle Backspace (Error Correction only)
+    // 3. Handle Backspace (Error Correction)
     if (key === "Backspace") {
         if (currentLetterStatus === 'error') {
             currentLetterStatus = 'fixed';
@@ -468,15 +461,14 @@ function handleTyping(key) {
 
     // 4. SMART MATCHING LOGIC
     let isCorrect = false;
-    let skipHappened = false;
 
-    // A) Direct Match
+    // A) Direct Match (User types space for space, enter for enter)
     if (inputChar === targetChar) {
         isCorrect = true;
     } 
     // B) Smart Skip (User typed next letter instead of Space/Enter)
     else {
-        // Look ahead to see if user typed the next "Real" character
+        // Look ahead
         let lookAheadIndex = currentCharIndex;
         while (lookAheadIndex < fullText.length && (fullText[lookAheadIndex] === ' ' || fullText[lookAheadIndex] === '\n')) {
             lookAheadIndex++;
@@ -487,7 +479,6 @@ function handleTyping(key) {
             if (inputChar === nextRealChar) {
                 // MATCH FOUND via Skip!
                 isCorrect = true;
-                skipHappened = true;
                 
                 // Auto-complete the skipped spaces/enters
                 for (let i = currentCharIndex; i < lookAheadIndex; i++) {
@@ -518,7 +509,7 @@ function handleTyping(key) {
         currentLetterStatus = 'clean'; 
         
         // Save Logic
-        const currentChar = fullText[currentCharIndex - 1]; // The one we just typed
+        const currentChar = fullText[currentCharIndex - 1]; 
         if (['.', '!', '?', '\n'].includes(currentChar)) saveProgress();
         else if (['"', "'"].includes(currentChar) && currentCharIndex >= 2) {
             const prevChar = fullText[currentCharIndex - 2];
@@ -530,7 +521,6 @@ function handleTyping(key) {
 
         if (isOvertime) {
             if (['.', '!', '?', '\n'].includes(currentChar)) {
-                // If next is quote, allow it
                 const nextChar = fullText[currentCharIndex]; 
                 if (nextChar !== '"' && nextChar !== "'") { triggerStop(); return; }
             }
@@ -541,6 +531,9 @@ function handleTyping(key) {
             return;
         }
         
+        // REMOVED: Auto-skip space/enter AFTER typing. 
+        // User must type space/enter OR use Smart Skip on next letter.
+
         highlightCurrentChar();
         centerView();
         updateImageDisplay();
