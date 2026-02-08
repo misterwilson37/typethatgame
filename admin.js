@@ -1,4 +1,4 @@
-// v1.1 - Universal Admin Editor
+// v1.2 - Admin Editor with Auto-Clean & Tab Injection
 import { db, auth } from "./firebase-config.js";
 import { doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
@@ -34,7 +34,7 @@ loginBtn.onclick = async () => {
     }
 };
 
-// 3. Save Chapter Action
+// 3. Save Chapter Action (WITH CLEANING)
 saveBtn.onclick = async () => {
     const bookId = document.getElementById('book-id').value.trim();
     const chapNum = document.getElementById('chap-num').value.trim();
@@ -46,21 +46,40 @@ saveBtn.onclick = async () => {
     }
 
     try {
-        // Validate JSON before sending
+        // Validate & Clean JSON
         const data = JSON.parse(jsonStr);
+        
+        if (data.segments && Array.isArray(data.segments)) {
+            data.segments.forEach(seg => {
+                if (seg.text) {
+                    // 1. Remove double spaces
+                    seg.text = seg.text.replace(/\s\s+/g, ' ');
+                    
+                    // 2. Trim whitespace
+                    seg.text = seg.text.trim();
+                    
+                    // 3. Ensure Tab at start (for indent)
+                    if (!seg.text.startsWith('\t')) {
+                        seg.text = '\t' + seg.text;
+                    }
+                }
+            });
+            
+            // Update the text area to show the cleaned version
+            document.getElementById('json-content').value = JSON.stringify(data, null, 2);
+        }
         
         statusEl.innerText = `Saving Chapter ${chapNum}...`;
         
         // Write to Firestore
         await setDoc(doc(db, "books", bookId, "chapters", "chapter_" + chapNum), data);
         
-        statusEl.innerText = `Success! Chapter ${chapNum} saved to database.`;
+        statusEl.innerText = `Success! Chapter ${chapNum} saved (Cleaned & Formatted).`;
         statusEl.style.borderColor = "#00ff41";
         
     } catch (e) {
         console.error(e);
         statusEl.innerText = "Error: " + e.message;
         statusEl.style.borderColor = "#ff3333";
-        alert("Save Failed. Check console for details.");
     }
 };
