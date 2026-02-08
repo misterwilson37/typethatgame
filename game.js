@@ -1,4 +1,4 @@
-// v1.9.1.9 - Fixed Paragraph Wrapping & Layout
+// v1.9.1.9.1 - Layout Stability & Sticky Enter Key
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,7 +9,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.9.1.9";
+const VERSION = "1.9.1.9.1";
 const BOOK_ID = "wizard_of_oz"; 
 const IDLE_THRESHOLD = 2000; 
 const SPRINT_COOLDOWN_MS = 1500; 
@@ -201,10 +201,10 @@ function setupGame() {
     renderText();
     currentCharIndex = savedCharIndex;
     
-    // Auto-advance if load starts on space
-    if (fullText[currentCharIndex] === ' ') {
-        const spaceEl = document.getElementById(`char-${currentCharIndex}`);
-        if (spaceEl) spaceEl.classList.add('done-perfect');
+    // SKIP LOGIC: If starting on Space or Enter, move forward
+    while (currentCharIndex < fullText.length && (fullText[currentCharIndex] === ' ' || fullText[currentCharIndex] === '\n')) {
+        const charEl = document.getElementById(`char-${currentCharIndex}`);
+        if (charEl) charEl.classList.add('done-perfect');
         currentCharIndex++;
     }
 
@@ -213,7 +213,7 @@ function setupGame() {
             const el = document.getElementById(`char-${i}`);
             if (el) {
                 el.classList.remove('active');
-                if (!el.classList.contains('space')) el.classList.add('done-perfect');
+                if (!el.classList.contains('space') && !el.classList.contains('enter')) el.classList.add('done-perfect');
             }
         }
     }
@@ -245,18 +245,15 @@ function renderText() {
         const char = fullText[i];
         
         if (char === '\n') {
-            // Close current word
-            if (wordBuffer.hasChildNodes()) container.appendChild(wordBuffer);
-            
-            // Enter Key Container
-            const enterWord = document.createElement('span');
-            enterWord.className = 'word';
+            // STICKY ENTER: Append Enter Key TO THE WORD BUFFER
             const span = document.createElement('span');
             span.className = 'letter enter';
             span.innerText = ''; 
             span.id = `char-${i}`;
-            enterWord.appendChild(span);
-            container.appendChild(enterWord);
+            wordBuffer.appendChild(span);
+            
+            // Now close the word
+            container.appendChild(wordBuffer);
             
             // Visual Break
             container.appendChild(document.createElement('br'));
@@ -266,23 +263,32 @@ function renderText() {
             wordBuffer.className = 'word';
             
         } else if (char === ' ') {
-            // Space signifies end of visual word
+            // Finish current word
+            if (wordBuffer.hasChildNodes()) container.appendChild(wordBuffer);
+            
+            // Create Space Element (Standalone, not inside word)
             const span = document.createElement('span');
             span.className = 'letter space';
             span.innerText = ' ';
             span.id = `char-${i}`;
-            wordBuffer.appendChild(span);
+            container.appendChild(span);
             
-            container.appendChild(wordBuffer);
+            // Reset Buffer
             wordBuffer = document.createElement('span');
             wordBuffer.className = 'word';
             
         } else if (char === '\t') {
+            // Finish previous word if exists
+            if (wordBuffer.hasChildNodes()) container.appendChild(wordBuffer);
+            wordBuffer = document.createElement('span');
+            wordBuffer.className = 'word';
+
+            // Tab is standalone
             const span = document.createElement('span');
             span.className = 'letter tab';
             span.innerText = ''; 
             span.id = `char-${i}`;
-            wordBuffer.appendChild(span);
+            container.appendChild(span);
             
         } else {
             const span = document.createElement('span');
@@ -304,13 +310,15 @@ function startGame() {
         sessionLimit = (sessionValueStr === 'infinity') ? 'infinity' : parseInt(sessionValueStr);
     }
 
-    if (fullText[currentCharIndex] === ' ') {
-        const spaceEl = document.getElementById(`char-${currentCharIndex}`);
-        if (spaceEl) spaceEl.classList.add('done-perfect');
+    // SKIP LOGIC at Start
+    while (currentCharIndex < fullText.length && (fullText[currentCharIndex] === ' ' || fullText[currentCharIndex] === '\n')) {
+        const charEl = document.getElementById(`char-${currentCharIndex}`);
+        if (charEl) charEl.classList.add('done-perfect');
         currentCharIndex++;
-        highlightCurrentChar();
-        centerView();
     }
+    
+    highlightCurrentChar();
+    centerView();
 
     closeModal();
     isGameActive = true;
@@ -334,9 +342,6 @@ function startGame() {
 
     if (timerInterval) clearInterval(timerInterval);
     timerInterval = setInterval(gameTick, 100); 
-
-    highlightCurrentChar();
-    centerView();
 }
 
 function gameTick() {
@@ -397,20 +402,22 @@ document.addEventListener('keydown', (e) => {
     if (isModalOpen) {
         if (isInputBlocked) return; 
 
-        let effectiveTarget = fullText[currentCharIndex];
-        let nextChar = null;
-        if (effectiveTarget === ' ' && currentCharIndex + 1 < fullText.length) {
-            nextChar = fullText[currentCharIndex + 1];
+        // SMART START: Check if key matches current char OR next valid char (skipping space/enter)
+        let tempIndex = currentCharIndex;
+        // Look ahead logic
+        while (tempIndex < fullText.length && (fullText[tempIndex] === ' ' || fullText[tempIndex] === '\n')) {
+            tempIndex++;
         }
+        let nextChar = fullText[tempIndex];
 
         const isStartKey = (e.key === "Enter") || (e.key === " ");
-        let isMatchKey = (e.key === effectiveTarget) || (nextChar && e.key === nextChar);
-        if (effectiveTarget === '\t' && e.key === 'Tab') isMatchKey = true;
-        if (effectiveTarget === '\n' && e.key === 'Enter') isMatchKey = true;
+        let isMatchKey = (e.key === nextChar);
+        if (nextChar === '\t' && e.key === 'Tab') isMatchKey = true;
 
         if ((isStartKey || isMatchKey) && modalActionCallback) {
             e.preventDefault();
             modalActionCallback(); 
+            // If they typed the char that is actually next, handle it
             if (isMatchKey) handleTyping(e.key); 
             return;
         }
@@ -435,11 +442,24 @@ function handleTyping(key) {
     lastInputTime = Date.now();
     timerDisplay.style.opacity = '1';
 
+    // If we are sitting on a skippable char, skip it now
+    while (currentCharIndex < fullText.length && (fullText[currentCharIndex] === ' ' || fullText[currentCharIndex] === '\n')) {
+        const charEl = document.getElementById(`char-${currentCharIndex}`);
+        if (charEl) {
+            charEl.classList.remove('active');
+            charEl.classList.add('done-perfect');
+        }
+        currentCharIndex++;
+    }
+    highlightCurrentChar(); // Update visual cursor
+
     const targetChar = fullText[currentCharIndex];
     const currentEl = document.getElementById(`char-${currentCharIndex}`);
 
     let inputChar = key;
     if (key === "Tab") inputChar = "\t";
+    // Enter is mapped but we auto-skip it, so usually we won't strictly match against it unless we force it.
+    // But if we failed to skip for some reason:
     if (key === "Enter") inputChar = "\n";
 
     if (key === "Backspace") {
@@ -461,7 +481,7 @@ function handleTyping(key) {
         currentCharIndex++;
         currentLetterStatus = 'clean'; 
         
-        if (['.', '!', '?', '\n'].includes(targetChar)) saveProgress();
+        if (['.', '!', '?'].includes(targetChar)) saveProgress();
         else if (['"', "'"].includes(targetChar) && currentCharIndex >= 2) {
             const prevChar = fullText[currentCharIndex - 2];
             if (['.', '!', '?'].includes(prevChar)) saveProgress();
@@ -471,9 +491,13 @@ function handleTyping(key) {
         updateRunningAccuracy(true);
 
         if (isOvertime) {
-            if (['.', '!', '?', '\n'].includes(targetChar)) {
-                const nextChar = fullText[currentCharIndex]; 
-                if (nextChar !== '"' && nextChar !== "'") { triggerStop(); return; }
+            // Check next char (lookahead if it's space/enter)
+            let checkIndex = currentCharIndex;
+            // peek next real char?
+            // Actually, we just check if we finished a sentence.
+            if (['.', '!', '?'].includes(targetChar)) {
+                 const nextChar = fullText[currentCharIndex]; 
+                 if (nextChar !== '"' && nextChar !== "'") { triggerStop(); return; }
             }
         }
 
@@ -481,6 +505,14 @@ function handleTyping(key) {
             finishChapter();
             return;
         }
+        
+        // Auto-skip space/enter AFTER typing
+        while (currentCharIndex < fullText.length && (fullText[currentCharIndex] === ' ' || fullText[currentCharIndex] === '\n')) {
+            const charEl = document.getElementById(`char-${currentCharIndex}`);
+            if (charEl) charEl.classList.add('done-perfect');
+            currentCharIndex++;
+        }
+
         highlightCurrentChar();
         centerView();
         updateImageDisplay();
