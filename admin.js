@@ -1,7 +1,9 @@
-// v1.3 - Admin Editor with Strict Cleaning
+// v1.3 - Admin Editor with Strict Cleaning & Footer
 import { db, auth } from "./firebase-config.js";
 import { doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+
+const ADMIN_VERSION = "1.3";
 
 // DOM Elements
 const statusEl = document.getElementById('status');
@@ -9,6 +11,10 @@ const loginSec = document.getElementById('login-section');
 const editorSec = document.getElementById('editor-section');
 const loginBtn = document.getElementById('login-btn');
 const saveBtn = document.getElementById('save-btn');
+const footerEl = document.getElementById('admin-footer');
+
+// Init
+if(footerEl) footerEl.innerText = `Admin JS: v${ADMIN_VERSION}`;
 
 // 1. Auth Listener
 onAuthStateChanged(auth, (user) => {
