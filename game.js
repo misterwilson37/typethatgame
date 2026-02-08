@@ -1,4 +1,4 @@
-// v1.9.2.3 - Fixed Syntax, Stats & Strict Typing
+// v1.9.2.4 - Dynamic Chapters & Tab Start Fix
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,7 +9,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.9.2.3";
+const VERSION = "1.9.2.4";
 const BOOK_ID = "wizard_of_oz"; 
 const IDLE_THRESHOLD = 2000; 
 const SPRINT_COOLDOWN_MS = 1500; 
@@ -17,6 +17,7 @@ const SPRINT_COOLDOWN_MS = 1500;
 // STATE
 let currentUser = null;
 let bookData = null;
+let bookMetadata = null; // New: Stores chapter titles/counts
 let fullText = "";
 let currentCharIndex = 0;
 let savedCharIndex = 0; 
@@ -92,6 +93,7 @@ async function init() {
         if (user) {
             currentUser = user;
             updateAuthUI(true);
+            await loadBookMetadata(); // Load titles first
             await Promise.all([loadUserProgress(), loadUserStats()]);
         } else {
             signInAnonymously(auth);
@@ -123,6 +125,17 @@ function updateAuthUI(isLoggedIn) {
 }
 
 // --- DATA ---
+async function loadBookMetadata() {
+    try {
+        const docRef = doc(db, "books", BOOK_ID);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+            bookMetadata = docSnap.data();
+            console.log("Metadata Loaded:", bookMetadata);
+        }
+    } catch (e) { console.warn("Metadata Load Error:", e); }
+}
+
 async function loadUserStats() {
     try {
         const today = new Date();
@@ -133,26 +146,20 @@ async function loadUserStats() {
         
         if (docSnap.exists()) {
             const data = docSnap.data();
-            // Load or Reset Daily
             if (data.lastDate === dateStr) {
                 statsData.secondsToday = data.secondsToday || 0;
                 statsData.charsToday = data.charsToday || 0;
                 statsData.mistakesToday = data.mistakesToday || 0;
             } else {
-                statsData.secondsToday = 0;
-                statsData.charsToday = 0;
-                statsData.mistakesToday = 0;
+                statsData.secondsToday = 0; statsData.charsToday = 0; statsData.mistakesToday = 0;
             }
             
-            // Load or Reset Weekly
             if (data.weekStart === weekStart) {
                 statsData.secondsWeek = data.secondsWeek || 0;
                 statsData.charsWeek = data.charsWeek || 0;
                 statsData.mistakesWeek = data.mistakesWeek || 0;
             } else {
-                statsData.secondsWeek = 0;
-                statsData.charsWeek = 0;
-                statsData.mistakesWeek = 0;
+                statsData.secondsWeek = 0; statsData.charsWeek = 0; statsData.mistakesWeek = 0;
             }
         }
         statsData.lastDate = dateStr;
@@ -207,7 +214,7 @@ async function loadChapter(chapterNum) {
                 savedCharIndex = 0;
                 loadChapter(1);
             } else {
-                textStream.innerText = "Chapter 1 not found.";
+                textStream.innerText = "Chapter not found.";
             }
         }
     } catch (e) {
@@ -222,7 +229,7 @@ function setupGame() {
     renderText();
     currentCharIndex = savedCharIndex;
     
-    // Auto-advance if starting exactly on skipped chars
+    // SKIP LOGIC: Start of session skip allowed
     while (currentCharIndex < fullText.length && (fullText[currentCharIndex] === ' ' || fullText[currentCharIndex] === '\n')) {
         const charEl = document.getElementById(`char-${currentCharIndex}`);
         if (charEl) charEl.classList.add('done-perfect');
@@ -251,13 +258,20 @@ function setupGame() {
     
     let btnLabel = "Resume Reading";
     if (savedCharIndex === 0) btnLabel = "Start Reading";
+    
+    // Title Display
+    let title = `Chapter ${currentChapterNum}`;
+    if (bookMetadata && bookMetadata.chapters) {
+        const chapMeta = bookMetadata.chapters.find(c => c.id === "chapter_" + currentChapterNum);
+        if (chapMeta) title = chapMeta.title;
+    }
 
     if (!isGameActive) {
-        showStartModal(`Chapter ${currentChapterNum}`, btnLabel);
+        showStartModal(title, btnLabel);
     }
 }
 
-// --- ENGINE (FIXED RENDERER) ---
+// --- ENGINE ---
 function renderText() {
     textStream.innerHTML = '';
     const container = document.createDocumentFragment();
@@ -273,7 +287,6 @@ function renderText() {
             span.innerHTML = '&nbsp;'; 
             span.id = `char-${i}`;
             wordBuffer.appendChild(span);
-            
             container.appendChild(wordBuffer);
             container.appendChild(document.createElement('br'));
             wordBuffer = document.createElement('span');
@@ -285,7 +298,6 @@ function renderText() {
             span.innerText = ' ';
             span.id = `char-${i}`;
             wordBuffer.appendChild(span);
-            
             container.appendChild(wordBuffer);
             wordBuffer = document.createElement('span');
             wordBuffer.className = 'word';
@@ -324,32 +336,23 @@ function startGame() {
         sessionLimit = (sessionValueStr === 'infinity') ? 'infinity' : parseInt(sessionValueStr);
     }
 
-    // Skip logic ONLY at start
     while (currentCharIndex < fullText.length && (fullText[currentCharIndex] === ' ' || fullText[currentCharIndex] === '\n')) {
         const charEl = document.getElementById(`char-${currentCharIndex}`);
         if (charEl) charEl.classList.add('done-perfect');
         currentCharIndex++;
     }
     
-    sprintSeconds = 0;
-    sprintMistakes = 0;
-    sprintCharStart = currentCharIndex; 
-    activeSeconds = 0; 
-    timeAccumulator = 0;
-    lastInputTime = Date.now(); 
-    wpmHistory = []; 
-    accuracyHistory = [];
+    sprintSeconds = 0; sprintMistakes = 0; sprintCharStart = currentCharIndex; 
+    activeSeconds = 0; timeAccumulator = 0; lastInputTime = Date.now(); 
+    wpmHistory = []; accuracyHistory = [];
     
     highlightCurrentChar();
     centerView();
     closeModal();
     
-    isGameActive = true;
-    isOvertime = false;
-    accDisplay.innerText = "100%";
-    wpmDisplay.innerText = "0";
-    timerDisplay.style.color = 'white'; 
-    timerDisplay.style.opacity = '1';
+    isGameActive = true; isOvertime = false;
+    accDisplay.innerText = "100%"; wpmDisplay.innerText = "0";
+    timerDisplay.style.color = 'white'; timerDisplay.style.opacity = '1';
 
     if (timerInterval) clearInterval(timerInterval);
     timerInterval = setInterval(gameTick, 100); 
@@ -412,11 +415,37 @@ function updateRunningAccuracy(isCorrect) {
 document.addEventListener('keydown', (e) => {
     if (isModalOpen) {
         if (isInputBlocked) return; 
-        // Simple start check
+
+        // SMART START: Allow Enter, Space, OR Tab to start
         const isStartKey = (e.key === "Enter") || (e.key === " ");
-        if (isStartKey && modalActionCallback) {
+        let isTabStart = (e.key === "Tab");
+
+        // If we are at the start of a chapter, currentCharIndex might be on a Tab
+        // If we are just opening the modal, focus is on body
+        
+        if ((isStartKey || isTabStart) && modalActionCallback) {
             e.preventDefault();
             modalActionCallback(); 
+            // If they pressed Tab, and the text starts with Tab, we should type it immediately?
+            // Actually, `startGame` auto-skips spaces/enters, but not tabs.
+            // So if text starts with \t, and user hit Tab, we should process it.
+            // But `isGameActive` is false until callback runs.
+            // The callback runs startGame which sets active=true.
+            // We can manually trigger handleTyping if it was a match.
+            
+            let tempIndex = currentCharIndex;
+            // Skip logic simulation
+            while (tempIndex < fullText.length && (fullText[tempIndex] === ' ' || fullText[tempIndex] === '\n')) {
+                tempIndex++;
+            }
+            if (tempIndex < fullText.length) {
+                const char = fullText[tempIndex];
+                if (char === '\t' && isTabStart) {
+                    // It's a match, but let's just let the game start.
+                    // The user will likely have to hit Tab again or we simulate it?
+                    // Better UX: Just start the game. The user is ready.
+                }
+            }
             return;
         }
         return;
@@ -454,9 +483,7 @@ function handleTyping(key) {
         return;
     }
 
-    // STRICT MATCHING
     if (inputChar === targetChar) {
-        // Track Stats
         statsData.charsToday++;
         statsData.charsWeek++;
 
@@ -496,7 +523,6 @@ function handleTyping(key) {
         updateImageDisplay();
     } 
     else {
-        // Mistake
         mistakes++;
         sprintMistakes++;
         statsData.mistakesToday++;
@@ -595,13 +621,11 @@ function pauseGameForBreak() {
 
     const charsTyped = currentCharIndex - sprintCharStart;
     
-    // Sprint Calc
     const sprintMinutes = sprintSeconds / 60;
     const sprintWPM = (sprintMinutes > 0) ? Math.round((charsTyped / 5) / sprintMinutes) : 0;
     const sprintTotalEntries = charsTyped + sprintMistakes;
     const sprintAcc = (sprintTotalEntries > 0) ? Math.round((charsTyped / sprintTotalEntries) * 100) : 100;
 
-    // Daily/Weekly Calcs
     const todayWPM = calculateAverageWPM(statsData.charsToday, statsData.secondsToday);
     const todayAcc = calculateAverageAcc(statsData.charsToday, statsData.mistakesToday);
     
@@ -628,14 +652,12 @@ function finishChapter() {
     
     const nextChapter = currentChapterNum + 1;
     
-    // CALCULATE SPRINT STATS FOR THE MODAL
     const charsTyped = currentCharIndex - sprintCharStart;
     const sprintMinutes = sprintSeconds / 60;
     const sprintWPM = (sprintMinutes > 0) ? Math.round((charsTyped / 5) / sprintMinutes) : 0;
     const sprintTotalEntries = charsTyped + sprintMistakes;
     const sprintAcc = (sprintTotalEntries > 0) ? Math.round((charsTyped / sprintTotalEntries) * 100) : 100;
 
-    // Daily Stats
     const todayWPM = calculateAverageWPM(statsData.charsToday, statsData.secondsToday);
     const todayAcc = calculateAverageAcc(statsData.charsToday, statsData.mistakesToday);
     const weekWPM = calculateAverageWPM(statsData.charsWeek, statsData.secondsWeek);
@@ -644,7 +666,7 @@ function finishChapter() {
     const stats = {
         time: sprintSeconds,
         wpm: sprintWPM, 
-        acc: sprintAcc, 
+        acc: sprintAcc,
         today: `${formatTime(statsData.secondsToday)} (${todayWPM} WPM | ${todayAcc}%)`,
         week: `${formatTime(statsData.secondsWeek)} (${weekWPM} WPM | ${weekAcc}%)`
     };
@@ -778,9 +800,19 @@ function openMenuModal() {
     document.getElementById('modal-title').innerText = "Settings";
     
     let chapterOptions = "";
-    for(let i=1; i<=5; i++) {
-        let sel = (i === currentChapterNum) ? "selected" : "";
-        chapterOptions += `<option value="${i}" ${sel}>Chapter ${i}</option>`;
+    // If metadata exists, use it
+    if (bookMetadata && bookMetadata.chapters) {
+        bookMetadata.chapters.forEach((chap, idx) => {
+            const num = idx + 1;
+            let sel = (num === currentChapterNum) ? "selected" : "";
+            chapterOptions += `<option value="${num}" ${sel}>${chap.title}</option>`;
+        });
+    } else {
+        // Fallback
+        for(let i=1; i<=10; i++) {
+            let sel = (i === currentChapterNum) ? "selected" : "";
+            chapterOptions += `<option value="${i}" ${sel}>Chapter ${i}</option>`;
+        }
     }
 
     document.getElementById('modal-body').innerHTML = `
