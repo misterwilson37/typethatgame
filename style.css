@@ -1,4 +1,4 @@
-/* v1.9.1.9.4 - Strict Spaces & High Tab Icons */
+/* v1.9.1.9.5 - Thicker Icons, Taller Highlights, Strict Visuals */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -94,14 +94,21 @@ body {
 .word {
     display: inline-block; 
     white-space: pre; 
-    line-height: 2.5em; 
+    line-height: 2.5em; /* Keep line spacing generous */
     font-size: 24px; 
     color: #ccc; 
 }
 
+/* LETTERS - Fixed Height/Highlight Issue */
 .letter {
-    display: inline-block; vertical-align: baseline; min-width: 14.4px;           
-    padding: 2px 0; line-height: 1.2; position: relative; color: #ccc;
+    display: inline-block; 
+    vertical-align: baseline; 
+    min-width: 14.4px;
+    /* Increased line-height and padding so the 'Active' block isn't smooshed */
+    line-height: 1.8em; 
+    padding: 2px 0; 
+    position: relative; 
+    color: #ccc;
 }
 
 /* SPACES */
@@ -117,16 +124,16 @@ body {
     text-align: center;
     border-bottom: 1px dotted #ddd;
     color: #999;
-    vertical-align: middle; /* Helps vertical alignment context */
+    vertical-align: middle; 
 }
 .letter.tab::before {
     content: '→';
-    font-size: 24px; 
-    font-weight: 700; 
+    font-size: 30px; /* +20% larger */
+    font-weight: 800; /* Thicker */
     position: absolute;
     left: 50%; 
-    /* 30% pulls it up towards the cap-height */
-    top: 30%; 
+    /* 35% is higher up than 50% */
+    top: 35%; 
     transform: translate(-50%, -50%);
     opacity: 0.5;
 }
@@ -135,25 +142,34 @@ body {
 
 /* ENTER CHARACTER (↵) */
 .letter.enter {
-    width: 20px;
+    width: 24px; /* Slightly wider */
     text-align: center;
     margin-left: 2px;
     color: #999;
     position: relative;
+    vertical-align: middle;
 }
 .letter.enter::before {
     content: '↵';
-    font-size: 20px; 
-    font-weight: 700;
+    font-size: 26px; /* Larger */
+    font-weight: 800; /* Thicker */
     position: absolute;
-    left: 50%; top: 50%;
+    left: 50%; 
+    top: 35%; /* Moved up to match Tab */
     transform: translate(-50%, -50%);
     opacity: 0.5;
 }
 .letter.enter.done-perfect::before { opacity: 0.1; }
 
-/* ACTIVE STATES */
-.letter.active { background-color: var(--carolina-blue); color: white !important; border-radius: 2px; }
+/* ACTIVE STATES - The Blue Cursor */
+.letter.active { 
+    background-color: var(--carolina-blue); 
+    color: white !important; 
+    border-radius: 3px; 
+    /* Ensure the blue box covers vertically */
+    padding-top: 4px;
+    padding-bottom: 4px;
+}
 .letter.active.error-state { background-color: var(--error-bg); color: black !important; }
 
 /* Active Special Keys - Clean Highlighting */
@@ -161,12 +177,12 @@ body {
 .letter.enter.active::before {
     color: white;
     opacity: 1;
-    z-index: 2; /* Ensure icon sits on top of background */
+    z-index: 2; 
 }
 
-/* Ensure the background box for Tab/Enter is solid and square-ish */
+/* Make Tab/Enter active box look solid */
 .letter.tab.active, .letter.enter.active {
-    border-radius: 4px; /* Slight roundness */
+    border-radius: 4px;
 }
 
 .letter.done-perfect { color: var(--black); } 
