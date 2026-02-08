@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>TypeThatBook Admin v1.9.3</title>
+    <title>TypeThatBook Admin v1.9.4</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
         body { background: #111; color: #eee; font-family: 'Courier New', monospace; padding: 20px; }
@@ -12,7 +12,7 @@
         input, textarea, button, select { 
             width: 100%; 
             padding: 12px; 
-            margin-bottom: 20px; 
+            margin-bottom: 15px; 
             background: #222; 
             border: 1px solid #444; 
             color: #fff; 
@@ -33,8 +33,10 @@
         
         button.secondary-btn { background: #444; border: 1px solid #666; }
         button.secondary-btn:hover { background: #666; }
+        button.danger-btn { background: #500; border: 1px solid #800; color: #fcc; }
+        button.danger-btn:hover { background: #800; }
 
-        label { display: block; margin-bottom: 8px; color: #888; text-transform: uppercase; font-size: 0.8rem; }
+        label { display: block; margin-bottom: 5px; color: #888; text-transform: uppercase; font-size: 0.75rem; }
         
         /* Utilities */
         .hidden { display: none !important; }
@@ -51,7 +53,7 @@
         a { color: #888; text-decoration: none; border-bottom: 1px dotted #888; }
         a:hover { color: #fff; }
 
-        /* Import Section Styles */
+        /* Staging Area */
         .import-box {
             background: #1a1a1a;
             border: 1px dashed #444;
@@ -60,22 +62,31 @@
         }
         
         #chapter-list {
-            max-height: 300px;
+            max-height: 400px;
             overflow-y: auto;
             background: #000;
             border: 1px solid #333;
-            padding: 10px;
             margin-bottom: 20px;
-            font-size: 0.8em;
         }
         .chapter-item {
-            padding: 5px;
+            padding: 10px;
             border-bottom: 1px solid #222;
             display: flex;
+            align-items: center;
             justify-content: space-between;
+            background: #111;
         }
-        .chapter-item.uploaded { color: #00ff41; }
-        .chapter-item.error { color: #ff3333; }
+        .chapter-item:hover { background: #151515; }
+        .chap-info { flex-grow: 1; margin-right: 15px; }
+        .chap-title { font-weight: bold; color: #4B9CD3; font-size: 0.9em; }
+        .chap-meta { font-size: 0.8em; color: #666; }
+        .chap-actions { display: flex; gap: 5px; }
+        .chap-actions button { width: auto; padding: 5px 10px; font-size: 0.7em; margin: 0; }
+
+        /* Checkbox */
+        .checkbox-wrapper { display: flex; align-items: center; margin-bottom: 15px; }
+        .checkbox-wrapper input { width: auto; margin: 0 10px 0 0; }
+        .checkbox-wrapper label { margin: 0; text-transform: none; color: #ddd; }
 
         footer {
             position: fixed; bottom: 5px; right: 10px; font-size: 0.7em; color: #666; 
@@ -100,28 +111,7 @@
 
     <div id="editor-section" class="hidden">
         
-        <details>
-            <summary style="cursor:pointer; color:#4B9CD3; margin-bottom:10px;">Manual Editor (Click to Expand)</summary>
-            <div style="padding: 15px; border:1px solid #333; margin-bottom:20px;">
-                <div class="row">
-                    <div class="col">
-                        <label>Book ID</label>
-                        <input type="text" id="manual-book-id" value="wizard_of_oz">
-                    </div>
-                    <div class="col">
-                        <label>Chapter Number</label>
-                        <input type="number" id="manual-chap-num" value="1">
-                    </div>
-                </div>
-                <label>JSON Content</label>
-                <textarea id="json-content" rows="10" placeholder='{ "segments": [ { "text": "..." } ] }'></textarea>
-                <button id="save-btn">Save Single Chapter</button>
-            </div>
-        </details>
-
-        <hr style="border-color:#333; margin: 30px 0;">
-
-        <h2>EPUB Batch Import</h2>
+        <h2>Book Importer</h2>
         <div class="import-box">
             <div class="row">
                 <div class="col">
@@ -129,18 +119,23 @@
                     <input type="text" id="import-book-id" value="wizard_of_oz">
                 </div>
                 <div class="col">
-                    <label>Select EPUB File</label>
+                    <label>Load EPUB File</label>
                     <input type="file" id="epub-file" accept=".epub">
                 </div>
             </div>
+            
+            <div class="checkbox-wrapper">
+                <input type="checkbox" id="clean-newlines" checked>
+                <label for="clean-newlines">Aggressive Cleaning (Remove line breaks inside paragraphs)</label>
+            </div>
 
             <div id="processing-ui" class="hidden">
-                <label>Detected Chapters / Files</label>
-                <div id="chapter-list">Waiting for file...</div>
+                <label>Staging Area (Edit/Delete before Upload)</label>
+                <div id="chapter-list"></div>
                 
                 <div class="row">
                     <div class="col">
-                        <button id="upload-all-btn">Upload All to Database</button>
+                        <button id="upload-all-btn">Upload All (Save Book)</button>
                     </div>
                     <div class="col">
                         <button id="download-imgs-btn" class="secondary-btn">Download Images (ZIP)</button>
@@ -148,6 +143,31 @@
                 </div>
             </div>
         </div>
+
+        <hr style="border-color:#333; margin: 30px 0;">
+
+        <details id="manual-details">
+            <summary style="cursor:pointer; color:#4B9CD3; margin-bottom:10px;">Manual Chapter Editor</summary>
+            <div style="padding: 15px; border:1px solid #333; margin-bottom:20px;">
+                <div class="row">
+                    <div class="col">
+                        <label>Chapter Title (Optional)</label>
+                        <input type="text" id="manual-chap-title" placeholder="e.g. The Cyclone">
+                    </div>
+                    <div class="col">
+                        <label>Chapter Number</label>
+                        <input type="number" id="manual-chap-num" value="1">
+                    </div>
+                </div>
+                <label>JSON Segments</label>
+                <textarea id="json-content" rows="15" placeholder='{ "segments": [ { "text": "..." } ] }'></textarea>
+                
+                <div style="display:flex; gap:10px;">
+                    <button id="update-staged-btn" class="hidden">Update Staged Chapter</button>
+                    <button id="save-btn">Save Directly to DB</button>
+                </div>
+            </div>
+        </details>
 
     </div>
 </div>
