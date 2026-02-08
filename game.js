@@ -1,4 +1,4 @@
-// v1.7.1 - Cleaned Navigation & Menu (No Seeding Hacks)
+// v1.7.0 - Navigation, Restarts & Seeding
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,7 +9,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.7.1";
+const VERSION = "1.7.0";
 const BOOK_ID = "wizard_of_oz"; 
 const IDLE_THRESHOLD = 2000; 
 const SPRINT_COOLDOWN_MS = 1500; 
@@ -22,6 +22,7 @@ let currentCharIndex = 0;
 let savedCharIndex = 0; 
 let lastSavedIndex = 0; 
 let currentChapterNum = 1;
+let totalChapters = 2; // Hardcoded for now, or could be fetched
 
 // Settings
 let sessionLimit = 30; 
@@ -47,6 +48,7 @@ let isOvertime = false;
 let isModalOpen = false;
 let isInputBlocked = false; 
 let modalActionCallback = null;
+let modalSecondaryCallback = null; // For "Cancel" buttons
 
 // Timer & Speed
 let lastInputTime = 0;
@@ -98,6 +100,22 @@ async function init() {
             signInAnonymously(auth);
         }
     });
+
+    // --- Developer Tool: Seed Chapter 2 ---
+    window.seedChapter2 = async () => {
+        if(!currentUser) { console.error("Log in first"); return; }
+        console.log("Seeding Chapter 2...");
+        const ch2Data = {
+            title: "The Council with the Munchkins",
+            segments: [
+                { text: "She was awakened by a shock, so sudden and severe that if Dorothy had not been lying on the soft bed she might have been hurt. As it was, the jar made her catch her breath and wonder what had happened; and Toto put his cold little nose into her face and whined dismally. Dorothy sat up and noticed that the house was not moving; nor was it dark, for the bright sunshine came in at the window, flooding the little room. She sprang from her bed and with Toto at her heels ran and opened the door.", image: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d2/Wizard_of_oz_book_cover.jpg/640px-Wizard_of_oz_book_cover.jpg" },
+                { text: "The little girl gave a cry of amazement and looked about her, her eyes growing bigger and bigger at the wonderful sights she saw. The cyclone had set the house down very gently--for a cyclone--in the midst of a country of marvelous beauty. There were lovely patches of greensward all about, with stately trees bearing rich and luscious fruits. Banks of gorgeous flowers were on every hand, and birds with rare and brilliant plumage sang and fluttered in the trees and bushes. A little way off was a small brook, rushing and sparkling along between green banks, and murmuring in a voice very grateful to a little girl who had lived so long on the dry, gray prairies.", image: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d2/Wizard_of_oz_book_cover.jpg/640px-Wizard_of_oz_book_cover.jpg" }
+            ]
+        };
+        await setDoc(doc(db, "books", BOOK_ID, "chapters", "chapter_2"), ch2Data);
+        alert("Chapter 2 Seeded! You can now use the menu to switch chapters.");
+        location.reload();
+    };
 }
 
 function setupAuthListeners() {
@@ -125,6 +143,7 @@ function updateAuthUI(isLoggedIn) {
 
 // --- DATA & SAVING ---
 async function loadUserStats() {
+    // ... same as before ...
     try {
         const today = new Date();
         const dateStr = today.toISOString().split('T')[0]; 
@@ -180,14 +199,15 @@ async function loadChapter(chapterNum) {
             bookData = docSnap.data();
             setupGame();
         } else {
-            // Handle missing chapter
+            // If chapter doesn't exist (e.g., they finished ch1 and tried to go to ch2 but it's not there)
             if(chapterNum > 1) {
-                alert(`Chapter ${chapterNum} not found. Returning to Chapter 1.`);
+                alert("You've reached the end of available content! Run 'seedChapter2()' in console to add more.");
+                // Fallback to Ch1
                 currentChapterNum = 1;
                 savedCharIndex = 0;
                 loadChapter(1);
             } else {
-                textStream.innerText = "Chapter 1 not found. Please check Admin Panel.";
+                textStream.innerText = "Chapter not found.";
             }
         }
     } catch (e) {
@@ -246,6 +266,7 @@ async function saveProgress() {
     } catch (e) { console.warn("Save failed:", e); }
 }
 
+// --- RENDERING & GAME ENGINE --- (Standard v1.6 logic)
 function renderText() {
     textStream.innerHTML = '';
     const words = fullText.split(' ');
@@ -397,16 +418,18 @@ function pauseGameForBreak() {
 // --- NEW MENU & NAVIGATION SYSTEM ---
 
 function openMenuModal() {
+    // Pause game if active
     if (isGameActive) {
         isGameActive = false;
         clearInterval(timerInterval);
     }
     
     isModalOpen = true;
-    isInputBlocked = true;
+    isInputBlocked = true; // Block typing
     const modal = document.getElementById('modal');
     document.getElementById('modal-title').innerText = "Menu & Settings";
     
+    // Build Chapter Options (Simple 1-5 loop for now)
     let chapterOptions = "";
     for(let i=1; i<=5; i++) {
         let sel = (i === currentChapterNum) ? "selected" : "";
@@ -435,6 +458,7 @@ function openMenuModal() {
     
     document.getElementById('modal-body').innerHTML = html;
     
+    // Wire up buttons
     document.getElementById('go-btn').onclick = () => {
         const val = parseInt(document.getElementById('chapter-nav-select').value);
         if(val !== currentChapterNum) handleChapterSwitch(val);
@@ -466,6 +490,7 @@ function openMenuModal() {
 
     document.getElementById('close-menu-btn').onclick = closeModal;
 
+    // Remove main action button for this modal
     const actionBtn = document.getElementById('action-btn');
     if(actionBtn) actionBtn.style.display = 'none';
     
@@ -473,6 +498,7 @@ function openMenuModal() {
 }
 
 function handleChapterSwitch(newChapter) {
+    // Optimistic switch - assuming it exists or loadChapter will handle error
     confirmAction(`Jump to Chapter ${newChapter}?`, async () => {
         await setDoc(doc(db, "users", currentUser.uid, "progress", BOOK_ID), {
             chapter: newChapter,
@@ -492,8 +518,10 @@ function confirmAction(message, onConfirm) {
     document.getElementById('modal-title').innerText = "Are you sure?";
     
     document.getElementById('confirm-yes').onclick = onConfirm;
-    document.getElementById('confirm-no').onclick = openMenuModal; 
+    document.getElementById('confirm-no').onclick = openMenuModal; // Go back to menu
 }
+
+// --- STANDARD MODALS ---
 
 function getDropdownHTML() {
     const options = [
@@ -511,6 +539,7 @@ function getDropdownHTML() {
         </div>`;
 }
 
+// For Start Screen
 function showStartModal(title, btnText) {
     isModalOpen = true;
     modalActionCallback = startGame;
@@ -529,6 +558,7 @@ function showStartModal(title, btnText) {
     isInputBlocked = false;
 }
 
+// For Stats Screen (with Cooldown)
 function showStatsModal(title, stats, btnText, action) {
     isModalOpen = true;
     modalActionCallback = action;
@@ -575,6 +605,7 @@ function closeModal() {
     isInputBlocked = false; 
     modalActionCallback = null;
     
+    // Reset Action Button visibility in case Menu hid it
     const btn = document.getElementById('action-btn');
     if(btn) btn.style.display = 'block';
 
@@ -594,6 +625,8 @@ document.addEventListener('keydown', (e) => {
             if (modalActionCallback) modalActionCallback();
             return; 
         }
+
+        // Type-to-start (Only works if we have a callback like Start Game, not in Menu)
         if (modalActionCallback) {
             let tempIndex = currentCharIndex;
             if (fullText[tempIndex] === ' ') tempIndex++; 
@@ -720,6 +753,7 @@ function finishChapter() {
     clearInterval(timerInterval);
     saveProgress();
     
+    // Automatically suggest next chapter if available
     const stats = { 
         time: sprintSeconds, 
         wpm: parseInt(wpmDisplay.innerText), 
@@ -728,6 +762,7 @@ function finishChapter() {
         week: formatTime(statsData.secondsWeek)
     };
     
+    // Check if next chapter exists (optimistic)
     const nextChap = currentChapterNum + 1;
     
     showStatsModal("Chapter Complete!", stats, "Start Chapter " + nextChap, async () => {
