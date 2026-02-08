@@ -1,4 +1,4 @@
-/* v1.9.1.9.2 - Layout Fixes & Thicker Icons */
+/* v1.9.1.9.3 - Thicker Icons & Layout Fixes */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -90,7 +90,7 @@ body {
     padding-bottom: 300px; 
 }
 
-/* WORD WRAPPING FIX: Inline-block + Pre */
+/* WORD WRAPPING: Inline-block + Pre for stability */
 .word {
     display: inline-block; 
     white-space: pre; 
@@ -104,7 +104,7 @@ body {
     padding: 2px 0; line-height: 1.2; position: relative; color: #ccc;
 }
 
-/* SPACES: No extra styling, just size */
+/* SPACES: No extra styling */
 .letter.space { 
     min-width: 14.4px; 
     border-bottom: none !important;
@@ -121,10 +121,10 @@ body {
 .letter.tab::before {
     content: '→';
     font-size: 24px; /* Larger */
-    font-weight: 700; /* Thicker */
+    font-weight: 800; /* Extra Bold */
     position: absolute;
     left: 50%; 
-    top: 45%; /* Moved up slightly to center with Caps */
+    top: 42%; /* Moved UP to align with Caps */
     transform: translate(-50%, -50%);
     opacity: 0.5;
 }
