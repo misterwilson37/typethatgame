@@ -1,4 +1,4 @@
-// v1.9.1.5 - Smart Start, Visual Cooldown, Stats Fixes
+// v1.9.1.6 - Stats Visibility & Debugging
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,7 +9,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.9.1.5";
+const VERSION = "1.9.1.6";
 const BOOK_ID = "wizard_of_oz"; 
 const IDLE_THRESHOLD = 2000; 
 const SPRINT_COOLDOWN_MS = 1500; 
@@ -125,13 +125,20 @@ async function loadUserStats() {
         const weekStart = getWeekStart(today); 
         const docRef = doc(db, "users", currentUser.uid, "stats", "time_tracking");
         const docSnap = await getDoc(docRef);
+        
         if (docSnap.exists()) {
             const data = docSnap.data();
             statsData.secondsToday = (data.lastDate === dateStr) ? (data.secondsToday || 0) : 0;
             statsData.secondsWeek = (data.weekStart === weekStart) ? (data.secondsWeek || 0) : 0;
+        } else {
+            statsData.secondsToday = 0;
+            statsData.secondsWeek = 0;
         }
         statsData.lastDate = dateStr;
         statsData.weekStart = weekStart;
+        
+        console.log("STATS LOADED from DB:", statsData);
+
     } catch (e) { console.warn("Stats Load Error:", e); }
 }
 
@@ -197,7 +204,6 @@ function setupGame() {
     renderText();
     currentCharIndex = savedCharIndex;
     
-    // Auto-advance if load starts on space
     if (fullText[currentCharIndex] === ' ') {
         const spaceEl = document.getElementById(`char-${currentCharIndex}`);
         if (spaceEl) spaceEl.classList.add('done-perfect');
@@ -263,12 +269,12 @@ function startGame() {
         sessionLimit = (sessionValueStr === 'infinity') ? 'infinity' : parseInt(sessionValueStr);
     }
 
-    // CHECK FOR SPACE SKIP ON START (Smart Start)
     if (fullText[currentCharIndex] === ' ') {
         const spaceEl = document.getElementById(`char-${currentCharIndex}`);
         if (spaceEl) spaceEl.classList.add('done-perfect');
         currentCharIndex++;
-        // NOTE: We don't saveProgress here to avoid excessive writes, it syncs next keypress
+        highlightCurrentChar();
+        centerView();
     }
 
     closeModal();
@@ -357,8 +363,6 @@ document.addEventListener('keydown', (e) => {
     if (isModalOpen) {
         if (isInputBlocked) return; 
 
-        // SMART START LOGIC
-        // If current char is space, we accept the NEXT char as a trigger too
         let effectiveTarget = fullText[currentCharIndex];
         let nextChar = null;
         if (effectiveTarget === ' ' && currentCharIndex + 1 < fullText.length) {
@@ -370,22 +374,13 @@ document.addEventListener('keydown', (e) => {
 
         if ((isStartKey || isMatchKey) && modalActionCallback) {
             e.preventDefault();
-            modalActionCallback(); // Start game
-            
-            // If they typed a character (not Enter/Space), process it immediately
-            if (isMatchKey) {
-                // If they hit the 'nextChar' (skipping space), handleTyping will handle the space logic?
-                // Actually handleTyping expects to match 'currentCharIndex'.
-                // If we skipped space in startGame, currentCharIndex is now at nextChar.
-                // So e.key will match. Perfect.
-                handleTyping(e.key); 
-            }
+            modalActionCallback(); 
+            if (isMatchKey) handleTyping(e.key); 
             return;
         }
         return;
     }
     
-    // 2. GAME NAVIGATION
     if (e.key === "Escape" && isGameActive) {
         pauseGameForBreak();
         return;
@@ -396,7 +391,6 @@ document.addEventListener('keydown', (e) => {
     if (["Shift", "Control", "Alt", "Meta", "CapsLock", "Tab"].includes(e.key)) return;
     if (e.key === " ") e.preventDefault(); 
 
-    // 3. TYPING
     handleTyping(e.key);
 });
 
@@ -416,7 +410,6 @@ function handleTyping(key) {
     }
 
     if (key === targetChar) {
-        // Correct
         currentEl.classList.remove('active');
         currentEl.classList.remove('error-state');
         
@@ -456,7 +449,6 @@ function handleTyping(key) {
         updateImageDisplay();
     } 
     else {
-        // Mistake
         mistakes++;
         sprintMistakes++;
         if (currentLetterStatus === 'clean') currentLetterStatus = 'error';
@@ -512,6 +504,7 @@ function updateImageDisplay() {
 async function saveProgress(force = false) {
     if (!currentUser) return;
     try {
+        // Save Progress
         if (currentCharIndex > lastSavedIndex || force) {
             await setDoc(doc(db, "users", currentUser.uid, "progress", BOOK_ID), {
                 chapter: currentChapterNum,
@@ -520,17 +513,21 @@ async function saveProgress(force = false) {
             }, { merge: true });
             lastSavedIndex = currentCharIndex;
         }
+        
+        // Save Stats
+        console.log("SAVING STATS to DB:", statsData);
         await setDoc(doc(db, "users", currentUser.uid, "stats", "time_tracking"), {
             secondsToday: statsData.secondsToday,
             secondsWeek: statsData.secondsWeek,
             lastDate: statsData.lastDate,
             weekStart: statsData.weekStart
         }, { merge: true });
+        
     } catch (e) { console.warn("Save failed:", e); }
 }
 
 function formatTime(seconds) {
-    if (!seconds) return "0m 0s"; // Fallback for 0 or undefined
+    if (seconds === undefined || seconds === null || isNaN(seconds)) return "0m 0s"; 
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
     return `${m}m ${s}s`;
@@ -545,9 +542,10 @@ function pauseGameForBreak() {
     const minutes = sprintSeconds / 60;
     const sprintWPM = (minutes > 0) ? Math.round((charsTyped / 5) / minutes) : 0;
     
-    // Stats Interpolation Fix
-    const todayStr = formatTime(statsData.secondsToday || 0);
-    const weekStr = formatTime(statsData.secondsWeek || 0);
+    const todayStr = formatTime(statsData.secondsToday);
+    const weekStr = formatTime(statsData.secondsWeek);
+    
+    console.log("PAUSE STATS DISPLAY:", { today: todayStr, week: weekStr, raw: statsData });
 
     const stats = { 
         time: sprintSeconds, 
@@ -570,8 +568,8 @@ function finishChapter() {
         time: sprintSeconds,
         wpm: 0, 
         acc: 100,
-        today: formatTime(statsData.secondsToday || 0),
-        week: formatTime(statsData.secondsWeek || 0)
+        today: formatTime(statsData.secondsToday),
+        week: formatTime(statsData.secondsWeek)
     };
     
     showStatsModal(`Chapter ${currentChapterNum} Complete!`, stats, `Start Chapter ${nextChapter}`, async () => {
@@ -665,9 +663,9 @@ function showStatsModal(title, stats, btnText, callback) {
     document.getElementById('modal-body').innerHTML = html;
     
     const btn = document.getElementById('action-btn');
-    btn.innerText = "Wait..."; // Visual Feedback
+    btn.innerText = "Wait..."; 
     btn.onclick = modalActionCallback;
-    btn.disabled = true; // Button Disabled during cooldown
+    btn.disabled = true; 
     btn.style.opacity = '0.5'; 
     
     modal.classList.remove('hidden');
@@ -677,7 +675,7 @@ function showStatsModal(title, stats, btnText, callback) {
         if(document.getElementById('action-btn')) {
             const b = document.getElementById('action-btn');
             b.style.opacity = '1';
-            b.innerText = btnText; // "Continue"
+            b.innerText = btnText; 
             b.disabled = false;
         }
     }, SPRINT_COOLDOWN_MS);
@@ -729,7 +727,6 @@ function openMenuModal() {
         if(val !== currentChapterNum) {
             handleChapterSwitch(val);
         } else {
-            // Restart Current Chapter Logic
             if(confirm(`Restart Chapter ${val} from the beginning?`)) {
                 switchChapterHot(val);
             }
