@@ -1,4 +1,4 @@
-/* v1.9.3.7 - Full Width, Hidden Images, Modal Hints */
+/* v1.9.3.8 - Full Width, Hidden Images, Importer Wizard */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -92,94 +92,41 @@ body {
     padding-bottom: 300px; 
 }
 
-/* Image Panel Hidden */
-#image-panel {
-    display: none !important;
-}
+#image-panel { display: none !important; }
 
-/* WORD WRAPPING */
-.word {
-    display: inline-block; 
-    white-space: pre; 
-    line-height: 2.5em; 
-    font-size: 24px; 
-    color: #ccc; 
-}
+.word { display: inline-block; white-space: pre; line-height: 2.5em; font-size: 24px; color: #ccc; }
 
-/* LETTERS */
 .letter {
-    display: inline-block; 
-    vertical-align: bottom; 
-    min-width: 14.4px;
-    line-height: 2.0em; 
-    padding: 0 1px; 
-    position: relative; 
-    color: #ccc;
-    border-radius: 3px;
+    display: inline-block; vertical-align: bottom; min-width: 14.4px;
+    line-height: 2.0em; padding: 0 1px; position: relative; color: #ccc; border-radius: 3px;
 }
 
-/* SPACES */
-.letter.space { 
-    min-width: 14.4px; 
-    border-bottom: none !important;
-    text-decoration: none !important;
-}
+.letter.space { min-width: 14.4px; border-bottom: none !important; text-decoration: none !important; }
 
-/* TAB CHARACTER (→) */
 .letter.tab {
-    width: 50px; 
-    text-align: center;
-    border-bottom: 1px dotted #ddd;
-    color: transparent; 
+    width: 50px; text-align: center; border-bottom: 1px dotted #ddd; color: transparent; 
 }
 .letter.tab::before {
-    content: '→';
-    font-size: 32px; 
-    font-weight: 800; 
-    color: #999; 
-    position: absolute;
-    left: 50%; 
-    top: 38%; 
-    transform: translate(-50%, -50%);
-    opacity: 0.5;
+    content: '→'; font-size: 32px; font-weight: 800; color: #999; 
+    position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%); opacity: 0.5;
 }
 .letter.tab.done-perfect, .letter.tab.done-fixed { border-bottom: none; }
 .letter.tab.done-perfect::before, .letter.tab.done-fixed::before { opacity: 0.1; }
 
-/* ENTER CHARACTER (↵) */
 .letter.enter {
-    width: 24px;
-    text-align: center;
-    margin-left: 2px;
-    color: transparent; 
+    width: 24px; text-align: center; margin-left: 2px; color: transparent; 
 }
 .letter.enter::before {
-    content: '↵';
-    font-size: 28px; 
-    font-weight: 800; 
-    color: #999;
-    position: absolute;
-    left: 50%; 
-    top: 38%; 
-    transform: translate(-50%, -50%);
-    opacity: 0.5;
+    content: '↵'; font-size: 28px; font-weight: 800; color: #999;
+    position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%); opacity: 0.5;
 }
 .letter.enter.done-perfect::before { opacity: 0.1; }
 
-/* ACTIVE STATES */
-.letter.active { 
-    background-color: var(--carolina-blue); 
-    color: white !important; 
-    z-index: 2;
-}
+.letter.active { background-color: var(--carolina-blue); color: white !important; z-index: 2; }
 .letter.active.error-state { background-color: var(--error-bg); color: black !important; }
 
-/* Active Special Keys - Icon White */
 .letter.tab.active::before,
-.letter.enter.active::before {
-    color: white;
-    opacity: 1;
-}
+.letter.enter.active::before { color: white; opacity: 1; }
 
 .letter.done-perfect { color: var(--black); } 
 .letter.done-fixed { color: var(--corrected-color); font-weight: bold; } 
@@ -190,8 +137,7 @@ body {
 
 /* --- KEYBOARD --- */
 #virtual-keyboard {
-    height: 260px;
-    background: var(--accent-grey);
+    height: 260px; background: var(--accent-grey);
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     gap: 5px; border-top: 4px solid var(--black); padding: 10px 0; flex-shrink: 0;
 }
@@ -206,7 +152,7 @@ body {
 .key.wide { width: 80px; font-size: 12px; }
 .key.shift-active { background-color: #ffd700; color: black; } 
 
-/* --- MODAL --- */
+/* --- MODALS --- */
 .modal {
     position: fixed; top: 0; left: 0; width: 100%; height: 100%;
     background: rgba(0, 0, 0, 0.3);
@@ -216,8 +162,7 @@ body {
 .modal-content {
     pointer-events: auto; background: white; width: 100%;
     border-top: 6px solid var(--carolina-blue); padding: 30px; 
-    padding-bottom: 50px; 
-    text-align: center;
+    padding-bottom: 50px; text-align: center;
     box-shadow: 0 -10px 30px rgba(0,0,0,0.2); animation: slideUp 0.3s ease-out;
     box-sizing: border-box;
 }
@@ -226,27 +171,10 @@ body {
 .stat-row { display: flex; justify-content: center; gap: 40px; margin: 20px 0; font-size: 1.2em; color: #333; }
 .stat-item span { display: block; font-size: 2em; font-weight: bold; color: var(--black); }
 
-/* --- MODAL HEADERS & HINTS --- */
-.modal-book-title {
-    font-size: 0.8rem;
-    color: #888;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    margin-bottom: 5px;
-}
-.modal-chap-info {
-    font-size: 1.5rem;
-    font-weight: bold;
-    color: var(--black);
-    margin-bottom: 20px;
-}
-.modal-hint-text {
-    font-size: 0.8em;
-    color: #888;
-    margin-top: 5px;
-    font-weight: bold;
-    text-transform: uppercase;
-}
+/* Modal Headers */
+.modal-book-title { font-size: 0.8rem; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
+.modal-chap-info { font-size: 1.5rem; font-weight: bold; color: var(--black); margin-bottom: 20px; }
+.modal-hint-text { font-size: 0.8em; color: #888; margin-top: 5px; font-weight: bold; text-transform: uppercase; }
 
 .modal-btn {
     padding: 15px 40px; background: var(--carolina-blue); color: white; 
@@ -284,3 +212,16 @@ button.danger-btn { background-color: #2a0a0a; border: 1px solid #551111; color:
 button.danger-btn:hover { background-color: #441111; border-color: #ff3333; color: #fff; }
 button.secondary-btn { background-color: transparent; border: 1px solid #444; color: #aaa; margin-top: 10px; width: 100%; }
 button.secondary-btn:hover { border-color: #888; color: #fff; }
+
+/* ERROR WIZARD STYLES */
+.error-wizard-content {
+    background: #222; border: 2px solid #ffaa00; padding: 25px;
+    max-width: 700px; width: 90%; text-align: left; color: #eee;
+}
+.bad-char-highlight {
+    background-color: #ff0000;
+    color: white;
+    font-weight: bold;
+    padding: 0 4px;
+    border-radius: 2px;
+}
