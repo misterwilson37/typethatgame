@@ -1,4 +1,4 @@
-/* v1.9.3.2 - Full Width Layout, Hidden Images, Better Icons */
+/* v1.9.3.3 - Fixed Layout Centering */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -78,19 +78,16 @@ body {
     position: relative;
     overflow: hidden; 
     background: #fafafa;
-    /* Centering logic */
-    display: flex;
-    justify-content: center;
 }
 
 #text-stream {
     position: absolute;
     top: 0; 
-    /* Centered and wider since image is gone */
-    left: 50%;
-    transform: translateX(-50%);
-    width: 90%; 
+    /* FIXED: Simple percentages for even spacing */
+    left: 10%;
+    width: 80%;
     max-width: 1000px;
+    /* Removed translate/left:50% to prevent offset issues */
     transition: transform 0.2s ease-out; 
     padding-bottom: 300px; 
 }
@@ -112,7 +109,7 @@ body {
 /* LETTERS */
 .letter {
     display: inline-block; 
-    vertical-align: bottom; /* Aligns highlights perfectly */
+    vertical-align: bottom; 
     min-width: 14.4px;
     line-height: 2.0em; 
     padding: 0 1px; 
@@ -133,7 +130,7 @@ body {
     width: 50px; 
     text-align: center;
     border-bottom: 1px dotted #ddd;
-    color: transparent; /* Hide underlying char */
+    color: transparent; 
 }
 .letter.tab::before {
     content: '→';
@@ -142,7 +139,7 @@ body {
     color: #999; 
     position: absolute;
     left: 50%; 
-    top: 38%; /* Vertically centered */
+    top: 38%; 
     transform: translate(-50%, -50%);
     opacity: 0.5;
 }
