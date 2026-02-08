@@ -1,9 +1,9 @@
-// v1.9.7.5 - Character Filtering & Normalization
+// v1.9.7.6 - Chapter 0 Fix & Untypable Wizard
 import { db, auth } from "./firebase-config.js";
 import { doc, setDoc, getDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const ADMIN_VERSION = "1.9.7.5";
+const ADMIN_VERSION = "1.9.7.6";
 
 // DOM Elements
 const statusEl = document.getElementById('status');
@@ -14,27 +14,23 @@ const footerEl = document.getElementById('admin-footer');
 
 // Top Section
 const bookSelect = document.getElementById('book-select');
-const editExistingUI = document.getElementById('edit-existing-ui');
-const createNewUI = document.getElementById('create-new-ui');
 const openBookBtn = document.getElementById('open-book-btn');
 
-// Create New Inputs
-const newBookId = document.getElementById('new-book-id');
-const newBookTitle = document.getElementById('new-book-title');
-const newEpubFile = document.getElementById('new-epub-file');
-const createParseBtn = document.getElementById('create-parse-btn');
-
-// Staging Area
+// Staging
 const stagingArea = document.getElementById('staging-area');
+const newBookInput = document.getElementById('new-book-input');
 const activeBookTitle = document.getElementById('active-book-title');
 const saveTitleBtn = document.getElementById('save-title-btn');
 const overwriteSection = document.getElementById('overwrite-section');
 const overwriteEpubFile = document.getElementById('overwrite-epub-file');
 const overwriteBtn = document.getElementById('overwrite-btn');
+const createSection = document.getElementById('create-section');
+const newEpubFile = document.getElementById('new-epub-file');
+const createParseBtn = document.getElementById('create-parse-btn');
 const chapterListEl = document.getElementById('chapter-list');
 const uploadAllBtn = document.getElementById('upload-all-btn');
 const cleanNewlinesCb = document.getElementById('clean-newlines');
-const normalizeCharsCb = document.getElementById('normalize-chars'); // NEW
+const normalizeCharsCb = document.getElementById('normalize-chars');
 
 // Manual Editor
 const manualTitle = document.getElementById('manual-chap-title');
@@ -49,13 +45,23 @@ const warningModal = document.getElementById('warning-modal');
 const confirmOverwriteBtn = document.getElementById('confirm-overwrite-btn');
 const cancelOverwriteBtn = document.getElementById('cancel-overwrite-btn');
 
+// Wizard Modals
+const wizardModal = document.getElementById('error-wizard-modal');
+const wizardStep = document.getElementById('wizard-step');
+const wizardPreview = document.getElementById('wizard-preview');
+const wizardInput = document.getElementById('wizard-edit-input');
+const wizardIgnoreBtn = document.getElementById('wizard-ignore-btn');
+const wizardSaveBtn = document.getElementById('wizard-save-btn');
+const wizardCancelBtn = document.getElementById('wizard-cancel-btn');
+
 // State
 let stagedChapters = [];
 let editingIndex = -1;
 let bookTitlesMap = {};
 let activeBookId = ""; 
+let importErrors = [];
+let currentErrorIdx = 0;
 
-// Init
 if(footerEl) footerEl.innerText = `Admin JS: v${ADMIN_VERSION}`;
 
 // --- AUTH ---
@@ -79,7 +85,7 @@ loginBtn.onclick = async () => {
     catch (e) { alert(e.message); }
 };
 
-// --- BOOK LIST & SELECTION ---
+// --- BOOK LIST ---
 async function loadBookList() {
     bookSelect.innerHTML = "<option>Loading...</option>";
     bookTitlesMap = {};
@@ -87,7 +93,6 @@ async function loadBookList() {
         const querySnapshot = await getDocs(collection(db, "books"));
         bookSelect.innerHTML = "";
         
-        // Add Create Option First
         const createOpt = document.createElement("option");
         createOpt.value = "__NEW__";
         createOpt.text = "➕ Create New Book...";
@@ -104,12 +109,10 @@ async function loadBookList() {
             bookSelect.appendChild(option);
         });
         
-        // Select first book if available
         if(querySnapshot.size > 0) bookSelect.selectedIndex = 1;
         bookSelect.dispatchEvent(new Event('change'));
 
     } catch (e) {
-        console.error(e);
         bookSelect.innerHTML = "<option>Error</option>";
     }
 }
@@ -117,109 +120,106 @@ async function loadBookList() {
 bookSelect.onchange = () => {
     stagingArea.classList.add('hidden'); 
     if (bookSelect.value === "__NEW__") {
-        createNewUI.classList.remove('hidden');
-        editExistingUI.classList.add('hidden');
-        newBookId.value = "";
-        newBookTitle.value = "";
-        newEpubFile.value = "";
+        newBookInput.classList.remove('hidden');
+        activeBookId = "";
+        activeBookTitle.value = "";
+        // Show Create Flow
+        createSection.classList.remove('hidden');
+        overwriteSection.classList.add('hidden');
+        // Show empty staging right away so user can see what happens
+        stagingArea.classList.remove('hidden');
     } else {
-        createNewUI.classList.add('hidden');
-        editExistingUI.classList.remove('hidden');
+        newBookInput.classList.add('hidden');
         activeBookId = bookSelect.value;
+        activeBookTitle.value = bookTitlesMap[activeBookId] || activeBookId;
+        // Show Open Flow
+        document.getElementById('edit-existing-ui').classList.remove('hidden');
+        createSection.classList.add('hidden');
     }
 };
 
-// --- ACTION: CREATE NEW BOOK ---
-createParseBtn.onclick = async () => {
-    const id = newBookId.value.trim();
-    const title = newBookTitle.value.trim();
-    const file = newEpubFile.files[0];
+// --- LOAD FROM DB ---
+document.getElementById('load-db-btn').onclick = async () => {
+    if(!activeBookId && newBookInput.value.trim()) activeBookId = newBookInput.value.trim();
+    if(!activeBookId) return alert("Select or enter a book ID");
 
-    if(!id || !title || !file) return alert("Please fill ID, Title, and select a File.");
-    
-    activeBookId = id;
-    activeBookTitle.value = title;
-    
-    await parseEpubFile(file);
-    
-    stagingArea.classList.remove('hidden');
-    overwriteSection.classList.add('hidden'); 
-    statusEl.innerText = "New Book Staged. Review and Upload.";
-};
-
-// --- ACTION: OPEN EXISTING BOOK ---
-openBookBtn.onclick = async () => {
-    if(!activeBookId) return;
-    
     statusEl.innerText = `Loading ${activeBookId}...`;
     chapterListEl.innerHTML = "Loading...";
     stagedChapters = [];
     
     try {
         const metaSnap = await getDoc(doc(db, "books", activeBookId));
-        if(!metaSnap.exists()) throw new Error("Book not found");
-        
-        const meta = metaSnap.data();
-        activeBookTitle.value = meta.title || activeBookId;
-        
-        const chapters = meta.chapters || [];
-        statusEl.innerText = `Fetching ${chapters.length} chapters...`;
-
-        for (let i = 0; i < chapters.length; i++) {
-            const chapId = chapters[i].id; 
-            const chapTitle = chapters[i].title;
-            const contentSnap = await getDoc(doc(db, "books", activeBookId, "chapters", chapId));
-            if(contentSnap.exists()) {
-                stagedChapters.push({
-                    title: chapTitle,
-                    segments: contentSnap.data().segments || []
-                });
+        if(metaSnap.exists()) {
+            const meta = metaSnap.data();
+            activeBookTitle.value = meta.title || activeBookId;
+            const chapters = meta.chapters || [];
+            
+            for (let i = 0; i < chapters.length; i++) {
+                // Ensure we read ID from metadata, or fallback to sequential
+                const chapId = chapters[i].id; 
+                // Number is whatever follows "chapter_"
+                const chapNum = chapId.replace("chapter_", "");
+                
+                const contentSnap = await getDoc(doc(db, "books", activeBookId, "chapters", chapId));
+                if(contentSnap.exists()) {
+                    stagedChapters.push({
+                        id: chapNum, // Store specific ID (0, 1.1, etc)
+                        title: chapters[i].title,
+                        segments: contentSnap.data().segments || []
+                    });
+                }
             }
         }
         
         renderChapterList();
         stagingArea.classList.remove('hidden');
-        overwriteSection.classList.remove('hidden'); 
-        statusEl.innerText = "Book Loaded.";
+        overwriteSection.classList.remove('hidden');
+        statusEl.innerText = "Loaded from DB.";
         statusEl.style.borderColor = "#00ff41";
 
-    } catch(e) {
-        statusEl.innerText = "Error: " + e.message;
-        statusEl.style.borderColor = "#ff3333";
-    }
+    } catch(e) { statusEl.innerText = "Error: " + e.message; }
 };
 
-// --- ACTION: OVERWRITE DATA ---
+// --- CREATE NEW PARSE ---
+createParseBtn.onclick = async () => {
+    const id = newBookInput.value.trim();
+    if(!id) return alert("Enter Book ID");
+    activeBookId = id;
+    
+    const file = newEpubFile.files[0];
+    if(!file) return alert("Select EPUB");
+    
+    await parseEpubFile(file);
+    // Note: Staging area already visible
+};
+
+// --- OVERWRITE ---
 overwriteBtn.onclick = () => {
-    if(!overwriteEpubFile.files[0]) return alert("Select a file first.");
+    if(!overwriteEpubFile.files[0]) return alert("Select file");
     warningModal.classList.remove('hidden');
 };
-
 cancelOverwriteBtn.onclick = () => warningModal.classList.add('hidden');
-
 confirmOverwriteBtn.onclick = async () => {
     warningModal.classList.add('hidden');
-    const file = overwriteEpubFile.files[0];
-    await parseEpubFile(file);
-    statusEl.innerText = "Staging Overwritten with new EPUB.";
+    await parseEpubFile(overwriteEpubFile.files[0]);
 };
 
-// --- EPUB PARSER (SHARED) ---
+// --- EPUB PARSER WITH ERROR QUEUE ---
 async function parseEpubFile(file) {
-    statusEl.innerText = "Parsing EPUB...";
-    chapterListEl.innerHTML = "Parsing...";
+    statusEl.innerText = "Parsing...";
     stagedChapters = [];
+    importErrors = []; // Reset errors
     
-    let invalidChars = new Set(); // Track bad characters
-
     try {
         const zip = await JSZip.loadAsync(file);
         
+        // Find OPF
         let opfPath = null;
         const files = Object.keys(zip.files);
         const containerInfo = await zip.file("META-INF/container.xml")?.async("string");
         if (containerInfo) {
-            const doc = new DOMParser().parseFromString(containerInfo, "text/xml");
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(containerInfo, "text/xml");
             opfPath = doc.querySelector("rootfile").getAttribute("full-path");
         } else {
             opfPath = files.find(f => f.endsWith(".opf"));
@@ -227,7 +227,8 @@ async function parseEpubFile(file) {
         if (!opfPath) throw new Error("No OPF file found.");
 
         const opfContent = await zip.file(opfPath).async("string");
-        const opfDoc = new DOMParser().parseFromString(opfContent, "text/xml");
+        const parser = new DOMParser();
+        const opfDoc = parser.parseFromString(opfContent, "text/xml");
         const manifest = opfDoc.getElementsByTagName("manifest")[0];
         const spine = opfDoc.getElementsByTagName("spine")[0];
         const basePath = opfPath.substring(0, opfPath.lastIndexOf('/') + 1);
@@ -244,59 +245,73 @@ async function parseEpubFile(file) {
             const href = idToHref[item.getAttribute("idref")];
             if (!href) continue;
 
-            const fullPath = resolvePath(basePath, href);
+            const fullPath = (basePath === "") ? href : basePath + href;
             const content = await zip.file(fullPath).async("string");
-            const doc = new DOMParser().parseFromString(content, "application/xhtml+xml");
+            const doc = parser.parseFromString(content, "application/xhtml+xml");
             
             let title = `Chapter ${counter}`;
             const hTag = doc.body.querySelector('h1, h2, h3');
             if(hTag) title = hTag.innerText.trim().substring(0, 60);
 
             const segments = [];
-            doc.body.querySelectorAll("p").forEach(el => {
+            
+            // Convert to Array to use forEach
+            const pTags = Array.from(doc.body.querySelectorAll("p"));
+            
+            pTags.forEach((el, segIdx) => {
                 let text = el.textContent;
-                
-                // 1. Basic Cleaning
                 if (cleanNewlinesCb.checked) text = text.replace(/[\r\n]+/g, ' '); 
                 text = text.replace(/\s\s+/g, ' ').trim();
                 
-                // 2. Automatic Fixes (Always On)
-                text = text.replace(/—/g, '--'); // Em-dash -> double dash
-                text = text.replace(/[\u2018\u2019]/g, "'"); // Smart Single
-                text = text.replace(/[\u201C\u201D]/g, '"'); // Smart Double
-                text = text.replace(/\u2026/g, "..."); // Ellipsis
+                // --- AUTO FIXES ---
+                text = text.replace(/—/g, '--'); 
+                text = text.replace(/[\u2018\u2019]/g, "'"); 
+                text = text.replace(/[\u201C\u201D]/g, '"');
+                text = text.replace(/\u2026/g, "..."); 
                 
-                // 3. Conditional Aggressive Fixes (Normalization)
                 if (normalizeCharsCb.checked) {
-                    // Decomposes accents (e.g. é -> e + ´) and removes the accent char
                     text = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
                 }
 
-                // 4. Untypable Character Detection
-                // Check for anything NOT in: Space(32) to Tilde(126), Tab, Newline
-                const badChars = text.match(/[^ -~\t\n]/g);
-                if(badChars) {
-                    badChars.forEach(c => invalidChars.add(c));
-                }
-                
                 if (text.length > 0) {
                     if (!text.startsWith('\t')) text = '\t' + text;
-                    segments.push({ text: text });
+                    
+                    // Create segment object
+                    const segObj = { text: text };
+                    segments.push(segObj);
+
+                    // --- DETECT UNTYPABLE ---
+                    const badMatches = text.match(/[^ -~\t\n]/g);
+                    if (badMatches) {
+                        // Add to error queue
+                        importErrors.push({
+                            chapTitle: title,
+                            segmentRef: segObj, // Reference to object in array
+                            badChar: badMatches[0], // First bad char found
+                            fullText: text
+                        });
+                    }
                 }
             });
 
             if (segments.length > 0) {
-                stagedChapters.push({ title: title, segments: segments });
+                stagedChapters.push({ 
+                    id: counter, // Default ID
+                    title: title, 
+                    segments: segments 
+                });
                 counter++;
             }
         }
-        
-        renderChapterList();
-        
-        // Alert if we found weird characters
-        if(invalidChars.size > 0) {
-            const badList = Array.from(invalidChars).join("   ");
-            alert("⚠️ UNTYPABLE CHARACTERS DETECTED ⚠️\n\nThe following characters were found which cannot be typed on a standard US Keyboard:\n\n" + badList + "\n\nPlease select 'Normalize Characters' and re-parse, or check your source text.");
+
+        // --- CHECK ERRORS ---
+        if (importErrors.length > 0) {
+            currentErrorIdx = 0;
+            showErrorWizard();
+        } else {
+            renderChapterList();
+            statusEl.innerText = `Parsed ${stagedChapters.length} chapters.`;
+            statusEl.style.borderColor = "#00ff41";
         }
 
     } catch (e) {
@@ -306,7 +321,56 @@ async function parseEpubFile(file) {
     }
 }
 
-// --- UI HELPERS ---
+// --- WIZARD LOGIC ---
+function showErrorWizard() {
+    if (currentErrorIdx >= importErrors.length) {
+        // Done
+        wizardModal.classList.add('hidden');
+        renderChapterList();
+        statusEl.innerText = "Errors resolved. Ready to upload.";
+        statusEl.style.borderColor = "#00ff41";
+        return;
+    }
+
+    const err = importErrors[currentErrorIdx];
+    wizardStep.innerText = `${currentErrorIdx + 1} / ${importErrors.length}`;
+    
+    // Highlight bad char in preview
+    const safeText = err.segmentRef.text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const charSafe = err.badChar.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    
+    // Simple highlight replace (first occurrence)
+    const highlighted = safeText.replace(charSafe, `<span class="bad-char-highlight">${charSafe}</span>`);
+    
+    wizardPreview.innerHTML = `<b>${err.chapTitle}</b><br><br>${highlighted}`;
+    wizardInput.value = err.segmentRef.text;
+    
+    wizardModal.classList.remove('hidden');
+}
+
+wizardIgnoreBtn.onclick = () => {
+    currentErrorIdx++;
+    showErrorWizard();
+};
+
+wizardSaveBtn.onclick = () => {
+    // Update the referenced object directly
+    importErrors[currentErrorIdx].segmentRef.text = wizardInput.value;
+    currentErrorIdx++;
+    showErrorWizard();
+};
+
+wizardCancelBtn.onclick = () => {
+    if(confirm("Stop import? All progress will be lost.")) {
+        stagedChapters = [];
+        wizardModal.classList.add('hidden');
+        statusEl.innerText = "Import Cancelled.";
+        statusEl.style.borderColor = "#ff3333";
+        chapterListEl.innerHTML = "";
+    }
+};
+
+// --- RENDER LIST (Uses stored ID) ---
 function renderChapterList() {
     chapterListEl.innerHTML = "";
     stagedChapters.forEach((chap, index) => {
@@ -315,7 +379,7 @@ function renderChapterList() {
         div.id = `ui-chap-${index}`;
         div.innerHTML = `
             <div class="chap-info">
-                <div class="chap-title">#${index + 1}: ${chap.title}</div>
+                <div class="chap-title">ID: ${chap.id} | ${chap.title}</div>
                 <div class="chap-meta">${chap.segments.length} segments <span class="chap-status"></span></div>
             </div>
             <div class="chap-actions">
@@ -342,8 +406,9 @@ function editChapter(index) {
     editingIndex = index;
     const chap = stagedChapters[index];
     manualTitle.value = chap.title;
-    manualNum.value = index + 1;
+    manualNum.value = chap.id; // Load stored ID
     jsonContent.value = JSON.stringify({ segments: chap.segments }, null, 2);
+    
     updateStagedBtn.classList.remove('hidden');
     saveDirectBtn.classList.add('hidden');
     manualDetails.open = true;
@@ -354,14 +419,63 @@ updateStagedBtn.onclick = () => {
     if (editingIndex < 0) return;
     try {
         const data = JSON.parse(jsonContent.value);
+        // Update stored ID and Title
         stagedChapters[editingIndex].title = manualTitle.value;
+        stagedChapters[editingIndex].id = manualNum.value.trim(); // Save custom ID
         stagedChapters[editingIndex].segments = data.segments;
+        
         editingIndex = -1;
         updateStagedBtn.classList.add('hidden');
         saveDirectBtn.classList.remove('hidden');
         manualDetails.open = false;
         renderChapterList();
     } catch (e) { alert("Invalid JSON"); }
+};
+
+// --- UPLOAD ALL (Respects custom IDs) ---
+uploadAllBtn.onclick = async () => {
+    if (stagedChapters.length === 0) return alert("Nothing to upload.");
+    if (!activeBookId) return alert("No active book.");
+    
+    if (!confirm(`Overwrite ${activeBookId}?`)) return;
+
+    statusEl.innerText = "Uploading...";
+    const chapterMeta = [];
+
+    for (let i = 0; i < stagedChapters.length; i++) {
+        const chapData = stagedChapters[i];
+        // USE THE ID stored in the object, not the index
+        const chapId = chapData.id; 
+        
+        const uiStatus = document.querySelector(`#ui-chap-${i} .chap-status`);
+        
+        try {
+            if(uiStatus) uiStatus.innerText = "...";
+            await setDoc(doc(db, "books", activeBookId, "chapters", "chapter_" + chapId), {
+                segments: chapData.segments
+            });
+            chapterMeta.push({ id: "chapter_" + chapId, title: chapData.title });
+            if(uiStatus) { uiStatus.innerText = "✔ OK"; uiStatus.className = "chap-status ok"; }
+            const row = document.getElementById(`ui-chap-${i}`);
+            if(row) row.classList.add('uploaded');
+        } catch (e) {
+            console.error(e);
+            if(uiStatus) { uiStatus.innerText = "FAIL"; uiStatus.style.color = "red"; }
+            return alert(`Upload failed at ID ${chapId}`);
+        }
+    }
+
+    try {
+        await setDoc(doc(db, "books", activeBookId), {
+            title: activeBookTitle.value.trim() || activeBookId,
+            totalChapters: stagedChapters.length,
+            chapters: chapterMeta
+        }, { merge: true });
+        
+        statusEl.innerText = "Upload Complete!";
+        statusEl.style.borderColor = "#00ff41";
+        await loadBookList();
+    } catch (e) { alert("Metadata Save Failed: " + e.message); }
 };
 
 // --- SAVE TITLE ONLY ---
@@ -377,64 +491,3 @@ saveTitleBtn.onclick = async () => {
         statusEl.style.borderColor = "#00ff41";
     } catch(e) { alert(e.message); }
 };
-
-// --- UPLOAD ALL ---
-uploadAllBtn.onclick = async () => {
-    if (stagedChapters.length === 0) return alert("Nothing to upload.");
-    if (!activeBookId) return alert("No active book ID.");
-    
-    if (!confirm(`Overwrite ${activeBookId} with ${stagedChapters.length} chapters?`)) return;
-
-    statusEl.innerText = "Uploading...";
-    const chapterMeta = [];
-
-    for (let i = 0; i < stagedChapters.length; i++) {
-        const chapNum = i + 1; 
-        const chapData = stagedChapters[i];
-        const uiStatus = document.querySelector(`#ui-chap-${i} .chap-status`);
-        
-        try {
-            if(uiStatus) uiStatus.innerText = "...";
-            await setDoc(doc(db, "books", activeBookId, "chapters", "chapter_" + chapNum), {
-                segments: chapData.segments
-            });
-            chapterMeta.push({ id: "chapter_" + chapNum, title: chapData.title });
-            if(uiStatus) { uiStatus.innerText = "✔ OK"; uiStatus.className = "chap-status ok"; }
-            const row = document.getElementById(`ui-chap-${i}`);
-            if(row) row.classList.add('uploaded');
-        } catch (e) {
-            console.error(e);
-            if(uiStatus) { uiStatus.innerText = "FAIL"; uiStatus.style.color = "red"; }
-            return alert(`Upload failed at Chapter ${chapNum}`);
-        }
-    }
-
-    try {
-        await setDoc(doc(db, "books", activeBookId), {
-            title: activeBookTitle.value.trim() || activeBookId,
-            totalChapters: stagedChapters.length,
-            chapters: chapterMeta
-        }, { merge: true });
-        
-        statusEl.innerText = "Upload Complete!";
-        statusEl.style.borderColor = "#00ff41";
-        
-        // Refresh dropdown
-        await loadBookList();
-        bookSelect.value = activeBookId; 
-        
-    } catch (e) { alert("Metadata Save Failed: " + e.message); }
-};
-
-function resolvePath(base, relative) {
-    if(base === "") return relative;
-    const stack = base.split("/");
-    const parts = relative.split("/");
-    stack.pop(); 
-    for (let i = 0; i < parts.length; i++) {
-        if (parts[i] === ".") continue;
-        if (parts[i] === "..") stack.pop();
-        else stack.push(parts[i]);
-    }
-    return stack.join("/");
-}
