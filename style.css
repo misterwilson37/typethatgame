@@ -1,4 +1,4 @@
-/* v1.9.3 - Style Fixes for Layout & Menus */
+/* v1.9.3.2 - Full Width Layout, Hidden Images, Better Icons */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -78,16 +78,26 @@ body {
     position: relative;
     overflow: hidden; 
     background: #fafafa;
+    /* Centering logic */
+    display: flex;
+    justify-content: center;
 }
 
 #text-stream {
     position: absolute;
     top: 0; 
-    left: 10%;
-    width: 80%;
-    max-width: 800px;
+    /* Centered and wider since image is gone */
+    left: 50%;
+    transform: translateX(-50%);
+    width: 90%; 
+    max-width: 1000px;
     transition: transform 0.2s ease-out; 
     padding-bottom: 300px; 
+}
+
+/* Image Panel Hidden */
+#image-panel {
+    display: none !important;
 }
 
 /* WORD WRAPPING */
@@ -102,7 +112,7 @@ body {
 /* LETTERS */
 .letter {
     display: inline-block; 
-    vertical-align: bottom; 
+    vertical-align: bottom; /* Aligns highlights perfectly */
     min-width: 14.4px;
     line-height: 2.0em; 
     padding: 0 1px; 
@@ -123,7 +133,7 @@ body {
     width: 50px; 
     text-align: center;
     border-bottom: 1px dotted #ddd;
-    color: transparent; 
+    color: transparent; /* Hide underlying char */
 }
 .letter.tab::before {
     content: '→';
@@ -132,7 +142,7 @@ body {
     color: #999; 
     position: absolute;
     left: 50%; 
-    top: 38%; 
+    top: 38%; /* Vertically centered */
     transform: translate(-50%, -50%);
     opacity: 0.5;
 }
@@ -238,10 +248,7 @@ select.modal-select {
 }
 .menu-section select.modal-select { margin: 0; flex-grow: 1; min-width: 0; }
 
-/* IMAGES REMOVED */
 .hidden { display: none !important; }
-#image-panel { display: none !important; }
-
 footer { position: fixed; bottom: 5px; right: 10px; font-size: 0.7em; color: #666; background: rgba(255,255,255,0.8); z-index: 101; padding: 2px 5px; border-radius: 3px; }
 
 .stat-subtext { margin-top: 15px; font-size: 0.9em; color: #666; text-align: center; line-height: 1.5; }
