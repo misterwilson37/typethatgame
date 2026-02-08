@@ -1,4 +1,4 @@
-/* v1.9.3.3 - Fixed Layout Centering */
+/* v1.9.3.4 - Fixed Layout & Modal Headers */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -78,16 +78,16 @@ body {
     position: relative;
     overflow: hidden; 
     background: #fafafa;
+    display: flex;
+    justify-content: center;
 }
 
 #text-stream {
     position: absolute;
     top: 0; 
-    /* FIXED: Simple percentages for even spacing */
     left: 10%;
     width: 80%;
     max-width: 1000px;
-    /* Removed translate/left:50% to prevent offset issues */
     transition: transform 0.2s ease-out; 
     padding-bottom: 300px; 
 }
@@ -225,6 +225,21 @@ body {
 
 .stat-row { display: flex; justify-content: center; gap: 40px; margin: 20px 0; font-size: 1.2em; color: #333; }
 .stat-item span { display: block; font-size: 2em; font-weight: bold; color: var(--black); }
+
+/* --- MODAL HEADERS --- */
+.modal-book-title {
+    font-size: 0.8rem;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 5px;
+}
+.modal-chap-info {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: var(--black);
+    margin-bottom: 20px;
+}
 
 .modal-btn {
     padding: 15px 40px; background: var(--carolina-blue); color: white; 
