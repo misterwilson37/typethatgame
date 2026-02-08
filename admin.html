@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>TypeThatBook Admin v1.9.7.6</title>
+    <title>TypeThatBook Admin v1.9.7.7</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
         body { background: #111; color: #eee; font-family: 'Courier New', monospace; padding: 20px; }
@@ -52,7 +52,7 @@
         .checkbox-wrapper input { width: auto; margin: 0 10px 0 0; }
         .checkbox-wrapper label { margin: 0; text-transform: none; color: #ddd; }
 
-        /* WARNING MODAL */
+        /* MODALS */
         #warning-modal, #error-wizard-modal {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.8); z-index: 200;
@@ -88,20 +88,36 @@
     <div id="editor-section" class="hidden">
         
         <div class="import-box" style="border-color: #4B9CD3;">
-            <h3 style="margin-top:0;">Database Manager</h3>
-            <div class="row">
-                <div class="col" style="flex:2;">
-                    <label>Select Book</label>
-                    <select id="book-select">
-                        <option value="">Loading books...</option>
-                    </select>
-                    <input type="text" id="new-book-input" class="hidden" placeholder="Enter NEW Book ID (e.g. alice_in_wonderland)">
+            <h3 style="margin-top:0; color:#4B9CD3;">1. Database Manager</h3>
+            
+            <label>Select Book / Action</label>
+            <select id="book-select">
+                <option value="">Loading books...</option>
+            </select>
+
+            <div id="edit-existing-ui" class="hidden" style="margin-top:10px;">
+                <button id="open-book-btn">Open Book</button>
+            </div>
+
+            <div id="create-new-ui" class="hidden" style="margin-top: 15px; border-top: 1px solid #333; padding-top: 15px;">
+                <div class="row">
+                    <div class="col">
+                        <label>New Book ID (e.g. dracula)</label>
+                        <input type="text" id="new-book-id">
+                    </div>
+                    <div class="col">
+                        <label>Display Title (e.g. Dracula by Bram Stoker)</label>
+                        <input type="text" id="new-book-title">
+                    </div>
                 </div>
+                <label>Initial EPUB File (Required for new book)</label>
+                <input type="file" id="new-epub-file" accept=".epub">
+                <button id="create-parse-btn" style="margin-top:10px;">Parse & Initialize Staging</button>
             </div>
         </div>
 
         <div id="staging-area" class="hidden">
-            <h2>Content Staging</h2>
+            <h2>2. Content Staging</h2>
             <div class="import-box">
                 
                 <div class="row" style="border-bottom: 1px solid #333; margin-bottom: 20px; padding-bottom: 10px;">
@@ -126,12 +142,6 @@
                     </div>
                 </div>
                 
-                <div id="create-section" class="hidden" style="border-bottom: 1px solid #333; margin-bottom: 20px; padding-bottom: 10px;">
-                    <label>Initial EPUB File</label>
-                    <input type="file" id="new-epub-file" accept=".epub">
-                    <button id="create-parse-btn" style="margin-top:10px;">Parse & Initialize Staging</button>
-                </div>
-                
                 <div class="checkbox-wrapper">
                     <input type="checkbox" id="clean-newlines" checked>
                     <label for="clean-newlines">Aggressive Cleaning (Remove line breaks inside paragraphs)</label>
@@ -140,7 +150,7 @@
                     <input type="checkbox" id="normalize-chars">
                     <label for="normalize-chars">Normalize Characters (Convert accents: é→e, ñ→n, etc.)</label>
                 </div>
-                <div style="font-size: 0.8em; color: #888; margin-bottom: 10px;">* Auto-fixes: Smart Quotes ("" ''), Em-Dashes (--), Ellipsis (...)</div>
+                <div style="font-size: 0.8em; color: #888; margin-bottom: 10px;">* Auto-fixes applied: Smart Quotes ("" ''), Em-Dashes (--), Ellipsis (...)</div>
 
                 <div id="chapter-list"></div>
                 
@@ -192,7 +202,7 @@
     <div class="error-wizard-content">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
             <h3 style="margin:0; color:#ffaa00;">Import Issue found</h3>
-            <span id="wizard-step" style="color:#888;">1 / 5</span>
+            <span id="wizard-step" style="color:#888;"></span>
         </div>
         
         <p style="color:#ccc; font-size:0.9em; margin-bottom:5px;">
