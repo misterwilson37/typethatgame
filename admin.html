@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>TypeThatBook Admin v1.9.7</title>
+    <title>TypeThatBook Admin v1.9.7.1</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
         body { background: #111; color: #eee; font-family: 'Courier New', monospace; padding: 20px; }
@@ -74,6 +74,7 @@
         
         <div class="import-box" style="border-color: #4B9CD3;">
             <h3 style="margin-top:0;">Database Manager</h3>
+            
             <div class="row">
                 <div class="col" style="flex:2;">
                     <label>Select Book</label>
@@ -82,22 +83,27 @@
                     </select>
                     <input type="text" id="new-book-input" class="hidden" placeholder="Enter NEW Book ID (e.g. alice_in_wonderland)">
                 </div>
+            </div>
+
+            <div class="row">
+                <div class="col">
+                    <label>Book Display Title (Visible to Players)</label>
+                    <input type="text" id="book-title" placeholder="e.g. The Wizard of Oz">
+                </div>
                 <div class="col" style="display:flex; align-items:flex-end;">
                     <button id="load-db-btn" class="secondary-btn">Load Chapters from DB</button>
                 </div>
             </div>
+
         </div>
 
         <h2>Content Staging</h2>
         <div class="import-box">
             
             <div class="row" style="border-bottom: 1px solid #333; margin-bottom: 20px; padding-bottom: 10px;">
-                <div class="col" style="flex:2;">
-                    <label>Book Display Title (Visible to Players)</label>
-                    <input type="text" id="book-title" placeholder="e.g. The Wizard of Oz">
-                </div>
-                <div class="col" style="display:flex; align-items:flex-end;">
-                    <button id="save-title-btn" class="secondary-btn" style="background:#224422; border-color:#336633;">Save Title Only</button>
+                <div class="col" style="display:flex; align-items:center; justify-content:space-between;">
+                    <span style="color:#888; font-size:0.9em;">Update Book Title Only:</span>
+                    <button id="save-title-btn" class="secondary-btn" style="width:auto; background:#224422; border-color:#336633;">Save Title Only</button>
                 </div>
             </div>
 
@@ -132,12 +138,12 @@
             <div style="padding: 15px; border:1px solid #333; margin-bottom:20px;">
                 <div class="row">
                     <div class="col">
-                        <label>Chapter Number</label>
-                        <input type="number" id="manual-chap-num" value="1">
+                        <label>Chapter Number (Supports 0, 1.1, etc)</label>
+                        <input type="number" id="manual-chap-num" value="1" step="any">
                     </div>
                     <div class="col">
                         <label>Chapter Title (Optional)</label>
-                        <input type="text" id="manual-chap-title" placeholder="e.g. The Cyclone">
+                        <input type="text" id="manual-chap-title" placeholder="e.g. Preface">
                     </div>
                 </div>
                 <label>JSON Segments</label>
