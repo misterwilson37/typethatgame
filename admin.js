@@ -1,9 +1,9 @@
-// v1.9.6 - Book Dropdown & UI Improvements
+// v1.9.6.1 - Book Title Editor
 import { db, auth } from "./firebase-config.js";
 import { doc, setDoc, getDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const ADMIN_VERSION = "1.9.6";
+const ADMIN_VERSION = "1.9.6.1";
 
 // DOM Elements
 const statusEl = document.getElementById('status');
@@ -15,6 +15,7 @@ const footerEl = document.getElementById('admin-footer');
 // Elements
 const bookSelect = document.getElementById('book-select');
 const newBookInput = document.getElementById('new-book-input');
+const bookTitleInput = document.getElementById('book-title'); // NEW
 const loadDbBtn = document.getElementById('load-db-btn');
 const epubInput = document.getElementById('epub-file');
 const processingUI = document.getElementById('processing-ui');
@@ -32,6 +33,7 @@ const manualDetails = document.getElementById('manual-details');
 
 let stagedChapters = [];
 let editingIndex = -1;
+let bookTitlesMap = {}; // Cache titles
 
 // Init Display
 if(footerEl) footerEl.innerText = `Admin JS: v${ADMIN_VERSION}`;
@@ -60,6 +62,7 @@ loginBtn.onclick = async () => {
 // --- BOOK LIST ---
 async function loadBookList() {
     bookSelect.innerHTML = "<option>Loading...</option>";
+    bookTitlesMap = {};
     try {
         const querySnapshot = await getDocs(collection(db, "books"));
         bookSelect.innerHTML = "";
@@ -68,7 +71,10 @@ async function loadBookList() {
             const b = doc.data();
             const option = document.createElement("option");
             option.value = doc.id;
-            option.text = b.title ? `${b.title} (${doc.id})` : doc.id;
+            // Save real title to map
+            bookTitlesMap[doc.id] = b.title || doc.id;
+            
+            option.text = bookTitlesMap[doc.id] + ` (${doc.id})`;
             bookSelect.appendChild(option);
         });
 
@@ -79,6 +85,9 @@ async function loadBookList() {
         createOpt.style.color = "#4B9CD3";
         createOpt.style.fontWeight = "bold";
         bookSelect.appendChild(createOpt);
+        
+        // Trigger change to populate title box
+        bookSelect.dispatchEvent(new Event('change'));
 
     } catch (e) {
         console.error(e);
@@ -87,11 +96,15 @@ async function loadBookList() {
 }
 
 bookSelect.onchange = () => {
-    if (bookSelect.value === "__NEW__") {
+    const val = bookSelect.value;
+    if (val === "__NEW__") {
         newBookInput.classList.remove('hidden');
+        bookTitleInput.value = ""; // Clear for new
         newBookInput.focus();
     } else {
         newBookInput.classList.add('hidden');
+        // Auto-fill existing title
+        bookTitleInput.value = bookTitlesMap[val] || val;
     }
 };
 
@@ -137,6 +150,9 @@ loadDbBtn.onclick = async () => {
         
         const meta = metaSnap.data();
         const chapters = meta.chapters || [];
+        
+        // Populate Title Input if not already
+        if(meta.title) bookTitleInput.value = meta.title;
         
         statusEl.innerText = `Found ${chapters.length} chapters. Fetching content...`;
 
@@ -207,10 +223,12 @@ epubInput.addEventListener('change', async (e) => {
             const content = await zip.file(fullPath).async("string");
             const doc = new DOMParser().parseFromString(content, "application/xhtml+xml");
             
+            // Extract Title - Only check body tags
             let title = `Chapter ${counter}`;
             const hTag = doc.body.querySelector('h1, h2, h3');
             if(hTag) title = hTag.innerText.trim().substring(0, 60);
 
+            // Extract Text
             const segments = [];
             doc.body.querySelectorAll("p").forEach(el => {
                 let text = el.textContent;
@@ -316,7 +334,13 @@ uploadAllBtn.onclick = async () => {
     const bookId = getActiveBookId();
     if (!bookId) return alert("Select or enter a Book ID.");
     
-    if (!confirm(`Overwrite book "${bookId}" with ${stagedChapters.length} chapters? This cannot be undone.`)) return;
+    // Get the title from the new input box
+    let displayTitle = bookTitleInput.value.trim();
+    if (!displayTitle) {
+        displayTitle = bookId.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    }
+
+    if (!confirm(`Overwrite book "${bookId}" (Title: ${displayTitle}) with ${stagedChapters.length} chapters? This cannot be undone.`)) return;
 
     statusEl.innerText = "Uploading...";
     const chapterMeta = [];
@@ -357,12 +381,8 @@ uploadAllBtn.onclick = async () => {
     }
 
     try {
-        // If getting real book title from metadata would be better, we could add a field for it.
-        // For now, prettify the ID.
-        let prettyTitle = bookId.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        
         await setDoc(doc(db, "books", bookId), {
-            title: prettyTitle,
+            title: displayTitle,
             totalChapters: stagedChapters.length,
             chapters: chapterMeta
         }, { merge: true });
@@ -370,7 +390,7 @@ uploadAllBtn.onclick = async () => {
         statusEl.innerText = "Upload Complete!";
         statusEl.style.borderColor = "#00ff41";
         
-        // Refresh list to show new book if created
+        // Refresh to show updates
         await loadBookList();
         
     } catch (e) { alert("Metadata Save Failed: " + e.message); }
