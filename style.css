@@ -1,4 +1,4 @@
-/* v1.9.1.9 - Fixed Line Wrapping and Special Keys */
+/* v1.9.1.9.1 - Layout Stability & Enter Key Placement */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -90,21 +90,27 @@ body {
     padding-bottom: 300px; 
 }
 
-/* WORD WRAPPING FIX */
+/* WORD WRAPPING: Reverted to inline-block/pre for stability */
 .word {
     display: inline-block; 
-    white-space: normal; /* Allow wrapping */
+    white-space: pre; 
     line-height: 2.5em; 
     font-size: 24px; 
     color: #ccc; 
-    margin-right: 0; /* Let space char handle spacing */
 }
 
 .letter {
     display: inline-block; vertical-align: baseline; min-width: 14.4px;           
     padding: 2px 0; line-height: 1.2; position: relative; color: #ccc;
 }
-.letter.space { min-width: 14.4px; }
+
+/* SPACES: Standalone, no weird styling */
+.letter.space { 
+    min-width: 14.4px; 
+    /* Ensure no underlines/borders bleed in */
+    border-bottom: none !important;
+    text-decoration: none !important;
+}
 
 /* TAB CHARACTER (→) */
 .letter.tab {
@@ -115,23 +121,23 @@ body {
 }
 .letter.tab::before {
     content: '→';
-    font-size: 18px; /* Bigger font */
+    font-size: 18px; 
     vertical-align: middle;
     opacity: 0.5;
 }
 .letter.tab.done-perfect, .letter.tab.done-fixed { border-bottom: none; }
 .letter.tab.done-perfect::before, .letter.tab.done-fixed::before { opacity: 0.1; }
 
-/* ENTER CHARACTER (↵) */
+/* ENTER CHARACTER (↵) - Attached to Word */
 .letter.enter {
-    width: 30px;
+    width: 20px;
     text-align: center;
-    margin-left: 5px;
+    margin-left: 2px;
     color: #999;
 }
 .letter.enter::before {
     content: '↵';
-    font-size: 20px; /* Bigger font */
+    font-size: 20px; 
     vertical-align: middle;
     font-weight: bold;
     opacity: 0.5;
