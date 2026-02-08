@@ -1,4 +1,4 @@
-// v1.9.1 - Vertical Layout, No-Reload Navigation & Fixed Stats
+// v1.9.1.2 - Fixes Start Inputs, Sprint Protection, and Stat Totals
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,9 +9,10 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.9.1";
+const VERSION = "1.9.1.2";
 const BOOK_ID = "wizard_of_oz"; 
 const IDLE_THRESHOLD = 2000; 
+const SPRINT_COOLDOWN_MS = 1500; // 1.5s protection at end of sprint
 
 // STATE
 let currentUser = null;
@@ -352,17 +353,27 @@ function updateRunningAccuracy(isCorrect) {
 }
 
 document.addEventListener('keydown', (e) => {
-    // Modal Navigation (Enter key support for Dropdowns and Buttons)
+    // 1. MODAL / START SCREEN NAVIGATION
     if (isModalOpen) {
-        if (isInputBlocked) return;
-        
-        if (e.key === "Enter") { 
+        if (isInputBlocked) return; // Sprint Cooldown Protection
+
+        // Check for triggers to start the game:
+        // A) Enter Key
+        // B) Space Bar
+        // C) The actual first character of the text
+        const targetChar = fullText[currentCharIndex];
+        const isStartTrigger = (e.key === "Enter") || (e.key === " ") || (e.key === targetChar);
+
+        if (isStartTrigger && modalActionCallback) { 
             e.preventDefault(); 
-            if (modalActionCallback) modalActionCallback();
+            modalActionCallback(); 
+            // Note: We don't 'eat' the character for typing here to keep logic simple.
+            // The game starts, and the user types the character again (or if it was Space/Enter, they start typing).
         }
         return;
     }
     
+    // 2. GAMEPLAY NAVIGATION
     if (e.key === "Escape" && isGameActive) {
         pauseGameForBreak();
         return;
@@ -373,6 +384,7 @@ document.addEventListener('keydown', (e) => {
     if (["Shift", "Control", "Alt", "Meta", "CapsLock", "Tab"].includes(e.key)) return;
     if (e.key === " ") e.preventDefault(); 
 
+    // 3. TYPING LOGIC
     lastInputTime = Date.now();
     timerDisplay.style.opacity = '1';
 
@@ -388,8 +400,10 @@ document.addEventListener('keydown', (e) => {
     }
 
     if (e.key === targetChar) {
+        // Correct Input
         currentEl.classList.remove('active');
         currentEl.classList.remove('error-state');
+        
         if (currentLetterStatus === 'clean') currentEl.classList.add('done-perfect'); 
         else if (currentLetterStatus === 'fixed') currentEl.classList.add('done-fixed'); 
         else currentEl.classList.add('done-dirty'); 
@@ -397,6 +411,7 @@ document.addEventListener('keydown', (e) => {
         currentCharIndex++;
         currentLetterStatus = 'clean'; 
         
+        // Auto-Save on Punctuation
         if (['.', '!', '?'].includes(targetChar)) saveProgress();
         else if (['"', "'"].includes(targetChar) && currentCharIndex >= 2) {
             const prevChar = fullText[currentCharIndex - 2];
@@ -406,6 +421,7 @@ document.addEventListener('keydown', (e) => {
         updateRunningWPM();
         updateRunningAccuracy(true);
 
+        // Sprint Overtime Checks
         if (isOvertime) {
             if (['.', '!', '?'].includes(targetChar)) {
                 const nextChar = fullText[currentCharIndex]; 
@@ -426,6 +442,7 @@ document.addEventListener('keydown', (e) => {
         updateImageDisplay();
     } 
     else {
+        // Mistake
         mistakes++;
         sprintMistakes++;
         if (currentLetterStatus === 'clean') currentLetterStatus = 'error';
@@ -580,7 +597,10 @@ function getDropdownHTML() {
 }
 
 function showStartModal(title, btnText) {
-    isModalOpen = true; isInputBlocked = true;
+    isModalOpen = true; 
+    isInputBlocked = false; // INPUT ALLOWED immediately for start
+    modalActionCallback = startGame;
+
     const modal = document.getElementById('modal');
     document.getElementById('modal-title').innerText = title;
     
@@ -602,154 +622,202 @@ function showStartModal(title, btnText) {
 }
 
 function showStatsModal(title, stats, btnText, callback) {
-    isModalOpen = true; isInputBlocked = true;
+    isModalOpen = true; 
+    isInputBlocked = true; // BLOCK INPUTS temporarily
+    modalActionCallback = () => { closeModal(); if(callback) callback(); };
+
     const modal = document.getElementById('modal');
     document.getElementById('modal-title').innerText = title;
     
     const html = `
-        <div class="stat-row">
-            <div class="stat-item"><span>${stats.time}s</span>Active</div>
-            <div class="stat-item"><span>${stats.acc}%</span>Accuracy</div>
+        <div class="stat-grid">
+            <div class="stat-box">
+                <div class="stat-val">${stats.wpm}</div>
+                <div class="stat-label">WPM</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-val">${stats.acc}%</div>
+                <div class="stat-label">Accuracy</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-val">${formatTime(stats.time)}</div>
+                <div class="stat-label">Time</div>
+            </div>
         </div>
         <div class="stat-subtext">
             Today: <span class="highlight">${stats.today}</span> | 
             Week: <span class="highlight">${stats.week}</span>
         </div>
-        <hr style="border:0; border-top:1px solid #333; margin: 20px 0;">
-    `;
-    
-    document.getElementById('modal-body').innerHTML = html + getDropdownHTML();
-    
-    const btn = document.getElementById('action-btn');
-    btn.innerText = btnText;
-    btn.onclick = () => { closeModal(); if(callback) callback(); };
-    btn.style.display = 'inline-block';
-    
-    modal.classList.remove('hidden');
-}
-
-function openMenuModal() {
-    if (isGameActive) { isGameActive = false; clearInterval(timerInterval); saveProgress(); }
-    isModalOpen = true; isInputBlocked = true;
-    const modal = document.getElementById('modal');
-    document.getElementById('modal-title').innerText = "Menu & Settings";
-    
-    let chapterOptions = "";
-    for(let i=1; i<=5; i++) {
-        let sel = (i === currentChapterNum) ? "selected" : "";
-        chapterOptions += `<option value="${i}" ${sel}>Chapter ${i}</option>`;
-    }
-
-    const html = `
-        <div class="menu-section">
-            <span class="menu-label">Navigation</span>
-            <div style="display:flex; gap:10px;">
-                <select id="chapter-nav-select" class="modal-select" style="margin:0; flex-grow:1;">
-                    ${chapterOptions}
-                </select>
-                <button id="go-btn" class="modal-btn" style="width:auto; padding:0 20px;">Go</button>
-            </div>
-        </div>
-
-        <div class="menu-section">
-            <span class="menu-label">Danger Zone</span>
-            <button id="restart-chapter-btn" class="modal-btn danger-btn">Restart Current Chapter</button>
-            <button id="reset-book-btn" class="modal-btn danger-btn">Reset Book Progress</button>
-        </div>
-
-        <button id="close-menu-btn" class="modal-btn secondary-btn">Close Menu</button>
     `;
     
     document.getElementById('modal-body').innerHTML = html;
     
-    document.getElementById('go-btn').onclick = () => {
-        const val = parseInt(document.getElementById('chapter-nav-select').value);
-        if(val !== currentChapterNum) handleChapterSwitch(val);
-    };
+    const btn = document.getElementById('action-btn');
+    btn.innerText = btnText;
+    btn.onclick = modalActionCallback;
+    btn.style.opacity = '0.5'; // Visual cue for disabled
     
-    document.getElementById('restart-chapter-btn').onclick = () => {
-        confirmAction("Restart this chapter? You will lose all progress in Chapter " + currentChapterNum + ".", 
-            async () => {
-                await setDoc(doc(db, "users", currentUser.uid, "progress", BOOK_ID), {
-                    chapter: currentChapterNum,
-                    charIndex: 0
-                }, { merge: true });
-                location.reload();
-            }
-        );
-    };
+    modal.classList.remove('hidden');
 
-    document.getElementById('reset-book-btn').onclick = () => {
-        confirmAction("Reset entire book? This will take you back to Chapter 1, character 0.", 
-            async () => {
-                await setDoc(doc(db, "users", currentUser.uid, "progress", BOOK_ID), {
-                    chapter: 1,
-                    charIndex: 0
-                }, { merge: true });
-                location.reload();
-            }
-        );
-    };
+    // UNBLOCK PROTECTION
+    setTimeout(() => {
+        isInputBlocked = false;
+        if(document.getElementById('action-btn')) {
+            document.getElementById('action-btn').style.opacity = '1';
+        }
+    }, SPRINT_COOLDOWN_MS);
+}
 
-    document.getElementById('close-menu-btn').onclick = closeModal;
+function closeModal() {
+    isModalOpen = false;
+    isInputBlocked = false;
+    document.getElementById('modal').classList.add('hidden');
+    
+    // Focus capture for game
+    const keyboard = document.getElementById('virtual-keyboard');
+    if(keyboard) keyboard.focus();
+}
 
-    const actionBtn = document.getElementById('action-btn');
-    if(actionBtn) actionBtn.style.display = 'none';
+function openMenuModal() {
+    if (isGameActive) pauseGameForBreak();
+    
+    isModalOpen = true;
+    isInputBlocked = false;
+    modalActionCallback = () => { closeModal(); startGame(); };
+    
+    const modal = document.getElementById('modal');
+    document.getElementById('modal-title').innerText = "Settings";
+    
+    document.getElementById('modal-body').innerHTML = `
+        <div class="menu-section">
+            <div class="menu-label">Session Control</div>
+            ${getDropdownHTML()}
+        </div>
+        <div class="menu-section">
+            <div class="menu-label">Account</div>
+            <p style="font-size:0.9rem">${currentUser && !currentUser.isAnonymous ? "Logged in as " + (currentUser.displayName || "User") : "Guest Mode"}</p>
+        </div>
+    `;
+    
+    const btn = document.getElementById('action-btn');
+    btn.innerText = "Close";
+    btn.onclick = () => { closeModal(); if(!isGameActive && savedCharIndex > 0) startGame(); };
     
     modal.classList.remove('hidden');
 }
 
-function handleChapterSwitch(newChapter) {
-    if (newChapter > currentChapterNum) {
-        // Moving forward - Do Hot Load
-        switchChapterHot(newChapter);
-    } else {
-        // Moving backward - Warn then Hot Load
-        confirmAction(`Go back to Chapter ${newChapter}? Unsaved progress in current chapter will be lost.`, () => {
-            switchChapterHot(newChapter);
+// --- KEYBOARD UI ---
+const rows = [
+    ['q','w','e','r','t','y','u','i','o','p','[',']','\\'],
+    ['a','s','d','f','g','h','j','k','l',';',"'"],
+    ['z','x','c','v','b','n','m',',','.','/']
+];
+const shiftRows = [
+    ['Q','W','E','R','T','Y','U','I','O','P','{','}','|'],
+    ['A','S','D','F','G','H','J','K','L',':','"'],
+    ['Z','X','C','V','B','N','M','<','>','?']
+];
+
+function createKeyboard() {
+    keyboardDiv.innerHTML = '';
+    
+    rows.forEach((rowChars, rIndex) => {
+        const rowDiv = document.createElement('div');
+        rowDiv.className = 'key-row';
+        
+        let leftSpecial = null;
+        if (rIndex === 1) leftSpecial = "CAPS";
+        if (rIndex === 2) leftSpecial = "SHIFT";
+        
+        if (leftSpecial) addSpecialKey(rowDiv, leftSpecial);
+        
+        rowChars.forEach((char, cIndex) => {
+            const key = document.createElement('div');
+            key.className = 'key';
+            key.innerText = char;
+            key.dataset.char = char;
+            key.dataset.shift = shiftRows[rIndex][cIndex];
+            key.id = `key-${char}`;
+            rowDiv.appendChild(key);
         });
+        
+        let rightSpecial = null;
+        if (rIndex === 0) rightSpecial = "BACK";
+        if (rIndex === 1) rightSpecial = "ENTER";
+        if (rIndex === 2) rightSpecial = "SHIFT";
+        
+        if (rightSpecial) addSpecialKey(rowDiv, rightSpecial);
+        
+        keyboardDiv.appendChild(rowDiv);
+    });
+    
+    // Space Row
+    const spaceRow = document.createElement('div');
+    spaceRow.className = 'key-row';
+    const space = document.createElement('div');
+    space.className = 'key space-key';
+    space.innerText = ""; 
+    space.id = "key- ";
+    spaceRow.appendChild(space);
+    keyboardDiv.appendChild(spaceRow);
+}
+
+function addSpecialKey(parent, text) {
+    const key = document.createElement('div');
+    key.className = 'key wide';
+    key.innerText = text;
+    key.id = `key-${text}`;
+    parent.appendChild(key);
+}
+
+function toggleKeyboardCase(isShift) {
+    document.querySelectorAll('.key').forEach(k => {
+        if (k.dataset.char) {
+            k.innerText = isShift ? k.dataset.shift : k.dataset.char;
+        }
+        if (k.id === 'key-SHIFT') {
+            isShift ? k.classList.add('shift-active') : k.classList.remove('shift-active');
+        }
+    });
+}
+
+function highlightKey(char) {
+    document.querySelectorAll('.key').forEach(k => k.classList.remove('target'));
+    
+    let targetId = '';
+    let needsShift = false;
+    
+    if (char === ' ') targetId = 'key- ';
+    else {
+        // Find key by data-char or data-shift
+        const keys = Array.from(document.querySelectorAll('.key'));
+        const found = keys.find(k => k.dataset.char === char || k.dataset.shift === char);
+        if (found) {
+            targetId = found.id;
+            if (found.dataset.shift === char) needsShift = true;
+        }
+    }
+    
+    const el = document.getElementById(targetId);
+    if (el) el.classList.add('target');
+    
+    toggleKeyboardCase(needsShift);
+}
+
+function flashKey(char) {
+    // Simple visual feedback for wrong key
+    let targetId = '';
+    if (char === ' ') targetId = 'key- ';
+    else {
+        const keys = Array.from(document.querySelectorAll('.key'));
+        const found = keys.find(k => k.dataset.char === char || k.dataset.shift === char);
+        if (found) targetId = found.id;
+    }
+    const el = document.getElementById(targetId);
+    if (el) {
+        el.style.backgroundColor = '#D32F2F';
+        setTimeout(() => el.style.backgroundColor = '', 200);
     }
 }
 
-// THE NEW HOT-LOAD FUNCTION (No Reloads)
-async function switchChapterHot(newChapter) {
-    // Save new location to DB
-    await setDoc(doc(db, "users", currentUser.uid, "progress", BOOK_ID), {
-        chapter: newChapter,
-        charIndex: 0
-    }, { merge: true });
-    
-    // Reset Local State
-    currentChapterNum = newChapter;
-    savedCharIndex = 0;
-    currentCharIndex = 0;
-    lastSavedIndex = 0;
-    
-    closeModal();
-    textStream.innerHTML = "Switching chapters...";
-    
-    // Load new content
-    loadChapter(newChapter);
-}
-
-function confirmAction(message, onConfirm) {
-    if(confirm(message)) {
-        onConfirm();
-    }
-}
-
-function closeModal() {
-    isModalOpen = false; isInputBlocked = false;
-    document.getElementById('modal').classList.add('hidden');
-    document.getElementById('action-btn').style.display = 'inline-block'; 
-}
-
-const keyMap = { row1: "`1234567890-=", row1_s: "~!@#$%^&*()_+", row2: "qwertyuiop[]\\", row2_s: "QWERTYUIOP{}|", row3: "asdfghjkl;'", row3_s: "ASDFGHJKL:\"", row4: "zxcvbnm,./", row4_s: "ZXCVBNM<>?" };
-function createKeyboard() { keyboardDiv.innerHTML = ''; createRow(keyMap.row1, keyMap.row1_s); createRow(keyMap.row2, keyMap.row2_s, "TAB"); createRow(keyMap.row3, keyMap.row3_s, "CAPS", "ENTER"); createRow(keyMap.row4, keyMap.row4_s, "SHIFT", "SHIFT"); const spaceRow = document.createElement('div'); spaceRow.className = 'kb-row'; const space = document.createElement('div'); space.className = 'key space'; space.id = 'key- '; space.innerText = "SPACE"; spaceRow.appendChild(space); keyboardDiv.appendChild(spaceRow); }
-function createRow(chars, shiftChars, leftSpecial, rightSpecial) { const row = document.createElement('div'); row.className = 'kb-row'; if (leftSpecial) addSpecialKey(row, leftSpecial); for (let i = 0; i < chars.length; i++) { const k = document.createElement('div'); k.className = 'key'; k.dataset.char = chars[i]; k.dataset.shift = shiftChars[i]; k.id = `key-${chars[i]}`; k.innerText = chars[i]; row.appendChild(k); } if (rightSpecial) addSpecialKey(row, rightSpecial); keyboardDiv.appendChild(row); }
-function addSpecialKey(row, text) { const k = document.createElement('div'); k.className = 'key wide'; k.innerText = text; k.id = `key-${text}`; row.appendChild(k); }
-function toggleKeyboardCase(isShift) { document.querySelectorAll('.key').forEach(k => { if(k.dataset.char) k.innerText = isShift ? k.dataset.shift : k.dataset.char; if(k.id === 'key-SHIFT') isShift ? k.classList.add('shift-active') : k.classList.remove('shift-active'); }); }
-function highlightKey(char) { document.querySelectorAll('.key').forEach(k => k.classList.remove('target')); let targetId = ''; let needsShift = false; if (char === ' ') targetId = 'key- '; else { const keyEl = Array.from(document.querySelectorAll('.key')).find(k => k.dataset.char === char || k.dataset.shift === char); if (keyEl) { targetId = keyEl.id; if (keyEl.dataset.shift === char) needsShift = true; } } const el = document.getElementById(targetId); if (el) el.classList.add('target'); needsShift ? toggleKeyboardCase(true) : toggleKeyboardCase(false); }
-function flashKey(char) { let id = `key-${char.toLowerCase()}`; const el = document.getElementById(id); if (el) { el.style.backgroundColor = 'var(--brute-force-color)'; setTimeout(() => el.style.backgroundColor = '', 200); } }
-
-init();
+window.onload = init;
