@@ -1,4 +1,4 @@
-/* v1.9.3.4 - Fixed Layout & Modal Headers */
+/* v1.9.3.6 - Full Width Layout, Hidden Images, Better Icons */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -85,9 +85,10 @@ body {
 #text-stream {
     position: absolute;
     top: 0; 
+    /* FIXED: Full width relative to container, no max-width cap */
     left: 10%;
     width: 80%;
-    max-width: 1000px;
+    max-width: none; 
     transition: transform 0.2s ease-out; 
     padding-bottom: 300px; 
 }
