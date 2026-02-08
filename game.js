@@ -1,4 +1,4 @@
-// v1.9.3.4 - Modal Headers & Final Polish
+// v1.9.3.5 - Strict Init, Decimal Navigation, Zero Chapter Support
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc, getDocs, collection } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,7 +9,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.9.3.4";
+const VERSION = "1.9.3.5";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000; 
 const SPRINT_COOLDOWN_MS = 1500; 
@@ -72,8 +72,16 @@ async function init() {
         if (user) {
             currentUser = user;
             updateAuthUI(true);
-            await loadBookMetadata(); 
-            await Promise.all([loadUserProgress(), loadUserStats()]);
+            
+            // STRICT LOAD ORDER
+            try {
+                await loadBookMetadata(); // 1. Get Book Structure (Titles/Counts)
+                await loadUserProgress(); // 2. Get User Place (using Meta to validate if needed)
+                await loadUserStats();    // 3. Get Stats
+            } catch(e) {
+                console.error("Init Sequence Error:", e);
+                textStream.innerText = "Error loading game data.";
+            }
         } else {
             signInAnonymously(auth);
         }
@@ -109,10 +117,11 @@ async function loadBookMetadata() {
         if (docSnap.exists()) {
             bookMetadata = docSnap.data();
         } else {
+            // Check if fallback needed
             if(currentBookId !== DEFAULT_BOOK) {
                 currentBookId = DEFAULT_BOOK;
                 localStorage.setItem('currentBookId', DEFAULT_BOOK);
-                loadBookMetadata();
+                await loadBookMetadata(); // Retry default
             }
         }
     } catch (e) { console.warn("Meta Error:", e); }
@@ -157,43 +166,54 @@ function getWeekStart(date) {
 }
 
 async function loadUserProgress() {
-    textStream.innerHTML = "Loading...";
+    textStream.innerHTML = "Loading progress...";
     try {
         const docRef = doc(db, "users", currentUser.uid, "progress", currentBookId);
         const docSnap = await getDoc(docRef);
+        
+        // Default start
+        currentChapterNum = 1;
+        savedCharIndex = 0;
+
         if (docSnap.exists()) {
             const data = docSnap.data();
-            currentChapterNum = data.chapter || 1;
-            savedCharIndex = data.charIndex || 0;
-        } else {
-            currentChapterNum = 1;
-            savedCharIndex = 0;
+            // Ensure 0 is valid
+            if (data.chapter !== undefined && data.chapter !== null) currentChapterNum = data.chapter;
+            if (data.charIndex !== undefined) savedCharIndex = data.charIndex;
         }
+        
         lastSavedIndex = savedCharIndex; 
         loadChapter(currentChapterNum);
     } catch (e) { loadChapter(1); }
 }
 
 async function loadChapter(chapterNum) {
-    textStream.innerHTML = `Loading Chapter ${chapterNum}...`;
+    textStream.innerHTML = `Loading Chapter...`;
+    
+    // Support numeric or string IDs (chapter_1 vs chapter_1.1)
+    const chapterId = "chapter_" + chapterNum;
+    
     try {
-        const docRef = doc(db, "books", currentBookId, "chapters", "chapter_" + chapterNum);
+        const docRef = doc(db, "books", currentBookId, "chapters", chapterId);
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
             bookData = docSnap.data();
             currentChapterNum = chapterNum;
             setupGame();
         } else {
-            if(chapterNum > 1) {
-                alert(`Chapter ${chapterNum} not found. Restarting.`);
+            if(chapterNum !== 1 && chapterNum !== "1") {
+                alert(`Chapter ${chapterNum} not found. Returning to start.`);
                 currentChapterNum = 1;
                 savedCharIndex = 0;
                 loadChapter(1);
             } else {
-                textStream.innerText = "Chapter content not found.";
+                textStream.innerText = "Book content not found.";
             }
         }
-    } catch (e) { textStream.innerHTML = "Error loading content."; }
+    } catch (e) { 
+        console.error(e);
+        textStream.innerHTML = "Error loading content."; 
+    }
 }
 
 function setupGame() {
@@ -203,8 +223,6 @@ function setupGame() {
     renderText();
     currentCharIndex = savedCharIndex;
     
-    // NOTE: Removed auto-skip loops. User starts exactly where saved.
-
     if (currentCharIndex > 0) {
         for (let i = 0; i < currentCharIndex; i++) {
             const el = document.getElementById(`char-${i}`);
@@ -225,6 +243,14 @@ function setupGame() {
     let btnLabel = "Resume";
     if (savedCharIndex === 0) btnLabel = "Start Reading";
     
+    // Better Title Lookup
+    let title = `Chapter ${currentChapterNum}`;
+    if (bookMetadata && bookMetadata.chapters) {
+        // loose equality to match 1 vs "1"
+        const chapMeta = bookMetadata.chapters.find(c => c.id == "chapter_" + currentChapterNum);
+        if (chapMeta) title = chapMeta.title;
+    }
+
     if (!isGameActive) showStartModal(btnLabel);
 }
 
@@ -269,8 +295,6 @@ function startGame() {
         sessionValueStr = select.value;
         sessionLimit = (sessionValueStr === 'infinity') ? 'infinity' : parseInt(sessionValueStr);
     }
-
-    // No auto-skip loop here. 
     
     sprintSeconds = 0; sprintMistakes = 0; sprintCharStart = currentCharIndex; 
     activeSeconds = 0; timeAccumulator = 0; lastInputTime = Date.now(); 
@@ -341,6 +365,7 @@ document.addEventListener('keydown', (e) => {
     if (isModalOpen) {
         if (isInputBlocked) return; 
         
+        // --- SMART START LOGIC ---
         let shouldStart = false;
         let shouldSkip = false;
         
@@ -521,7 +546,29 @@ function pauseGameForBreak() {
 
 function finishChapter() {
     isGameActive = false; clearInterval(timerInterval);
-    const nextChapter = currentChapterNum + 1;
+    
+    // NAVIGATION LOGIC FOR DECIMALS/ZERO
+    let nextChapterId = null;
+    
+    if (bookMetadata && bookMetadata.chapters) {
+        // Find index of current
+        const currentIdx = bookMetadata.chapters.findIndex(c => c.id == "chapter_" + currentChapterNum);
+        
+        if (currentIdx !== -1 && currentIdx + 1 < bookMetadata.chapters.length) {
+            // Get next ID from metadata
+            const nextChap = bookMetadata.chapters[currentIdx + 1];
+            
+            // Extract Number (e.g., chapter_2.3 -> 2.3)
+            nextChapterId = nextChap.id.replace("chapter_", "");
+        }
+    }
+    
+    // Fallback if metadata missing or we are at end
+    if (!nextChapterId) {
+        // If it was a simple number, just add 1
+        if (!isNaN(currentChapterNum)) nextChapterId = parseFloat(currentChapterNum) + 1;
+        else nextChapterId = 1; // Reset
+    }
     
     const charsTyped = currentCharIndex - sprintCharStart;
     const sprintMinutes = sprintSeconds / 60;
@@ -540,39 +587,32 @@ function finishChapter() {
         week: `${formatTime(statsData.secondsWeek)} (${weekWPM} WPM | ${weekAcc}%)`
     };
     
-    showStatsModal(`Chapter ${currentChapterNum} Complete!`, stats, `Start Chapter ${nextChapter}`, async () => {
+    showStatsModal(`Chapter ${currentChapterNum} Complete!`, stats, `Start Next`, async () => {
         await saveProgress(true); 
-        currentChapterNum = nextChapter;
+        currentChapterNum = nextChapterId;
         savedCharIndex = 0; currentCharIndex = 0; lastSavedIndex = 0;
         await setDoc(doc(db, "users", currentUser.uid, "progress", currentBookId), {
             chapter: currentChapterNum, charIndex: 0
         }, { merge: true });
-        loadChapter(nextChapter);
+        loadChapter(nextChapterId);
     });
 }
 
 function getHeaderHTML() {
     let bookTitle = (bookMetadata && bookMetadata.title) ? bookMetadata.title : currentBookId.replace(/_/g, ' ');
     let chapTitle = `Chapter ${currentChapterNum}`;
-    
     if (bookMetadata && bookMetadata.chapters) {
-        const c = bookMetadata.chapters.find(ch => ch.id === "chapter_" + currentChapterNum);
-        if (c && c.title && c.title !== chapTitle) {
-            chapTitle += ` | ${c.title}`;
-        }
+        const c = bookMetadata.chapters.find(ch => ch.id == "chapter_" + currentChapterNum);
+        if (c && c.title) chapTitle = c.title; 
     }
-    
-    return `
-        <div class="modal-book-title">${bookTitle}</div>
-        <div class="modal-chap-info">${chapTitle}</div>
-    `;
+    return `<div class="modal-book-title">${bookTitle}</div><div class="modal-chap-info">${chapTitle}</div>`;
 }
 
 function showStartModal(btnText) {
     isModalOpen = true; isInputBlocked = false; 
     modalActionCallback = startGame;
     const modal = document.getElementById('modal');
-    document.getElementById('modal-title').style.display = 'none'; // Hide generic title
+    document.getElementById('modal-title').style.display = 'none'; 
     
     const html = `
         ${getHeaderHTML()}
@@ -594,7 +634,7 @@ function showStatsModal(title, stats, btnText, callback) {
     isModalOpen = true; isInputBlocked = true; 
     modalActionCallback = () => { closeModal(); if(callback) callback(); };
     const modal = document.getElementById('modal');
-    document.getElementById('modal-title').style.display = 'none'; // Hide generic
+    document.getElementById('modal-title').style.display = 'none'; 
     
     const html = `
         ${getHeaderHTML()}
@@ -637,15 +677,16 @@ async function openMenuModal() {
     modalActionCallback = () => { closeModal(); startGame(); };
     
     const modal = document.getElementById('modal');
-    document.getElementById('modal-title').style.display = 'block'; // Show title for Menu
+    document.getElementById('modal-title').style.display = 'block'; 
     document.getElementById('modal-title').innerText = "Settings";
     
     let chapterOptions = "";
     if (bookMetadata && bookMetadata.chapters) {
-        bookMetadata.chapters.forEach((chap, idx) => {
-            const num = idx + 1;
-            let sel = (num === currentChapterNum) ? "selected" : "";
-            chapterOptions += `<option value="${num}" ${sel}>${chap.title}</option>`;
+        bookMetadata.chapters.forEach((chap) => {
+            // ID format is "chapter_X", extract X
+            const num = chap.id.replace("chapter_", "");
+            let sel = (num == currentChapterNum) ? "selected" : "";
+            chapterOptions += `<option value="${num}" ${sel}>${chap.title || num}</option>`;
         });
     }
 
@@ -691,8 +732,9 @@ async function openMenuModal() {
     };
 
     document.getElementById('go-btn').onclick = () => {
-        const val = parseInt(document.getElementById('chapter-nav-select').value);
-        if(val !== currentChapterNum) {
+        // Can be float now
+        const val = document.getElementById('chapter-nav-select').value;
+        if(val != currentChapterNum) {
             handleChapterSwitch(val);
         } else {
             if(confirm(`Restart Chapter ${val}?`)) switchChapterHot(val);
@@ -707,7 +749,8 @@ async function openMenuModal() {
 }
 
 function handleChapterSwitch(newChapter) {
-    if (newChapter > currentChapterNum) switchChapterHot(newChapter);
+    // Compare loosely or parseFloat
+    if (newChapter != currentChapterNum) switchChapterHot(newChapter);
     else if(confirm(`Go back to Chapter ${newChapter}?`)) switchChapterHot(newChapter);
 }
 
@@ -719,4 +762,59 @@ async function switchChapterHot(newChapter) {
     closeModal(); textStream.innerHTML = "Switching..."; loadChapter(newChapter);
 }
 
-const rows = [['q','w','e','r','t','y','u','i','o','p','[',']','\\'],['a','s','d','f','g','h','j','k','l',';',"'"],['z','x','c','v','b','n','m
+const rows = [['q','w','e','r','t','y','u','i','o','p','[',']','\\'],['a','s','d','f','g','h','j','k','l',';',"'"],['z','x','c','v','b','n','m',',','.','/']];
+const shiftRows = [['Q','W','E','R','T','Y','U','I','O','P','{','}','|'],['A','S','D','F','G','H','J','K','L',':','"'],['Z','X','C','V','B','N','M','<','>','?']];
+
+function createKeyboard() {
+    keyboardDiv.innerHTML = '';
+    rows.forEach((rowChars, rIndex) => {
+        const rowDiv = document.createElement('div'); rowDiv.className = 'kb-row'; 
+        if (rIndex === 1) addSpecialKey(rowDiv, "CAPS"); if (rIndex === 2) addSpecialKey(rowDiv, "SHIFT");
+        rowChars.forEach((char, cIndex) => {
+            const key = document.createElement('div'); key.className = 'key'; key.innerText = char; key.dataset.char = char; key.dataset.shift = shiftRows[rIndex][cIndex]; key.id = `key-${char}`; rowDiv.appendChild(key);
+        });
+        if (rIndex === 0) addSpecialKey(rowDiv, "BACK"); if (rIndex === 1) addSpecialKey(rowDiv, "ENTER"); if (rIndex === 2) addSpecialKey(rowDiv, "SHIFT");
+        keyboardDiv.appendChild(rowDiv);
+    });
+    const spaceRow = document.createElement('div'); spaceRow.className = 'kb-row'; 
+    const space = document.createElement('div'); space.className = 'key space'; space.innerText = ""; space.id = "key- ";
+    spaceRow.appendChild(space); keyboardDiv.appendChild(spaceRow);
+}
+
+function addSpecialKey(parent, text) {
+    const key = document.createElement('div'); key.className = 'key wide'; key.innerText = text; key.id = `key-${text}`; parent.appendChild(key);
+}
+
+function toggleKeyboardCase(isShift) {
+    document.querySelectorAll('.key').forEach(k => {
+        if (k.dataset.char) k.innerText = isShift ? k.dataset.shift : k.dataset.char;
+        if (k.id === 'key-SHIFT') isShift ? k.classList.add('shift-active') : k.classList.remove('shift-active');
+    });
+}
+
+function highlightKey(char) {
+    document.querySelectorAll('.key').forEach(k => k.classList.remove('target'));
+    let targetId = ''; let needsShift = false;
+    if (char === ' ') targetId = 'key- '; else if (char === '\t') targetId = 'key-TAB'; else if (char === '\n') targetId = 'key-ENTER'; 
+    else {
+        const keys = Array.from(document.querySelectorAll('.key'));
+        const found = keys.find(k => k.dataset.char === char || k.dataset.shift === char);
+        if (found) { targetId = found.id; if (found.dataset.shift === char) needsShift = true; }
+    }
+    const el = document.getElementById(targetId); if (el) el.classList.add('target');
+    toggleKeyboardCase(needsShift);
+}
+
+function flashKey(char) {
+    let targetId = '';
+    if (char === ' ') targetId = 'key- '; else if (char === '\t' || char === 'Tab') targetId = 'key-TAB'; else if (char === '\\n' || char === 'Enter') targetId = 'key-ENTER'; 
+    else {
+        const keys = Array.from(document.querySelectorAll('.key'));
+        const found = keys.find(k => k.dataset.char === char || k.dataset.shift === char);
+        if (found) targetId = found.id;
+    }
+    const el = document.getElementById(targetId);
+    if (el) { el.style.backgroundColor = 'var(--brute-force-color)'; setTimeout(() => el.style.backgroundColor = '', 200); }
+}
+
+window.onload = init;
