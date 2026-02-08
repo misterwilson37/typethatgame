@@ -1,4 +1,4 @@
-// v1.9.1.9.1 - Layout Stability & Sticky Enter Key
+// v1.9.1.9.2 - Fix Space Skipping & Layout
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,7 +9,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.9.1.9.1";
+const VERSION = "1.9.1.9.2";
 const BOOK_ID = "wizard_of_oz"; 
 const IDLE_THRESHOLD = 2000; 
 const SPRINT_COOLDOWN_MS = 1500; 
@@ -201,7 +201,7 @@ function setupGame() {
     renderText();
     currentCharIndex = savedCharIndex;
     
-    // SKIP LOGIC: If starting on Space or Enter, move forward
+    // SKIP LOGIC: If starting on Space or Enter, move forward so user doesn't have to
     while (currentCharIndex < fullText.length && (fullText[currentCharIndex] === ' ' || fullText[currentCharIndex] === '\n')) {
         const charEl = document.getElementById(`char-${currentCharIndex}`);
         if (charEl) charEl.classList.add('done-perfect');
@@ -213,7 +213,9 @@ function setupGame() {
             const el = document.getElementById(`char-${i}`);
             if (el) {
                 el.classList.remove('active');
-                if (!el.classList.contains('space') && !el.classList.contains('enter')) el.classList.add('done-perfect');
+                if (!el.classList.contains('space') && !el.classList.contains('enter') && !el.classList.contains('tab')) {
+                    el.classList.add('done-perfect');
+                }
             }
         }
     }
@@ -234,7 +236,7 @@ function setupGame() {
     }
 }
 
-// --- ENGINE (FIXED RENDERER) ---
+// --- ENGINE (SPACE FIX) ---
 function renderText() {
     textStream.innerHTML = '';
     const container = document.createDocumentFragment();
@@ -245,14 +247,14 @@ function renderText() {
         const char = fullText[i];
         
         if (char === '\n') {
-            // STICKY ENTER: Append Enter Key TO THE WORD BUFFER
+            // Append Enter Key to the current word
             const span = document.createElement('span');
             span.className = 'letter enter';
             span.innerText = ''; 
             span.id = `char-${i}`;
             wordBuffer.appendChild(span);
             
-            // Now close the word
+            // Close word
             container.appendChild(wordBuffer);
             
             // Visual Break
@@ -263,32 +265,35 @@ function renderText() {
             wordBuffer.className = 'word';
             
         } else if (char === ' ') {
-            // Finish current word
-            if (wordBuffer.hasChildNodes()) container.appendChild(wordBuffer);
-            
-            // Create Space Element (Standalone, not inside word)
+            // Append Space TO THE CURRENT WORD (Fixes layout indent issue)
             const span = document.createElement('span');
             span.className = 'letter space';
             span.innerText = ' ';
             span.id = `char-${i}`;
-            container.appendChild(span);
+            wordBuffer.appendChild(span);
             
-            // Reset Buffer
+            // Now close the word so line break can happen AFTER the space
+            container.appendChild(wordBuffer);
             wordBuffer = document.createElement('span');
             wordBuffer.className = 'word';
             
         } else if (char === '\t') {
-            // Finish previous word if exists
-            if (wordBuffer.hasChildNodes()) container.appendChild(wordBuffer);
-            wordBuffer = document.createElement('span');
-            wordBuffer.className = 'word';
+            // Close previous word if valid
+            if (wordBuffer.hasChildNodes()) {
+                container.appendChild(wordBuffer);
+                wordBuffer = document.createElement('span');
+                wordBuffer.className = 'word';
+            }
 
-            // Tab is standalone
+            // Tab is its own word
+            const tabSpan = document.createElement('span');
+            tabSpan.className = 'word'; // Wrap tab in word to keep inline behavior
             const span = document.createElement('span');
             span.className = 'letter tab';
             span.innerText = ''; 
             span.id = `char-${i}`;
-            container.appendChild(span);
+            tabSpan.appendChild(span);
+            container.appendChild(tabSpan);
             
         } else {
             const span = document.createElement('span');
@@ -398,13 +403,14 @@ function updateRunningAccuracy(isCorrect) {
     if (total > 0) accDisplay.innerText = Math.round((correctCount / total) * 100) + "%";
 }
 
+// --- INPUT LOGIC ---
+
 document.addEventListener('keydown', (e) => {
     if (isModalOpen) {
         if (isInputBlocked) return; 
 
         // SMART START: Check if key matches current char OR next valid char (skipping space/enter)
         let tempIndex = currentCharIndex;
-        // Look ahead logic
         while (tempIndex < fullText.length && (fullText[tempIndex] === ' ' || fullText[tempIndex] === '\n')) {
             tempIndex++;
         }
@@ -417,7 +423,7 @@ document.addEventListener('keydown', (e) => {
         if ((isStartKey || isMatchKey) && modalActionCallback) {
             e.preventDefault();
             modalActionCallback(); 
-            // If they typed the char that is actually next, handle it
+            // If they typed the char that is actually next, handle it (Smart Skip)
             if (isMatchKey) handleTyping(e.key); 
             return;
         }
@@ -442,26 +448,16 @@ function handleTyping(key) {
     lastInputTime = Date.now();
     timerDisplay.style.opacity = '1';
 
-    // If we are sitting on a skippable char, skip it now
-    while (currentCharIndex < fullText.length && (fullText[currentCharIndex] === ' ' || fullText[currentCharIndex] === '\n')) {
-        const charEl = document.getElementById(`char-${currentCharIndex}`);
-        if (charEl) {
-            charEl.classList.remove('active');
-            charEl.classList.add('done-perfect');
-        }
-        currentCharIndex++;
-    }
-    highlightCurrentChar(); // Update visual cursor
+    // 1. Determine Input Char
+    let inputChar = key;
+    if (key === "Tab") inputChar = "\t";
+    if (key === "Enter") inputChar = "\n";
 
+    // 2. Identify Target
     const targetChar = fullText[currentCharIndex];
     const currentEl = document.getElementById(`char-${currentCharIndex}`);
 
-    let inputChar = key;
-    if (key === "Tab") inputChar = "\t";
-    // Enter is mapped but we auto-skip it, so usually we won't strictly match against it unless we force it.
-    // But if we failed to skip for some reason:
-    if (key === "Enter") inputChar = "\n";
-
+    // 3. Handle Backspace (Error Correction only)
     if (key === "Backspace") {
         if (currentLetterStatus === 'error') {
             currentLetterStatus = 'fixed';
@@ -470,19 +466,61 @@ function handleTyping(key) {
         return;
     }
 
+    // 4. SMART MATCHING LOGIC
+    let isCorrect = false;
+    let skipHappened = false;
+
+    // A) Direct Match
     if (inputChar === targetChar) {
-        currentEl.classList.remove('active');
-        currentEl.classList.remove('error-state');
+        isCorrect = true;
+    } 
+    // B) Smart Skip (User typed next letter instead of Space/Enter)
+    else {
+        // Look ahead to see if user typed the next "Real" character
+        let lookAheadIndex = currentCharIndex;
+        while (lookAheadIndex < fullText.length && (fullText[lookAheadIndex] === ' ' || fullText[lookAheadIndex] === '\n')) {
+            lookAheadIndex++;
+        }
         
-        if (currentLetterStatus === 'clean') currentEl.classList.add('done-perfect'); 
-        else if (currentLetterStatus === 'fixed') currentEl.classList.add('done-fixed'); 
-        else currentEl.classList.add('done-dirty'); 
+        if (lookAheadIndex < fullText.length) {
+            const nextRealChar = fullText[lookAheadIndex];
+            if (inputChar === nextRealChar) {
+                // MATCH FOUND via Skip!
+                isCorrect = true;
+                skipHappened = true;
+                
+                // Auto-complete the skipped spaces/enters
+                for (let i = currentCharIndex; i < lookAheadIndex; i++) {
+                    const skipEl = document.getElementById(`char-${i}`);
+                    if (skipEl) {
+                        skipEl.classList.remove('active');
+                        skipEl.classList.add('done-perfect');
+                    }
+                }
+                // Advance index to the character we just matched
+                currentCharIndex = lookAheadIndex; 
+            }
+        }
+    }
+
+    if (isCorrect) {
+        // Get Element again (index might have changed due to skip)
+        const matchedEl = document.getElementById(`char-${currentCharIndex}`);
+        
+        matchedEl.classList.remove('active');
+        matchedEl.classList.remove('error-state');
+        
+        if (currentLetterStatus === 'clean') matchedEl.classList.add('done-perfect'); 
+        else if (currentLetterStatus === 'fixed') matchedEl.classList.add('done-fixed'); 
+        else matchedEl.classList.add('done-dirty'); 
 
         currentCharIndex++;
         currentLetterStatus = 'clean'; 
         
-        if (['.', '!', '?'].includes(targetChar)) saveProgress();
-        else if (['"', "'"].includes(targetChar) && currentCharIndex >= 2) {
+        // Save Logic
+        const currentChar = fullText[currentCharIndex - 1]; // The one we just typed
+        if (['.', '!', '?', '\n'].includes(currentChar)) saveProgress();
+        else if (['"', "'"].includes(currentChar) && currentCharIndex >= 2) {
             const prevChar = fullText[currentCharIndex - 2];
             if (['.', '!', '?'].includes(prevChar)) saveProgress();
         }
@@ -491,13 +529,10 @@ function handleTyping(key) {
         updateRunningAccuracy(true);
 
         if (isOvertime) {
-            // Check next char (lookahead if it's space/enter)
-            let checkIndex = currentCharIndex;
-            // peek next real char?
-            // Actually, we just check if we finished a sentence.
-            if (['.', '!', '?'].includes(targetChar)) {
-                 const nextChar = fullText[currentCharIndex]; 
-                 if (nextChar !== '"' && nextChar !== "'") { triggerStop(); return; }
+            if (['.', '!', '?', '\n'].includes(currentChar)) {
+                // If next is quote, allow it
+                const nextChar = fullText[currentCharIndex]; 
+                if (nextChar !== '"' && nextChar !== "'") { triggerStop(); return; }
             }
         }
 
@@ -506,22 +541,17 @@ function handleTyping(key) {
             return;
         }
         
-        // Auto-skip space/enter AFTER typing
-        while (currentCharIndex < fullText.length && (fullText[currentCharIndex] === ' ' || fullText[currentCharIndex] === '\n')) {
-            const charEl = document.getElementById(`char-${currentCharIndex}`);
-            if (charEl) charEl.classList.add('done-perfect');
-            currentCharIndex++;
-        }
-
         highlightCurrentChar();
         centerView();
         updateImageDisplay();
     } 
     else {
+        // Mistake
         mistakes++;
         sprintMistakes++;
         if (currentLetterStatus === 'clean') currentLetterStatus = 'error';
-        currentEl.classList.add('error-state'); 
+        const errEl = document.getElementById(`char-${currentCharIndex}`);
+        if(errEl) errEl.classList.add('error-state'); 
         flashKey(key); 
         updateRunningAccuracy(false);
     }
