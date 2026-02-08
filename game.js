@@ -1,4 +1,4 @@
-// v1.9.1.6 - Stats Visibility & Debugging
+// v1.9.1.7 - Tab Support & Stats Visibility
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,7 +9,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.9.1.6";
+const VERSION = "1.9.1.7";
 const BOOK_ID = "wizard_of_oz"; 
 const IDLE_THRESHOLD = 2000; 
 const SPRINT_COOLDOWN_MS = 1500; 
@@ -204,6 +204,7 @@ function setupGame() {
     renderText();
     currentCharIndex = savedCharIndex;
     
+    // Auto-advance if load starts on space
     if (fullText[currentCharIndex] === ' ') {
         const spaceEl = document.getElementById(`char-${currentCharIndex}`);
         if (spaceEl) spaceEl.classList.add('done-perfect');
@@ -236,7 +237,7 @@ function setupGame() {
     }
 }
 
-// --- ENGINE (VERTICAL) ---
+// --- ENGINE (VERTICAL with TAB Support) ---
 function renderText() {
     textStream.innerHTML = '';
     const words = fullText.split(' ');
@@ -247,7 +248,12 @@ function renderText() {
         for (let char of word) {
             const span = document.createElement('span');
             span.className = 'letter';
-            span.innerText = char;
+            if (char === '\t') {
+                span.className = 'letter tab'; // TAB CLASS
+                span.innerText = ''; // Empty, handled by CSS
+            } else {
+                span.innerText = char;
+            }
             span.id = `char-${charCount}`;
             wordSpan.appendChild(span);
             charCount++;
@@ -370,7 +376,8 @@ document.addEventListener('keydown', (e) => {
         }
 
         const isStartKey = (e.key === "Enter") || (e.key === " ");
-        const isMatchKey = (e.key === effectiveTarget) || (nextChar && e.key === nextChar);
+        // Check for Tab start too
+        const isMatchKey = (e.key === effectiveTarget) || (nextChar && e.key === nextChar) || (effectiveTarget === '\t' && e.key === 'Tab');
 
         if ((isStartKey || isMatchKey) && modalActionCallback) {
             e.preventDefault();
@@ -388,8 +395,9 @@ document.addEventListener('keydown', (e) => {
 
     if (e.key === "Shift") toggleKeyboardCase(true);
     if (!isGameActive) return;
-    if (["Shift", "Control", "Alt", "Meta", "CapsLock", "Tab"].includes(e.key)) return;
+    if (["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(e.key)) return; // Allow Tab
     if (e.key === " ") e.preventDefault(); 
+    if (e.key === "Tab") e.preventDefault(); // Stop focus change
 
     handleTyping(e.key);
 });
@@ -401,6 +409,10 @@ function handleTyping(key) {
     const targetChar = fullText[currentCharIndex];
     const currentEl = document.getElementById(`char-${currentCharIndex}`);
 
+    // Map TAB key to \t character
+    let inputChar = key;
+    if (key === "Tab") inputChar = "\t";
+
     if (key === "Backspace") {
         if (currentLetterStatus === 'error') {
             currentLetterStatus = 'fixed';
@@ -409,7 +421,8 @@ function handleTyping(key) {
         return;
     }
 
-    if (key === targetChar) {
+    if (inputChar === targetChar) {
+        // Correct
         currentEl.classList.remove('active');
         currentEl.classList.remove('error-state');
         
@@ -449,6 +462,7 @@ function handleTyping(key) {
         updateImageDisplay();
     } 
     else {
+        // Mistake
         mistakes++;
         sprintMistakes++;
         if (currentLetterStatus === 'clean') currentLetterStatus = 'error';
@@ -846,6 +860,7 @@ function highlightKey(char) {
     let needsShift = false;
     
     if (char === ' ') targetId = 'key- ';
+    else if (char === '\t') targetId = 'key-TAB'; // MAP TAB for highlight
     else {
         const keys = Array.from(document.querySelectorAll('.key'));
         const found = keys.find(k => k.dataset.char === char || k.dataset.shift === char);
@@ -864,6 +879,7 @@ function highlightKey(char) {
 function flashKey(char) {
     let targetId = '';
     if (char === ' ') targetId = 'key- ';
+    else if (char === '\t' || char === 'Tab') targetId = 'key-TAB'; // MAP TAB for flash
     else {
         const keys = Array.from(document.querySelectorAll('.key'));
         const found = keys.find(k => k.dataset.char === char || k.dataset.shift === char);
