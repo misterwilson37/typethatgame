@@ -1,4 +1,4 @@
-// v1.9.1.8 - Paragraphs & Enter Key Support
+// v1.9.1.9 - Fixed Paragraph Wrapping & Layout
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,7 +9,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.9.1.8";
+const VERSION = "1.9.1.9";
 const BOOK_ID = "wizard_of_oz"; 
 const IDLE_THRESHOLD = 2000; 
 const SPRINT_COOLDOWN_MS = 1500; 
@@ -195,17 +195,13 @@ async function loadChapter(chapterNum) {
 }
 
 function setupGame() {
-    // IMPORTANT: Join with Newline for paragraphs
     fullText = bookData.segments.map(s => s.text).join("\n");
-    // Standardize quotes
     fullText = fullText.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
     
     renderText();
     currentCharIndex = savedCharIndex;
     
-    // Auto-advance logic if needed
-    // (Note: We usually stop at spaces, but now we have tabs and newlines. 
-    // It's safer to start exactly where saved unless it's strictly a ' ' space)
+    // Auto-advance if load starts on space
     if (fullText[currentCharIndex] === ' ') {
         const spaceEl = document.getElementById(`char-${currentCharIndex}`);
         if (spaceEl) spaceEl.classList.add('done-perfect');
@@ -238,7 +234,7 @@ function setupGame() {
     }
 }
 
-// --- ENGINE (PARAGRAPH RENDERER) ---
+// --- ENGINE (FIXED RENDERER) ---
 function renderText() {
     textStream.innerHTML = '';
     const container = document.createDocumentFragment();
@@ -249,39 +245,42 @@ function renderText() {
         const char = fullText[i];
         
         if (char === '\n') {
-            // End current word
+            // Close current word
             if (wordBuffer.hasChildNodes()) container.appendChild(wordBuffer);
             
-            // Create New Word Buffer for the Enter Key
-            wordBuffer = document.createElement('span'); 
-            wordBuffer.className = 'word'; // Or keep it loose? Better in word for spacing.
-            
+            // Enter Key Container
+            const enterWord = document.createElement('span');
+            enterWord.className = 'word';
             const span = document.createElement('span');
             span.className = 'letter enter';
-            span.innerText = ''; // CSS adds symbol
+            span.innerText = ''; 
             span.id = `char-${i}`;
-            wordBuffer.appendChild(span);
-            container.appendChild(wordBuffer);
+            enterWord.appendChild(span);
+            container.appendChild(enterWord);
             
-            // Add Visual Line Break
+            // Visual Break
             container.appendChild(document.createElement('br'));
             
-            // Reset buffer for next line
+            // Reset Buffer
+            wordBuffer = document.createElement('span');
+            wordBuffer.className = 'word';
+            
+        } else if (char === ' ') {
+            // Space signifies end of visual word
+            const span = document.createElement('span');
+            span.className = 'letter space';
+            span.innerText = ' ';
+            span.id = `char-${i}`;
+            wordBuffer.appendChild(span);
+            
+            container.appendChild(wordBuffer);
             wordBuffer = document.createElement('span');
             wordBuffer.className = 'word';
             
         } else if (char === '\t') {
-            // Tab is treated as a character inside a word (usually start of word)
             const span = document.createElement('span');
             span.className = 'letter tab';
-            span.innerText = ''; // CSS adds arrow
-            span.id = `char-${i}`;
-            wordBuffer.appendChild(span);
-            
-        } else if (char === ' ') {
-            const span = document.createElement('span');
-            span.className = 'letter space';
-            span.innerText = ' ';
+            span.innerText = ''; 
             span.id = `char-${i}`;
             wordBuffer.appendChild(span);
             
@@ -395,7 +394,6 @@ function updateRunningAccuracy(isCorrect) {
 }
 
 document.addEventListener('keydown', (e) => {
-    // 1. MODAL NAVIGATION
     if (isModalOpen) {
         if (isInputBlocked) return; 
 
@@ -406,8 +404,6 @@ document.addEventListener('keydown', (e) => {
         }
 
         const isStartKey = (e.key === "Enter") || (e.key === " ");
-        
-        // Match logic: Char match, Next Char (skip space) match, or TAB match
         let isMatchKey = (e.key === effectiveTarget) || (nextChar && e.key === nextChar);
         if (effectiveTarget === '\t' && e.key === 'Tab') isMatchKey = true;
         if (effectiveTarget === '\n' && e.key === 'Enter') isMatchKey = true;
@@ -430,7 +426,6 @@ document.addEventListener('keydown', (e) => {
     if (!isGameActive) return;
     if (["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(e.key)) return; 
     
-    // Prevent default scrolling for Space/Tab/Enter so they can be typed
     if (e.key === " " || e.key === "Tab" || e.key === "Enter") e.preventDefault();
 
     handleTyping(e.key);
@@ -443,7 +438,6 @@ function handleTyping(key) {
     const targetChar = fullText[currentCharIndex];
     const currentEl = document.getElementById(`char-${currentCharIndex}`);
 
-    // MAP INPUT KEYS
     let inputChar = key;
     if (key === "Tab") inputChar = "\t";
     if (key === "Enter") inputChar = "\n";
@@ -457,7 +451,6 @@ function handleTyping(key) {
     }
 
     if (inputChar === targetChar) {
-        // Correct
         currentEl.classList.remove('active');
         currentEl.classList.remove('error-state');
         
@@ -468,7 +461,6 @@ function handleTyping(key) {
         currentCharIndex++;
         currentLetterStatus = 'clean'; 
         
-        // Save on sentence end OR paragraph end
         if (['.', '!', '?', '\n'].includes(targetChar)) saveProgress();
         else if (['"', "'"].includes(targetChar) && currentCharIndex >= 2) {
             const prevChar = fullText[currentCharIndex - 2];
@@ -478,11 +470,8 @@ function handleTyping(key) {
         updateRunningWPM();
         updateRunningAccuracy(true);
 
-        // Overtime check logic (modified for Enter)
         if (isOvertime) {
-            // Stop if we hit punctuation or Enter
             if (['.', '!', '?', '\n'].includes(targetChar)) {
-                // If it's a quote next, let them finish the quote
                 const nextChar = fullText[currentCharIndex]; 
                 if (nextChar !== '"' && nextChar !== "'") { triggerStop(); return; }
             }
@@ -497,12 +486,11 @@ function handleTyping(key) {
         updateImageDisplay();
     } 
     else {
-        // Mistake
         mistakes++;
         sprintMistakes++;
         if (currentLetterStatus === 'clean') currentLetterStatus = 'error';
         currentEl.classList.add('error-state'); 
-        flashKey(key); // flash the visual key
+        flashKey(key); 
         updateRunningAccuracy(false);
     }
 }
@@ -889,7 +877,7 @@ function highlightKey(char) {
     
     if (char === ' ') targetId = 'key- ';
     else if (char === '\t') targetId = 'key-TAB'; 
-    else if (char === '\n') targetId = 'key-ENTER'; // MAP ENTER
+    else if (char === '\n') targetId = 'key-ENTER'; 
     else {
         const keys = Array.from(document.querySelectorAll('.key'));
         const found = keys.find(k => k.dataset.char === char || k.dataset.shift === char);
@@ -909,7 +897,7 @@ function flashKey(char) {
     let targetId = '';
     if (char === ' ') targetId = 'key- ';
     else if (char === '\t' || char === 'Tab') targetId = 'key-TAB';
-    else if (char === '\n' || char === 'Enter') targetId = 'key-ENTER'; // MAP ENTER
+    else if (char === '\n' || char === 'Enter') targetId = 'key-ENTER'; 
     else {
         const keys = Array.from(document.querySelectorAll('.key'));
         const found = keys.find(k => k.dataset.char === char || k.dataset.shift === char);
