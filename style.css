@@ -1,4 +1,4 @@
-/* v1.9.2 - Uniform Highlights & Centered Icons */
+/* v1.9.2.1 - Adjusted Tab Height */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -99,10 +99,9 @@ body {
     color: #ccc; 
 }
 
-/* LETTERS - Uniform Alignment */
+/* LETTERS */
 .letter {
     display: inline-block; 
-    /* Changed to BOTTOM to force backgrounds to align perfectly */
     vertical-align: bottom; 
     min-width: 14.4px;
     line-height: 2.0em; 
@@ -124,17 +123,16 @@ body {
     width: 50px; 
     text-align: center;
     border-bottom: 1px dotted #ddd;
-    /* Make the invisibe &nbsp; transparent so it doesn't mess with visuals */
     color: transparent; 
 }
 .letter.tab::before {
     content: '→';
-    font-size: 32px; /* Bigger */
-    font-weight: 800; /* Thicker */
-    color: #999; /* Explicit color since parent is transparent */
+    font-size: 32px; 
+    font-weight: 800; 
+    color: #999; 
     position: absolute;
     left: 50%; 
-    top: 35%; /* Lifted up */
+    top: 38%; /* Slightly Lowered from 35% per feedback */
     transform: translate(-50%, -50%);
     opacity: 0.5;
 }
@@ -146,16 +144,16 @@ body {
     width: 24px;
     text-align: center;
     margin-left: 2px;
-    color: transparent; /* Hide the &nbsp; */
+    color: transparent; 
 }
 .letter.enter::before {
     content: '↵';
-    font-size: 28px; /* Bigger */
-    font-weight: 800; /* Thicker */
+    font-size: 28px; 
+    font-weight: 800; 
     color: #999;
     position: absolute;
     left: 50%; 
-    top: 35%; /* Lifted up */
+    top: 38%; /* Matched Tab */
     transform: translate(-50%, -50%);
     opacity: 0.5;
 }
