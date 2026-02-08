@@ -2,32 +2,18 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>TypeThatBook Admin v1.9.5</title>
+    <title>TypeThatBook Admin v1.9.3.2</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
         body { background: #111; color: #eee; font-family: 'Courier New', monospace; padding: 20px; }
         .container { max-width: 900px; margin: 0 auto; padding-bottom: 80px; }
         
-        /* Form Elements */
         input, textarea, button, select { 
-            width: 100%; 
-            padding: 12px; 
-            margin-bottom: 15px; 
-            background: #222; 
-            border: 1px solid #444; 
-            color: #fff; 
-            font-family: inherit; 
-            box-sizing: border-box;
+            width: 100%; padding: 12px; margin-bottom: 15px; background: #222; 
+            border: 1px solid #444; color: #fff; font-family: inherit; box-sizing: border-box;
         }
         
-        button { 
-            cursor: pointer; 
-            background: #0047AB; 
-            font-weight: bold; 
-            text-transform: uppercase;
-            border: none;
-            transition: background 0.2s;
-        }
+        button { cursor: pointer; background: #0047AB; font-weight: bold; text-transform: uppercase; border: none; transition: background 0.2s; }
         button:hover { background: #4B9CD3; }
         button:disabled { background: #555; cursor: not-allowed; }
         
@@ -38,45 +24,17 @@
 
         label { display: block; margin-bottom: 5px; color: #888; text-transform: uppercase; font-size: 0.75rem; }
         
-        /* Utilities */
         .hidden { display: none !important; }
-        .status-bar { 
-            padding: 15px; 
-            margin-bottom: 20px; 
-            background: #222; 
-            border-left: 4px solid #555;
-        }
-        
+        .status-bar { padding: 15px; margin-bottom: 20px; background: #222; border-left: 4px solid #555; }
         .row { display: flex; gap: 20px; }
         .col { flex: 1; }
-        
         a { color: #888; text-decoration: none; border-bottom: 1px dotted #888; }
         a:hover { color: #fff; }
 
-        /* Staging Area */
-        .import-box {
-            background: #1a1a1a;
-            border: 1px dashed #444;
-            padding: 20px;
-            margin-bottom: 30px;
-        }
+        .import-box { background: #1a1a1a; border: 1px dashed #444; padding: 20px; margin-bottom: 30px; }
         
-        #chapter-list {
-            max-height: 400px;
-            overflow-y: auto;
-            background: #000;
-            border: 1px solid #333;
-            margin-bottom: 20px;
-        }
-        .chapter-item {
-            padding: 10px;
-            border-bottom: 1px solid #222;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            background: #111;
-            transition: background 0.2s;
-        }
+        #chapter-list { max-height: 400px; overflow-y: auto; background: #000; border: 1px solid #333; margin-bottom: 20px; }
+        .chapter-item { padding: 10px; border-bottom: 1px solid #222; display: flex; align-items: center; justify-content: space-between; background: #111; transition: background 0.2s; }
         .chapter-item:hover { background: #151515; }
         .chapter-item.uploaded { border-left: 4px solid #00ff41; background: #0a220a; }
         .chapter-item.error { border-left: 4px solid #ff3333; background: #220a0a; }
@@ -90,100 +48,99 @@
         .chap-actions { display: flex; gap: 5px; }
         .chap-actions button { width: auto; padding: 5px 10px; font-size: 0.7em; margin: 0; }
 
-        /* Checkbox */
         .checkbox-wrapper { display: flex; align-items: center; margin-bottom: 15px; }
         .checkbox-wrapper input { width: auto; margin: 0 10px 0 0; }
         .checkbox-wrapper label { margin: 0; text-transform: none; color: #ddd; }
 
-        footer {
-            position: fixed; bottom: 5px; right: 10px; font-size: 0.7em; color: #666; 
-            background: rgba(0,0,0,0.8); z-index: 101; padding: 2px 5px; border-radius: 3px;
-        }
+        footer { position: fixed; bottom: 5px; right: 10px; font-size: 0.7em; color: #666; background: rgba(0,0,0,0.8); z-index: 101; padding: 2px 5px; border-radius: 3px; }
     </style>
 </head>
 <body>
 
-<div class=\"container\">
-    <div style=\"display:flex; justify-content:space-between; align-items:center; margin-bottom: 30px;\">
+<div class="container">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 30px;">
         <h1>ADMIN PANEL</h1>
-        <a href=\"index.html\">Back to Game</a>
+        <a href="index.html">Back to Game</a>
     </div>
 
-    <div class=\"status-bar\" id=\"status\">Initializing...</div>
+    <div class="status-bar" id="status">Initializing...</div>
     
-    <div id=\"login-section\" class=\"hidden\">
+    <div id="login-section" class="hidden">
         <p>You must log in to edit the database.</p>
-        <button id=\"login-btn\">Log In with Google</button>
+        <button id="login-btn">Log In with Google</button>
     </div>
 
-    <div id=\"editor-section\" class=\"hidden\">
+    <div id="editor-section" class="hidden">
         
-        <div class=\"import-box\" style=\"border-color: #4B9CD3;\">
-            <h3 style=\"margin-top:0;\">Database Manager</h3>
-            <div class=\"row\">
-                <div class=\"col\">
+        <div class="import-box" style="border-color: #4B9CD3;">
+            <h3 style="margin-top:0;">Database Manager</h3>
+            <div class="row">
+                <div class="col">
                     <label>Book ID (e.g. wizard_of_oz)</label>
-                    <input type=\"text\" id=\"import-book-id\" value=\"wizard_of_oz\">
+                    <input type="text" id="import-book-id" value="wizard_of_oz">
                 </div>
-                <div class=\"col\" style=\"display:flex; align-items:flex-end;\">
-                    <button id=\"load-db-btn\" class=\"secondary-btn\">Load from Database</button>
+                <div class="col" style="display:flex; align-items:flex-end;">
+                    <button id="load-db-btn" class="secondary-btn">Load from Database</button>
                 </div>
             </div>
         </div>
 
         <h2>Content Staging</h2>
-        <div class=\"import-box\">
-            <div class=\"row\">
-                <div class=\"col\">
+        <div class="import-box">
+            <div class="row">
+                <div class="col">
                     <label>Load New EPUB File</label>
-                    <input type=\"file\" id=\"epub-file\" accept=\".epub\">
+                    <input type="file" id="epub-file" accept=".epub">
                 </div>
             </div>
             
-            <div class=\"checkbox-wrapper\">
-                <input type=\"checkbox\" id=\"clean-newlines\" checked>
-                <label for=\"clean-newlines\">Aggressive Cleaning (Remove line breaks inside paragraphs)</label>
+            <div class="checkbox-wrapper">
+                <input type="checkbox" id="clean-newlines" checked>
+                <label for="clean-newlines">Aggressive Cleaning (Remove line breaks inside paragraphs)</label>
             </div>
 
-            <div id=\"processing-ui\" class=\"hidden\">
+            <div id="processing-ui" class="hidden">
                 <label>Staging Area (Edit/Delete before Upload)</label>
-                <div id=\"chapter-list\"></div>
+                <div id="chapter-list"></div>
                 
-                <div class=\"row\">
-                    <div class=\"col\">
-                        <button id=\"upload-all-btn\">Upload All to Database (Overwrite)</button>
+                <div class="row">
+                    <div class="col">
+                        <button id="upload-all-btn">Upload All to Database (Overwrite)</button>
                     </div>
                 </div>
             </div>
         </div>
 
-        <hr style=\"border-color:#333; margin: 30px 0;\">\n\n        <details id=\"manual-details\">
-            <summary style=\"cursor:pointer; color:#4B9CD3; margin-bottom:10px;\">Manual Chapter Editor</summary>
-            <div style=\"padding: 15px; border:1px solid #333; margin-bottom:20px;\">
-                <div class=\"row\">
-                    <div class=\"col\">
+        <hr style="border-color:#333; margin: 30px 0;">
+
+        <details id="manual-details">
+            <summary style="cursor:pointer; color:#4B9CD3; margin-bottom:10px;">Manual Chapter Editor</summary>
+            <div style="padding: 15px; border:1px solid #333; margin-bottom:20px;">
+                <div class="row">
+                    <div class="col">
                         <label>Chapter Title (Visible in Menu)</label>
-                        <input type=\"text\" id=\"manual-chap-title\" placeholder=\"e.g. The Cyclone\">
+                        <input type="text" id="manual-chap-title" placeholder="e.g. The Cyclone">
                     </div>
-                    <div class=\"col\">
+                    <div class="col">
                         <label>Chapter Number</label>
-                        <input type=\"number\" id=\"manual-chap-num\" value=\"1\">
+                        <input type="number" id="manual-chap-num" value="1">
                     </div>
                 </div>
                 <label>JSON Segments</label>
-                <textarea id=\"json-content\" rows=\"15\" placeholder='{ \"segments\": [ { \"text\": \"...\" } ] }'></textarea>
+                <textarea id="json-content" rows="15" placeholder='{ "segments": [ { "text": "..." } ] }'></textarea>
                 
-                <div style=\"display:flex; gap:10px;\">
-                    <button id=\"update-staged-btn\" class=\"hidden\">Update Staged Chapter</button>
-                    </div>
+                <div style="display:flex; gap:10px;">
+                    <button id="update-staged-btn" class="hidden">Update Staged Chapter</button>
+                    <button id="save-btn">Save Directly to DB</button>
+                </div>
             </div>
         </details>
 
     </div>
 </div>
 
-<footer id=\"admin-footer\">Admin JS: Loading...</footer>
+<footer id="admin-footer">Admin JS: Loading...</footer>
 
-<script type=\"module\" src=\"admin.js\"></script>
+<script type="module" src="admin.js"></script>
 </body>
 </html>
