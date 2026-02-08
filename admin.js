@@ -1,4 +1,4 @@
-// v1.2 - Admin Editor with Auto-Clean & Tab Injection
+// v1.3 - Admin Editor with Strict Cleaning
 import { db, auth } from "./firebase-config.js";
 import { doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
@@ -14,12 +14,12 @@ const saveBtn = document.getElementById('save-btn');
 onAuthStateChanged(auth, (user) => {
     if (user) {
         statusEl.innerText = "Logged in as: " + user.email;
-        statusEl.style.borderColor = "#00ff41"; // Green indicator
+        statusEl.style.borderColor = "#00ff41"; 
         loginSec.classList.add('hidden');
         editorSec.classList.remove('hidden');
     } else {
         statusEl.innerText = "Access Restricted. Please log in.";
-        statusEl.style.borderColor = "#ff3333"; // Red indicator
+        statusEl.style.borderColor = "#ff3333"; 
         loginSec.classList.remove('hidden');
         editorSec.classList.add('hidden');
     }
