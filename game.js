@@ -1,4 +1,4 @@
-// v1.9.3.2 - Smart Start (Type or Skip), Strict Typing, Book Switching
+// v1.9.3.4 - Modal Headers & Final Polish
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc, getDocs, collection } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,7 +9,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.9.3.2";
+const VERSION = "1.9.3.4";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000; 
 const SPRINT_COOLDOWN_MS = 1500; 
@@ -225,13 +225,7 @@ function setupGame() {
     let btnLabel = "Resume";
     if (savedCharIndex === 0) btnLabel = "Start Reading";
     
-    let title = `Chapter ${currentChapterNum}`;
-    if (bookMetadata && bookMetadata.chapters) {
-        const chapMeta = bookMetadata.chapters.find(c => c.id === "chapter_" + currentChapterNum);
-        if (chapMeta) title = chapMeta.title;
-    }
-
-    if (!isGameActive) showStartModal(title, btnLabel);
+    if (!isGameActive) showStartModal(btnLabel);
 }
 
 function renderText() {
@@ -347,59 +341,38 @@ document.addEventListener('keydown', (e) => {
     if (isModalOpen) {
         if (isInputBlocked) return; 
         
-        // --- SMART START LOGIC ---
         let shouldStart = false;
         let shouldSkip = false;
         
         const targetChar = fullText[currentCharIndex];
         
-        // 1. Direct Match (User types correct key, even if it's Space/Enter)
-        // Check standard key matches
         if (e.key === targetChar) shouldStart = true;
         if (targetChar === '\n' && e.key === 'Enter') shouldStart = true;
         if (targetChar === '\t' && e.key === 'Tab') shouldStart = true;
         
-        // 2. Smart Skip (User ignores Space/Enter and types the NEXT char)
-        // Rule: Only allow skipping Space/Enter. NEVER ignore Tab (indent).
         if (!shouldStart && (targetChar === ' ' || targetChar === '\n')) {
             const nextCharIndex = currentCharIndex + 1;
             if (nextCharIndex < fullText.length) {
                 const nextChar = fullText[nextCharIndex];
-                
-                // Allow match if user types the NEXT char
-                if (e.key === nextChar) {
-                    shouldStart = true;
-                    shouldSkip = true;
-                }
-                // Special case: If next char is Tab, and user hits Tab
-                else if (nextChar === '\t' && e.key === 'Tab') {
-                    shouldStart = true;
-                    shouldSkip = true;
-                }
+                if (e.key === nextChar) { shouldStart = true; shouldSkip = true; }
+                else if (nextChar === '\t' && e.key === 'Tab') { shouldStart = true; shouldSkip = true; }
             }
         }
 
         if (shouldStart && modalActionCallback) {
             e.preventDefault();
-            
-            // Activate Game
-            modalActionCallback(); // Sets isGameActive=true
-            
-            // Handle Skip if needed (mark space/enter done)
+            modalActionCallback(); 
             if (shouldSkip) {
                 const skippedEl = document.getElementById(`char-${currentCharIndex}`);
                 if(skippedEl) skippedEl.classList.add('done-perfect');
                 currentCharIndex++;
             }
-            
-            // Process the typed key immediately
             handleTyping(e.key);
             return;
         }
         return;
     }
     
-    // Normal Game Logic
     if (e.key === "Escape" && isGameActive) { pauseGameForBreak(); return; }
     if (e.key === "Shift") toggleKeyboardCase(true);
     if (!isGameActive) return;
@@ -578,13 +551,31 @@ function finishChapter() {
     });
 }
 
-function showStartModal(title, btnText) {
+function getHeaderHTML() {
+    let bookTitle = (bookMetadata && bookMetadata.title) ? bookMetadata.title : currentBookId.replace(/_/g, ' ');
+    let chapTitle = `Chapter ${currentChapterNum}`;
+    
+    if (bookMetadata && bookMetadata.chapters) {
+        const c = bookMetadata.chapters.find(ch => ch.id === "chapter_" + currentChapterNum);
+        if (c && c.title && c.title !== chapTitle) {
+            chapTitle += ` | ${c.title}`;
+        }
+    }
+    
+    return `
+        <div class="modal-book-title">${bookTitle}</div>
+        <div class="modal-chap-info">${chapTitle}</div>
+    `;
+}
+
+function showStartModal(btnText) {
     isModalOpen = true; isInputBlocked = false; 
     modalActionCallback = startGame;
     const modal = document.getElementById('modal');
-    document.getElementById('modal-title').innerText = title;
+    document.getElementById('modal-title').style.display = 'none'; // Hide generic title
     
     const html = `
+        ${getHeaderHTML()}
         ${getDropdownHTML()}
         <p style="font-size:0.8rem; color:#777; margin-top: 15px;">
             Type the first character to start.<br>
@@ -603,9 +594,11 @@ function showStatsModal(title, stats, btnText, callback) {
     isModalOpen = true; isInputBlocked = true; 
     modalActionCallback = () => { closeModal(); if(callback) callback(); };
     const modal = document.getElementById('modal');
-    document.getElementById('modal-title').innerText = title;
+    document.getElementById('modal-title').style.display = 'none'; // Hide generic
     
     const html = `
+        ${getHeaderHTML()}
+        <div style="font-size:1.2em; font-weight:bold; color:#4B9CD3; margin-bottom:15px;">${title}</div>
         <div class="stat-grid" style="display:flex; justify-content:center; gap:20px; margin:20px 0;">
             <div class="stat-box"><div style="font-size:1.8em; font-weight:bold;">${stats.wpm}</div><div style="font-size:0.9em; color:#777;">WPM</div></div>
             <div class="stat-box"><div style="font-size:1.8em; font-weight:bold;">${stats.acc}%</div><div style="font-size:0.9em; color:#777;">Accuracy</div></div>
@@ -644,6 +637,7 @@ async function openMenuModal() {
     modalActionCallback = () => { closeModal(); startGame(); };
     
     const modal = document.getElementById('modal');
+    document.getElementById('modal-title').style.display = 'block'; // Show title for Menu
     document.getElementById('modal-title').innerText = "Settings";
     
     let chapterOptions = "";
@@ -725,59 +719,4 @@ async function switchChapterHot(newChapter) {
     closeModal(); textStream.innerHTML = "Switching..."; loadChapter(newChapter);
 }
 
-const rows = [['q','w','e','r','t','y','u','i','o','p','[',']','\\'],['a','s','d','f','g','h','j','k','l',';',"'"],['z','x','c','v','b','n','m',',','.','/']];
-const shiftRows = [['Q','W','E','R','T','Y','U','I','O','P','{','}','|'],['A','S','D','F','G','H','J','K','L',':','"'],['Z','X','C','V','B','N','M','<','>','?']];
-
-function createKeyboard() {
-    keyboardDiv.innerHTML = '';
-    rows.forEach((rowChars, rIndex) => {
-        const rowDiv = document.createElement('div'); rowDiv.className = 'kb-row'; 
-        if (rIndex === 1) addSpecialKey(rowDiv, "CAPS"); if (rIndex === 2) addSpecialKey(rowDiv, "SHIFT");
-        rowChars.forEach((char, cIndex) => {
-            const key = document.createElement('div'); key.className = 'key'; key.innerText = char; key.dataset.char = char; key.dataset.shift = shiftRows[rIndex][cIndex]; key.id = `key-${char}`; rowDiv.appendChild(key);
-        });
-        if (rIndex === 0) addSpecialKey(rowDiv, "BACK"); if (rIndex === 1) addSpecialKey(rowDiv, "ENTER"); if (rIndex === 2) addSpecialKey(rowDiv, "SHIFT");
-        keyboardDiv.appendChild(rowDiv);
-    });
-    const spaceRow = document.createElement('div'); spaceRow.className = 'kb-row'; 
-    const space = document.createElement('div'); space.className = 'key space'; space.innerText = ""; space.id = "key- ";
-    spaceRow.appendChild(space); keyboardDiv.appendChild(spaceRow);
-}
-
-function addSpecialKey(parent, text) {
-    const key = document.createElement('div'); key.className = 'key wide'; key.innerText = text; key.id = `key-${text}`; parent.appendChild(key);
-}
-
-function toggleKeyboardCase(isShift) {
-    document.querySelectorAll('.key').forEach(k => {
-        if (k.dataset.char) k.innerText = isShift ? k.dataset.shift : k.dataset.char;
-        if (k.id === 'key-SHIFT') isShift ? k.classList.add('shift-active') : k.classList.remove('shift-active');
-    });
-}
-
-function highlightKey(char) {
-    document.querySelectorAll('.key').forEach(k => k.classList.remove('target'));
-    let targetId = ''; let needsShift = false;
-    if (char === ' ') targetId = 'key- '; else if (char === '\t') targetId = 'key-TAB'; else if (char === '\n') targetId = 'key-ENTER'; 
-    else {
-        const keys = Array.from(document.querySelectorAll('.key'));
-        const found = keys.find(k => k.dataset.char === char || k.dataset.shift === char);
-        if (found) { targetId = found.id; if (found.dataset.shift === char) needsShift = true; }
-    }
-    const el = document.getElementById(targetId); if (el) el.classList.add('target');
-    toggleKeyboardCase(needsShift);
-}
-
-function flashKey(char) {
-    let targetId = '';
-    if (char === ' ') targetId = 'key- '; else if (char === '\t' || char === 'Tab') targetId = 'key-TAB'; else if (char === '\n' || char === 'Enter') targetId = 'key-ENTER'; 
-    else {
-        const keys = Array.from(document.querySelectorAll('.key'));
-        const found = keys.find(k => k.dataset.char === char || k.dataset.shift === char);
-        if (found) targetId = found.id;
-    }
-    const el = document.getElementById(targetId);
-    if (el) { el.style.backgroundColor = 'var(--brute-force-color)'; setTimeout(() => el.style.backgroundColor = '', 200); }
-}
-
-window.onload = init;
+const rows = [['q','w','e','r','t','y','u','i','o','p','[',']','\\'],['a','s','d','f','g','h','j','k','l',';',"'"],['z','x','c','v','b','n','m
