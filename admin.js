@@ -1,9 +1,9 @@
-// v1.9.6.1 - Book Title Editor
+// v1.9.7 - Content Staging Title Editor
 import { db, auth } from "./firebase-config.js";
 import { doc, setDoc, getDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const ADMIN_VERSION = "1.9.6.1";
+const ADMIN_VERSION = "1.9.7";
 
 // DOM Elements
 const statusEl = document.getElementById('status');
@@ -15,7 +15,8 @@ const footerEl = document.getElementById('admin-footer');
 // Elements
 const bookSelect = document.getElementById('book-select');
 const newBookInput = document.getElementById('new-book-input');
-const bookTitleInput = document.getElementById('book-title'); // NEW
+const bookTitleInput = document.getElementById('book-title'); 
+const saveTitleBtn = document.getElementById('save-title-btn'); // NEW
 const loadDbBtn = document.getElementById('load-db-btn');
 const epubInput = document.getElementById('epub-file');
 const processingUI = document.getElementById('processing-ui');
@@ -33,7 +34,7 @@ const manualDetails = document.getElementById('manual-details');
 
 let stagedChapters = [];
 let editingIndex = -1;
-let bookTitlesMap = {}; // Cache titles
+let bookTitlesMap = {}; 
 
 // Init Display
 if(footerEl) footerEl.innerText = `Admin JS: v${ADMIN_VERSION}`;
@@ -71,14 +72,11 @@ async function loadBookList() {
             const b = doc.data();
             const option = document.createElement("option");
             option.value = doc.id;
-            // Save real title to map
             bookTitlesMap[doc.id] = b.title || doc.id;
-            
             option.text = bookTitlesMap[doc.id] + ` (${doc.id})`;
             bookSelect.appendChild(option);
         });
 
-        // Add Create Option
         const createOpt = document.createElement("option");
         createOpt.value = "__NEW__";
         createOpt.text = "➕ Create New Book...";
@@ -86,7 +84,6 @@ async function loadBookList() {
         createOpt.style.fontWeight = "bold";
         bookSelect.appendChild(createOpt);
         
-        // Trigger change to populate title box
         bookSelect.dispatchEvent(new Event('change'));
 
     } catch (e) {
@@ -99,11 +96,10 @@ bookSelect.onchange = () => {
     const val = bookSelect.value;
     if (val === "__NEW__") {
         newBookInput.classList.remove('hidden');
-        bookTitleInput.value = ""; // Clear for new
+        bookTitleInput.value = ""; 
         newBookInput.focus();
     } else {
         newBookInput.classList.add('hidden');
-        // Auto-fill existing title
         bookTitleInput.value = bookTitlesMap[val] || val;
     }
 };
@@ -115,7 +111,35 @@ function getActiveBookId() {
     return bookSelect.value;
 }
 
-// --- DIRECT SAVE (Single) ---
+// --- SAVE TITLE ONLY ---
+saveTitleBtn.onclick = async () => {
+    const bookId = getActiveBookId();
+    if (!bookId) return alert("Select a book first.");
+    const newTitle = bookTitleInput.value.trim();
+    if (!newTitle) return alert("Enter a title.");
+
+    try {
+        statusEl.innerText = "Saving Title...";
+        await setDoc(doc(db, "books", bookId), {
+            title: newTitle
+        }, { merge: true });
+        
+        // Update local cache and dropdown text
+        bookTitlesMap[bookId] = newTitle;
+        // Refresh dropdown
+        await loadBookList();
+        // Restore selection
+        bookSelect.value = bookId;
+        
+        statusEl.innerText = `Title updated to: ${newTitle}`;
+        statusEl.style.borderColor = "#00ff41";
+    } catch(e) {
+        statusEl.innerText = "Save Error: " + e.message;
+        statusEl.style.borderColor = "#ff3333";
+    }
+};
+
+// --- DIRECT SAVE (Single Chapter) ---
 saveDirectBtn.onclick = async () => {
     const bookId = getActiveBookId();
     const chapNum = manualNum.value.trim();
@@ -151,7 +175,6 @@ loadDbBtn.onclick = async () => {
         const meta = metaSnap.data();
         const chapters = meta.chapters || [];
         
-        // Populate Title Input if not already
         if(meta.title) bookTitleInput.value = meta.title;
         
         statusEl.innerText = `Found ${chapters.length} chapters. Fetching content...`;
@@ -223,12 +246,10 @@ epubInput.addEventListener('change', async (e) => {
             const content = await zip.file(fullPath).async("string");
             const doc = new DOMParser().parseFromString(content, "application/xhtml+xml");
             
-            // Extract Title - Only check body tags
             let title = `Chapter ${counter}`;
             const hTag = doc.body.querySelector('h1, h2, h3');
             if(hTag) title = hTag.innerText.trim().substring(0, 60);
 
-            // Extract Text
             const segments = [];
             doc.body.querySelectorAll("p").forEach(el => {
                 let text = el.textContent;
@@ -328,19 +349,18 @@ updateStagedBtn.onclick = () => {
     } catch (e) { alert("Invalid JSON"); }
 };
 
-// --- UPLOAD ---
+// --- UPLOAD ALL ---
 uploadAllBtn.onclick = async () => {
     if (stagedChapters.length === 0) return alert("Nothing to upload.");
     const bookId = getActiveBookId();
     if (!bookId) return alert("Select or enter a Book ID.");
     
-    // Get the title from the new input box
     let displayTitle = bookTitleInput.value.trim();
     if (!displayTitle) {
         displayTitle = bookId.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
     }
 
-    if (!confirm(`Overwrite book "${bookId}" (Title: ${displayTitle}) with ${stagedChapters.length} chapters? This cannot be undone.`)) return;
+    if (!confirm(`Overwrite book "${bookId}" (Title: ${displayTitle}) with ${stagedChapters.length} chapters?`)) return;
 
     statusEl.innerText = "Uploading...";
     const chapterMeta = [];
@@ -352,30 +372,16 @@ uploadAllBtn.onclick = async () => {
         
         try {
             if(uiStatus) uiStatus.innerText = "...";
-            
             await setDoc(doc(db, "books", bookId, "chapters", "chapter_" + chapNum), {
                 segments: chapData.segments
             });
-            
-            chapterMeta.push({
-                id: "chapter_" + chapNum,
-                title: chapData.title
-            });
-
-            if(uiStatus) {
-                uiStatus.innerText = "✔ OK";
-                uiStatus.className = "chap-status ok";
-            }
-            
+            chapterMeta.push({ id: "chapter_" + chapNum, title: chapData.title });
+            if(uiStatus) { uiStatus.innerText = "✔ OK"; uiStatus.className = "chap-status ok"; }
             const row = document.getElementById(`ui-chap-${i}`);
             if(row) row.classList.add('uploaded');
-
         } catch (e) {
             console.error(e);
-            if(uiStatus) {
-                uiStatus.innerText = "FAIL";
-                uiStatus.style.color = "red";
-            }
+            if(uiStatus) { uiStatus.innerText = "FAIL"; uiStatus.style.color = "red"; }
             return alert(`Upload failed at Chapter ${chapNum}`);
         }
     }
@@ -389,10 +395,7 @@ uploadAllBtn.onclick = async () => {
         
         statusEl.innerText = "Upload Complete!";
         statusEl.style.borderColor = "#00ff41";
-        
-        // Refresh to show updates
         await loadBookList();
-        
     } catch (e) { alert("Metadata Save Failed: " + e.message); }
 };
 
