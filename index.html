@@ -124,20 +124,35 @@
             line-height: 1.6;
         }
         .save-notice {
-            display: inline-block;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
             margin-top: 16px;
-            padding: 6px 14px;
-            background: rgba(75, 156, 211, 0.1);
-            border: 1px solid rgba(75, 156, 211, 0.3);
-            border-radius: 4px;
-            color: var(--carolina-blue);
-            font-size: 0.75rem;
-            letter-spacing: 0.5px;
+            padding: 8px 18px;
+            background: rgba(255, 255, 255, 0.07);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 6px;
+            color: #ccc;
+            font-size: 0.8rem;
+            letter-spacing: 0.3px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-decoration: none;
+        }
+        .save-notice:hover {
+            background: rgba(255, 255, 255, 0.12);
+            border-color: rgba(255, 255, 255, 0.3);
+            color: white;
+        }
+        .save-notice .g-logo {
+            width: 18px; height: 18px; flex-shrink: 0;
         }
         .save-notice.signed-in {
             background: rgba(34, 197, 94, 0.1);
             border-color: rgba(34, 197, 94, 0.3);
             color: #22c55e;
+            cursor: default;
+            pointer-events: none;
         }
         .mobile-notice {
             display: none;
@@ -260,6 +275,7 @@
     <header>
         <div class="logo">TYPE<span>THAT</span>BOOK</div>
         <div class="header-right">
+            <a href="reports.html" class="admin-link hidden" id="reports-link">Reports</a>
             <a href="admin.html" class="admin-link hidden" id="admin-link">Admin</a>
             <div id="signed-out-ui">
                 <button class="auth-btn" id="login-btn">Sign In</button>
@@ -277,8 +293,9 @@
     <div class="hero">
         <h1>TYPE YOUR WAY THROUGH<br><span class="blue">LITERATURE</span></h1>
         <p>Practice typing with real books from Project Gutenberg.<br>Pick a book below and start reading with your fingers.</p>
-        <div class="save-notice" id="save-notice">
-            Sign in with Google to save your progress across devices
+        <div class="save-notice" id="save-notice" role="button" tabindex="0">
+            <svg class="g-logo" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+            Sign in with Google to save your progress
         </div>
         <div class="mobile-notice">
             ⌨️ This app works best with a physical keyboard
@@ -292,7 +309,7 @@
         </div>
     </main>
 
-    <footer>TypeThatBook v2.0.0</footer>
+    <footer>TypeThatBook v2.1.0</footer>
 
     <script type="module">
         import { db, auth } from "./firebase-config.js";
@@ -319,10 +336,16 @@
             loadBooks();
         });
 
-        document.getElementById('login-btn').addEventListener('click', async () => {
+        document.getElementById('login-btn').addEventListener('click', doGoogleSignIn);
+        document.getElementById('save-notice').addEventListener('click', doGoogleSignIn);
+        document.getElementById('save-notice').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); doGoogleSignIn(); }
+        });
+
+        async function doGoogleSignIn() {
             try { await signInWithPopup(auth, new GoogleAuthProvider()); }
             catch (e) { if (e.code !== 'auth/popup-closed-by-user') console.error(e); }
-        });
+        }
 
         document.getElementById('logout-btn').addEventListener('click', async () => {
             await signOut(auth);
@@ -341,14 +364,17 @@
                 const photo = document.getElementById('user-photo');
                 if (currentUser.photoURL) { photo.src = currentUser.photoURL; photo.style.display = ''; }
                 else { photo.style.display = 'none'; }
-                document.getElementById('save-notice').textContent = '✓ Progress will be saved to your account';
+                document.getElementById('save-notice').innerHTML = '✓ Progress will be saved to your account';
                 document.getElementById('save-notice').classList.add('signed-in');
-                if (ADMIN_EMAILS.includes(currentUser.email))
+                if (ADMIN_EMAILS.includes(currentUser.email)) {
                     document.getElementById('admin-link').classList.remove('hidden');
+                    document.getElementById('reports-link').classList.remove('hidden');
+                }
             } else {
-                document.getElementById('save-notice').textContent = 'Sign in with Google to save your progress across devices';
+                document.getElementById('save-notice').innerHTML = '<svg class="g-logo" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg> Sign in with Google to save your progress';
                 document.getElementById('save-notice').classList.remove('signed-in');
                 document.getElementById('admin-link').classList.add('hidden');
+                document.getElementById('reports-link').classList.add('hidden');
             }
         }
 
