@@ -1,9 +1,9 @@
-// v1.9.7.9 - Precise Context Error Wizard
+// v1.9.7.10 - Restored Missing Buttons & Wizard Logic
 import { db, auth } from "./firebase-config.js";
 import { doc, setDoc, getDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const ADMIN_VERSION = "1.9.7.9";
+const ADMIN_VERSION = "1.9.7.10";
 
 // DOM Elements
 const statusEl = document.getElementById('status');
@@ -31,7 +31,6 @@ const saveTitleBtn = document.getElementById('save-title-btn');
 const overwriteSection = document.getElementById('overwrite-section');
 const overwriteEpubFile = document.getElementById('overwrite-epub-file');
 const overwriteBtn = document.getElementById('overwrite-btn');
-const createSection = document.getElementById('create-section');
 const chapterListEl = document.getElementById('chapter-list');
 const uploadAllBtn = document.getElementById('upload-all-btn');
 const cleanNewlinesCb = document.getElementById('clean-newlines');
@@ -123,19 +122,22 @@ async function loadBookList() {
 
 bookSelect.onchange = () => {
     stagingArea.classList.add('hidden'); 
+    
+    // Toggle UI Containers
     if (bookSelect.value === "__NEW__") {
-        newBookInput.classList.remove('hidden');
-        activeBookId = "";
-        activeBookTitle.value = "";
-        createSection.classList.remove('hidden');
-        overwriteSection.classList.add('hidden');
-        stagingArea.classList.remove('hidden');
+        createNewUI.classList.remove('hidden');
+        editExistingUI.classList.add('hidden');
+        
+        // Reset fields
+        newBookId.value = "";
+        newBookTitle.value = "";
+        newEpubFile.value = "";
     } else {
-        newBookInput.classList.add('hidden');
+        createNewUI.classList.add('hidden');
+        editExistingUI.classList.remove('hidden');
+        
         activeBookId = bookSelect.value;
         activeBookTitle.value = bookTitlesMap[activeBookId] || activeBookId;
-        document.getElementById('edit-existing-ui').classList.remove('hidden');
-        createSection.classList.add('hidden');
     }
 };
 
@@ -186,7 +188,7 @@ createParseBtn.onclick = async () => {
     activeBookTitle.value = title;
     await parseEpubFile(file);
     stagingArea.classList.remove('hidden');
-    overwriteSection.classList.add('hidden'); 
+    overwriteSection.classList.add('hidden'); // No overwrite for new
 };
 
 // --- OVERWRITE ---
@@ -200,7 +202,7 @@ confirmOverwriteBtn.onclick = async () => {
     await parseEpubFile(overwriteEpubFile.files[0]);
 };
 
-// --- EPUB PARSER ---
+// --- EPUB PARSER & ERROR SCANNER ---
 async function parseEpubFile(file) {
     statusEl.innerText = "Parsing...";
     chapterListEl.innerHTML = "Parsing...";
@@ -325,57 +327,41 @@ function showErrorWizard() {
     const badCharCode = err.badChar.charCodeAt(0).toString(16).toUpperCase();
     wizardCharDisplay.innerText = `"${err.badChar}" (U+${badCharCode})`;
     
-    // --- CONTEXT EXTRACTION ---
+    // --- CONTEXT ---
     const text = err.segmentRef.text;
     const charIndex = text.indexOf(err.badChar);
     
-    // Attempt to isolate just the sentence
-    // Find punctuation before
+    // Sentence isolation logic
     let start = -1;
-    // Iterate backwards from char to find sentence start (. ! ?)
     for(let i = charIndex - 1; i >= 0; i--) {
-        if(['.', '!', '?'].includes(text[i])) {
-            start = i + 1;
-            break;
-        }
+        if(['.', '!', '?'].includes(text[i])) { start = i + 1; break; }
     }
     if(start === -1) start = 0;
 
-    // Find punctuation after
     let end = -1;
     for(let i = charIndex; i < text.length; i++) {
-        if(['.', '!', '?'].includes(text[i])) {
-            end = i + 1; // Include the punctuation
-            break;
-        }
+        if(['.', '!', '?'].includes(text[i])) { end = i + 1; break; }
     }
     if(end === -1) end = text.length;
 
-    // Fallback: If sentence is excessively long (e.g. run-on paragraph > 300 chars), just use a window
     if((end - start) > 300) {
         start = Math.max(0, charIndex - 100);
         end = Math.min(text.length, charIndex + 100);
     }
 
     let sub = text.substring(start, end).trim();
-    
-    // --- EDITABLE AREA ---
-    // Pre-populate the input with just the isolate text to make it easy to edit
-    // Note: If the error appears multiple times in the paragraph, we only fix this instance logic-wise here
     wizardInput.value = sub;
     
-    // --- PREVIEW ---
+    // Preview
     const safeSub = sub.replace(/</g, "&lt;").replace(/>/g, "&gt;");
     const safeChar = err.badChar.replace(/</g, "&lt;").replace(/>/g, "&gt;");
     const highlightHtml = `<span class="bad-char-highlight">${safeChar}</span>`;
-    const previewText = safeSub.split(safeChar).join(highlightHtml); // Highlight all in this snippet
+    const previewText = safeSub.split(safeChar).join(highlightHtml); 
     
     wizardPreview.innerHTML = previewText;
     
-    // Store offsets for saving
     err.contextStart = start;
     err.contextEnd = end;
-    err.contextOriginal = sub; // To check if they changed it
     
     wizardModal.classList.remove('hidden');
 }
@@ -388,78 +374,18 @@ wizardIgnoreBtn.onclick = () => {
 wizardSaveBtn.onclick = () => {
     const newSnippet = wizardInput.value;
     const err = importErrors[currentErrorIdx];
-    
-    // Reconstruct the full text with the fix
     const fullText = err.segmentRef.text;
-    const pre = fullText.substring(0, err.contextStart);
-    // Note: We scan from contextEnd in case whitespace trimming shifted things, 
-    // but simplified approach: Replace the first occurrence of the original snippet in the search window
-    // Logic: The snippet was extracted by index. We just replace that range.
     
-    // BUT, because we trimmed 'sub' in extraction, indices might be slightly off if spaces were removed.
-    // Robust Replace:
-    const prefix = fullText.substring(0, err.contextStart);
-    const suffix = fullText.substring(err.contextEnd);
-    
-    // Actually, simple string replacement is risky if the sentence appears twice.
-    // Safer to use the substring extraction:
-    // However, we trimmed 'sub'. Let's trust the user editing the box replaces the 'sub' equivalent.
-    // We will just patch it in.
-    
-    // Actually, to support "just the word", finding the bounds exactly again:
-    // Let's assume the user edited the 'sub' we gave them.
-    // We just need to stitch it back.
-    
-    // Need to account for the fact we did .trim() on sub previously?
-    // Let's use exact substring for stitching to be safe.
-    const originalUntrimmed = fullText.substring(err.contextStart, err.contextEnd);
-    
-    // If the user's input doesn't look like a replacement, we might have issues.
-    // But assuming they fixed the typo:
-    const stitchedText = prefix + newSnippet + suffix; // This assumes newSnippet replaces originalUntrimmed.
-    // Wait, originalUntrimmed might have leading spaces we stripped. 
-    // Let's simply replace the char in the full text if possible? No, user might rewrite words.
-    
-    // Better approach: Update the segment with the stitched text.
-    // NOTE: This might lose spacing if our 'trim' logic was aggressive.
-    // Let's avoid trim in the extraction for safety in stitching.
-    
-    // --- RE-VALIDATION ---
+    // Re-validation
     const badMatches = newSnippet.match(/[^ -~\t\n]/g);
     
     if (badMatches) {
         alert(`Still found untypable character: "${badMatches[0]}"`);
-        // Do not advance
     } else {
-        // Update the main data
-        // We need to re-find the exact spot because 'trim' was used visually but indices are raw
-        // Let's retry extraction without trim for the logic
-        let rawSub = fullText.substring(err.contextStart, err.contextEnd);
-        // If user edited 'newSnippet', we replace 'rawSub' with 'newSnippet'
-        // But user might have removed spaces we wanted.
-        // It's a trade off. Let's just update.
-        
-        // Re-calculate indices because we are editing the referenced object in place
-        // and subsequent errors in same segment might have invalid indices now.
-        // Complex!
-        
-        // SIMPLIFIED STRATEGY:
-        // We update the referenced segment text.
-        // If this segment had *multiple* errors in the queue, their indices are now invalid.
-        // We should clear future errors for THIS segment and re-scan it? 
-        // Or just update this one and hope?
-        
-        // SAFEST: Update text.
-        err.segmentRef.text = fullText.substring(0, err.contextStart) + newSnippet + fullText.substring(err.contextEnd);
-        
-        // Check if there are other errors in this same segment later in the queue?
-        // Yes, if we fix one, the text length changes.
-        // We should probably re-validate the current segment completely.
-        // If clean, remove other errors pointing to this segment.
-        // If dirty, re-queue them.
-        
-        // Actually, just move on. If they create a new error, we might miss it in this pass, 
-        // but let's assume they are fixing things.
+        // Stitch
+        const prefix = fullText.substring(0, err.contextStart);
+        const suffix = fullText.substring(err.contextEnd);
+        err.segmentRef.text = prefix + newSnippet + suffix;
         
         currentErrorIdx++;
         showErrorWizard();
@@ -535,7 +461,7 @@ updateStagedBtn.onclick = () => {
     } catch (e) { alert("Invalid JSON"); }
 };
 
-// --- SAVE TITLE ONLY ---
+// --- SAVE TITLE ---
 saveTitleBtn.onclick = async () => {
     if (!activeBookId) return alert("No active book.");
     const newTitle = activeBookTitle.value.trim();
@@ -548,7 +474,7 @@ saveTitleBtn.onclick = async () => {
     } catch(e) { alert(e.message); }
 };
 
-// --- UPLOAD ALL (Fixed for ID 0) ---
+// --- UPLOAD ALL ---
 uploadAllBtn.onclick = async () => {
     if (stagedChapters.length === 0) return alert("Nothing to upload.");
     if (!activeBookId) return alert("No active book.");
@@ -560,7 +486,6 @@ uploadAllBtn.onclick = async () => {
 
     for (let i = 0; i < stagedChapters.length; i++) {
         const chapData = stagedChapters[i];
-        // USE STORED ID (allows 0, 1.1), fallback to sequential if missing
         const chapId = (chapData.id !== undefined && chapData.id !== "") ? chapData.id : (i + 1);
         
         const uiStatus = document.querySelector(`#ui-chap-${i} .chap-status`);
