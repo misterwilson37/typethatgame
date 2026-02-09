@@ -1,4 +1,4 @@
-/* v1.9.3.9 - Full Width, Hidden Images, Landing Screen */
+/* v1.9.3.8 - Full Width, Hidden Images, Importer Wizard */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -213,27 +213,14 @@ button.danger-btn:hover { background-color: #441111; border-color: #ff3333; colo
 button.secondary-btn { background-color: transparent; border: 1px solid #444; color: #aaa; margin-top: 10px; width: 100%; }
 button.secondary-btn:hover { border-color: #888; color: #fff; }
 
-/* LANDING SCREEN BUTTONS */
-.landing-btn {
-    display: block; width: 80%; margin: 10px auto;
-    padding: 12px 0; font-size: 1.1rem;
-    font-weight: bold; border-radius: 4px;
-    cursor: pointer; border: none;
-    transition: transform 0.1s, opacity 0.2s;
-}
-.landing-btn:active { transform: translateY(2px); }
-.landing-btn.primary { background: #4B9CD3; color: white; box-shadow: 0 4px 0 #2b7ca8; }
-.landing-btn.primary:hover { background: #5baee0; }
-.landing-btn.secondary { background: #e0e0e0; color: #333; box-shadow: 0 4px 0 #bbb; }
-.landing-btn.secondary:hover { background: #ebebeb; }
-
-/* Error Wizard Styles */
+/* ERROR WIZARD STYLES */
 .error-wizard-content {
     pointer-events: auto;
     background: #151515; border: 2px solid #ffaa00; padding: 25px;
     max-width: 800px; width: 90%; text-align: left; color: #eee;
     max-height: 90vh; overflow-y: auto;
     box-shadow: 0 0 20px rgba(255, 170, 0, 0.2);
+    /* Center it */
     position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
 }
 .bad-char-highlight {
