@@ -1,23 +1,33 @@
-// v1.9.3.7 - Auto-Pause, Capitalization Hints, Chapter Titles
+// v2.0.0 - Security Fixes, Landing Page, URL Params
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc, getDocs, collection } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
-    signInAnonymously, 
     onAuthStateChanged, 
     GoogleAuthProvider, 
     signInWithPopup, 
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.9.3.7";
+const VERSION = "2.0.0";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000; 
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
 const SPRINT_COOLDOWN_MS = 1500; 
 const SPAM_THRESHOLD = 5; 
 
-// STATE
-let currentBookId = localStorage.getItem('currentBookId') || DEFAULT_BOOK;
+// ADMIN WHITELIST - same list as index.html, used to show admin link
+const ADMIN_EMAILS = [
+    "jacob.wilson@sumnerk12.net",
+    "jacob.v.wilson@gmail.com",
+];
+
+// STATE — URL param takes priority, then localStorage, then default
+function getBookIdFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('book');
+}
+let currentBookId = getBookIdFromUrl() || localStorage.getItem('currentBookId') || DEFAULT_BOOK;
+localStorage.setItem('currentBookId', currentBookId); // sync
 let currentUser = null;
 let bookData = null;
 let bookMetadata = null; 
@@ -56,6 +66,13 @@ const logoutBtn = document.getElementById('logout-btn');
 const userInfo = document.getElementById('user-info');
 const userNameDisplay = document.getElementById('user-name');
 
+// Security: escape HTML to prevent XSS from Firestore data
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.appendChild(document.createTextNode(String(str)));
+    return div.innerHTML;
+}
+
 async function init() {
     console.log("Initializing JS v" + VERSION);
     const footer = document.querySelector('footer');
@@ -82,7 +99,13 @@ async function init() {
                 await loadUserStats();    
             } catch(e) { console.error("Init Error:", e); }
         } else {
-            signInAnonymously(auth);
+            // No anonymous sign-in — just load the book as read-only
+            currentUser = null;
+            updateAuthUI(false);
+            try {
+                await loadBookMetadata();
+                loadChapter(1);
+            } catch(e) { console.error("Init Error:", e); }
         }
     });
 }
@@ -126,6 +149,7 @@ async function loadBookMetadata() {
 }
 
 async function loadUserStats() {
+    if (!currentUser || currentUser.isAnonymous) return;
     try {
         const today = new Date();
         const dateStr = today.toISOString().split('T')[0]; 
@@ -166,6 +190,14 @@ function getWeekStart(date) {
 async function loadUserProgress() {
     textStream.innerHTML = "Loading progress...";
     try {
+        if (!currentUser || currentUser.isAnonymous) {
+            // No user — start from beginning, no saved progress
+            currentChapterNum = 1;
+            savedCharIndex = 0;
+            lastSavedIndex = 0;
+            loadChapter(1);
+            return;
+        }
         const docRef = doc(db, "users", currentUser.uid, "progress", currentBookId);
         const docSnap = await getDoc(docRef);
         currentChapterNum = 1;
@@ -549,7 +581,7 @@ function updateImageDisplay() {
 }
 
 async function saveProgress(force = false) {
-    if (!currentUser) return;
+    if (!currentUser || currentUser.isAnonymous) return;
     try {
         if (currentCharIndex > lastSavedIndex || force) {
             await setDoc(doc(db, "users", currentUser.uid, "progress", currentBookId), {
@@ -642,26 +674,28 @@ function finishChapter() {
         await saveProgress(true); 
         currentChapterNum = nextChapterId;
         savedCharIndex = 0; currentCharIndex = 0; lastSavedIndex = 0;
-        await setDoc(doc(db, "users", currentUser.uid, "progress", currentBookId), {
-            chapter: currentChapterNum, charIndex: 0
-        }, { merge: true });
+        if (currentUser && !currentUser.isAnonymous) {
+            await setDoc(doc(db, "users", currentUser.uid, "progress", currentBookId), {
+                chapter: currentChapterNum, charIndex: 0
+            }, { merge: true });
+        }
         loadChapter(nextChapterId);
     });
 }
 
 function getHeaderHTML() {
-    let bookTitle = (bookMetadata && bookMetadata.title) ? bookMetadata.title : currentBookId.replace(/_/g, ' ');
+    let bookTitle = (bookMetadata && bookMetadata.title) ? escapeHtml(bookMetadata.title) : escapeHtml(currentBookId.replace(/_/g, ' '));
     
-    let displayChapTitle = `Chapter ${currentChapterNum}`;
+    let displayChapTitle = `Chapter ${escapeHtml(String(currentChapterNum))}`;
     
     if (bookMetadata && bookMetadata.chapters) {
         const c = bookMetadata.chapters.find(ch => ch.id == "chapter_" + currentChapterNum);
         if (c && c.title) {
             if(c.title != currentChapterNum) {
                 if(c.title.toLowerCase().startsWith('chapter')) {
-                    displayChapTitle = c.title;
+                    displayChapTitle = escapeHtml(c.title);
                 } else {
-                    displayChapTitle = `Chapter ${currentChapterNum} | ${c.title}`;
+                    displayChapTitle = `Chapter ${escapeHtml(String(currentChapterNum))} | ${escapeHtml(c.title)}`;
                 }
             }
         }
@@ -748,12 +782,12 @@ async function openMenuModal() {
             const num = chap.id.replace("chapter_", "");
             let sel = (num == currentChapterNum) ? "selected" : "";
             
-            let label = `Chapter ${num}`;
+            let label = `Chapter ${escapeHtml(num)}`;
             if(chap.title && chap.title != num) {
-                if(chap.title.toLowerCase().startsWith('chapter')) label = chap.title;
-                else label = `Chapter ${num}: ${chap.title}`;
+                if(chap.title.toLowerCase().startsWith('chapter')) label = escapeHtml(chap.title);
+                else label = `Chapter ${escapeHtml(num)}: ${escapeHtml(chap.title)}`;
             }
-            chapterOptions += `<option value="${num}" ${sel}>${label}</option>`;
+            chapterOptions += `<option value="${escapeHtml(num)}" ${sel}>${label}</option>`;
         });
     }
 
@@ -763,9 +797,9 @@ async function openMenuModal() {
         querySnapshot.forEach((doc) => {
             const b = doc.data();
             const id = doc.id;
-            const title = b.title || id;
+            const title = escapeHtml(b.title || id);
             const sel = (id === currentBookId) ? "selected" : "";
-            bookOptions += `<option value="${id}" ${sel}>${title}</option>`;
+            bookOptions += `<option value="${escapeHtml(id)}" ${sel}>${title}</option>`;
         });
     } catch(e) { console.warn(e); }
 
@@ -820,9 +854,11 @@ function handleChapterSwitch(newChapter) {
 }
 
 async function switchChapterHot(newChapter) {
-    await setDoc(doc(db, "users", currentUser.uid, "progress", currentBookId), {
-        chapter: newChapter, charIndex: 0
-    }, { merge: true });
+    if (currentUser && !currentUser.isAnonymous) {
+        await setDoc(doc(db, "users", currentUser.uid, "progress", currentBookId), {
+            chapter: newChapter, charIndex: 0
+        }, { merge: true });
+    }
     currentChapterNum = newChapter; savedCharIndex = 0; currentCharIndex = 0; lastSavedIndex = 0;
     closeModal(); textStream.innerHTML = "Switching..."; loadChapter(newChapter);
 }
