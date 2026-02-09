@@ -1,4 +1,4 @@
-// v2.1.0 - Dvorak Support, Daily Logging, Reports
+// v2.2.0 - Goals & Celebrations
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc, getDocs, collection } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -8,7 +8,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "2.1.0";
+const VERSION = "2.2.0";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000; 
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -41,6 +41,11 @@ let currentChapterNum = 1;
 let sessionLimit = 30; 
 let sessionValueStr = "30"; 
 let statsData = { secondsToday:0, secondsWeek:0, charsToday:0, charsWeek:0, mistakesToday:0, mistakesWeek:0, lastDate:"", weekStart:0 };
+
+// Goals
+let goals = { dailySeconds: 0, weeklySeconds: 0 };
+let dailyGoalCelebrated = false;
+let weeklyGoalCelebrated = false;
 
 // Game Vars
 let mistakes = 0; let sprintMistakes = 0; 
@@ -96,7 +101,8 @@ async function init() {
             try {
                 await loadBookMetadata(); 
                 await loadUserProgress(); 
-                await loadUserStats();    
+                await loadUserStats();
+                await loadGoals();
             } catch(e) { console.error("Init Error:", e); }
         } else {
             // No anonymous sign-in — just load the book as read-only
@@ -185,6 +191,20 @@ function getWeekStart(date) {
     d.setDate(d.getDate() - diff);
     d.setHours(0,0,0,0);
     return d.getTime();
+}
+
+async function loadGoals() {
+    try {
+        const goalsSnap = await getDoc(doc(db, "settings", "goals"));
+        if (goalsSnap.exists()) {
+            const data = goalsSnap.data();
+            goals.dailySeconds = data.dailySeconds || 0;
+            goals.weeklySeconds = data.weeklySeconds || 0;
+        }
+        // If user already exceeded goals coming in, mark as celebrated so we don't fire mid-session
+        if (goals.dailySeconds > 0 && statsData.secondsToday >= goals.dailySeconds) dailyGoalCelebrated = true;
+        if (goals.weeklySeconds > 0 && statsData.secondsWeek >= goals.weeklySeconds) weeklyGoalCelebrated = true;
+    } catch (e) { console.warn("Goals load error:", e); }
 }
 
 async function loadUserProgress() {
@@ -342,6 +362,16 @@ function gameTick() {
             statsData.secondsToday++; statsData.secondsWeek++;
             timeAccumulator -= 1000;
             updateTimerUI();
+            
+            // Goal celebrations
+            if (goals.dailySeconds > 0 && !dailyGoalCelebrated && statsData.secondsToday >= goals.dailySeconds) {
+                dailyGoalCelebrated = true;
+                launchConfetti();
+            }
+            if (goals.weeklySeconds > 0 && !weeklyGoalCelebrated && statsData.secondsWeek >= goals.weeklySeconds) {
+                weeklyGoalCelebrated = true;
+                launchFireworks();
+            }
         }
     } else {
         timerDisplay.style.opacity = '0.5';
@@ -964,6 +994,186 @@ function flashKey(char) {
     }
     const el = document.getElementById(targetId);
     if (el) { el.style.backgroundColor = 'var(--brute-force-color)'; setTimeout(() => el.style.backgroundColor = '', 200); }
+}
+
+// --- CELEBRATIONS ---
+function createCelebrationCanvas() {
+    const canvas = document.createElement('canvas');
+    canvas.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9999;';
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    document.body.appendChild(canvas);
+    return canvas;
+}
+
+function launchConfetti() {
+    const canvas = createCelebrationCanvas();
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    const colors = ['#4B9CD3','#FFD700','#FF6B6B','#22c55e','#FF69B4','#FFA500','#9B59B6','#00CED1'];
+    const pieces = [];
+
+    for (let i = 0; i < 150; i++) {
+        pieces.push({
+            x: W * 0.5 + (Math.random() - 0.5) * W * 0.6,
+            y: -20 - Math.random() * 100,
+            w: 6 + Math.random() * 6,
+            h: 10 + Math.random() * 8,
+            color: colors[Math.floor(Math.random() * colors.length)],
+            rotation: Math.random() * Math.PI * 2,
+            rotSpeed: (Math.random() - 0.5) * 0.15,
+            vx: (Math.random() - 0.5) * 4,
+            vy: 2 + Math.random() * 3,
+            wobble: Math.random() * Math.PI * 2,
+            wobbleSpeed: 0.03 + Math.random() * 0.05
+        });
+    }
+
+    // Show toast
+    showGoalToast("🎉 Daily Goal Reached!", "#22c55e");
+
+    let frame = 0;
+    function animate() {
+        ctx.clearRect(0, 0, W, H);
+        let alive = false;
+        pieces.forEach(p => {
+            p.x += p.vx + Math.sin(p.wobble) * 0.5;
+            p.y += p.vy;
+            p.vy += 0.04; // gravity
+            p.rotation += p.rotSpeed;
+            p.wobble += p.wobbleSpeed;
+            p.vx *= 0.99;
+            if (p.y < H + 50) {
+                alive = true;
+                ctx.save();
+                ctx.translate(p.x, p.y);
+                ctx.rotate(p.rotation);
+                ctx.fillStyle = p.color;
+                ctx.globalAlpha = Math.max(0, 1 - (frame / 200));
+                ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+                ctx.restore();
+            }
+        });
+        frame++;
+        if (alive && frame < 250) requestAnimationFrame(animate);
+        else canvas.remove();
+    }
+    requestAnimationFrame(animate);
+}
+
+function launchFireworks() {
+    const canvas = createCelebrationCanvas();
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    const shells = [];
+    const particles = [];
+    const colors = ['#4B9CD3','#FFD700','#FF6B6B','#22c55e','#FF69B4','#FFA500','#9B59B6','#00CED1','#fff'];
+
+    // Launch 5 shells staggered
+    for (let i = 0; i < 5; i++) {
+        setTimeout(() => {
+            shells.push({
+                x: W * (0.2 + Math.random() * 0.6),
+                y: H,
+                vy: -(8 + Math.random() * 4),
+                targetY: H * (0.15 + Math.random() * 0.35),
+                color: colors[Math.floor(Math.random() * colors.length)],
+                exploded: false
+            });
+        }, i * 400);
+    }
+
+    showGoalToast("🎆 Weekly Goal Reached!", "#FFD700");
+
+    let frame = 0;
+    function animate() {
+        ctx.fillStyle = 'rgba(0,0,0,0.15)';
+        ctx.fillRect(0, 0, W, H);
+
+        // Update shells
+        shells.forEach(s => {
+            if (s.exploded) return;
+            s.y += s.vy;
+            s.vy += 0.12;
+            // Trail
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, 2, 0, Math.PI * 2);
+            ctx.fillStyle = '#fff';
+            ctx.fill();
+            // Explode
+            if (s.y <= s.targetY || s.vy >= 0) {
+                s.exploded = true;
+                const count = 60 + Math.floor(Math.random() * 40);
+                const burstColor = s.color;
+                for (let i = 0; i < count; i++) {
+                    const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.3;
+                    const speed = 2 + Math.random() * 4;
+                    particles.push({
+                        x: s.x, y: s.y,
+                        vx: Math.cos(angle) * speed,
+                        vy: Math.sin(angle) * speed,
+                        color: Math.random() > 0.3 ? burstColor : colors[Math.floor(Math.random() * colors.length)],
+                        life: 1.0,
+                        decay: 0.008 + Math.random() * 0.012,
+                        size: 1.5 + Math.random() * 2
+                    });
+                }
+            }
+        });
+
+        // Update particles
+        for (let i = particles.length - 1; i >= 0; i--) {
+            const p = particles[i];
+            p.x += p.vx;
+            p.y += p.vy;
+            p.vy += 0.04;
+            p.vx *= 0.98;
+            p.life -= p.decay;
+            if (p.life <= 0) { particles.splice(i, 1); continue; }
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+            ctx.fillStyle = p.color;
+            ctx.globalAlpha = p.life;
+            ctx.fill();
+            ctx.globalAlpha = 1;
+        }
+
+        frame++;
+        const allExploded = shells.length >= 5 && shells.every(s => s.exploded);
+        if (frame < 400 && !(allExploded && particles.length === 0)) {
+            requestAnimationFrame(animate);
+        } else {
+            canvas.remove();
+        }
+    }
+    requestAnimationFrame(animate);
+}
+
+function showGoalToast(message, color) {
+    const toast = document.createElement('div');
+    toast.textContent = message;
+    toast.style.cssText = `
+        position: fixed; top: 80px; left: 50%; transform: translateX(-50%);
+        background: ${color}; color: #000; font-family: 'Courier Prime', monospace;
+        font-weight: 700; font-size: 1.2rem; padding: 14px 28px;
+        border-radius: 8px; z-index: 10000; box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        animation: toastIn 0.4s ease-out;
+    `;
+    // Add keyframes if not already present
+    if (!document.getElementById('toast-keyframes')) {
+        const style = document.createElement('style');
+        style.id = 'toast-keyframes';
+        style.textContent = `
+            @keyframes toastIn { from { opacity: 0; transform: translateX(-50%) translateY(-20px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+            @keyframes toastOut { from { opacity: 1; transform: translateX(-50%) translateY(0); } to { opacity: 0; transform: translateX(-50%) translateY(-20px); } }
+        `;
+        document.head.appendChild(style);
+    }
+    document.body.appendChild(toast);
+    setTimeout(() => {
+        toast.style.animation = 'toastOut 0.5s ease-in forwards';
+        setTimeout(() => toast.remove(), 500);
+    }, 3000);
 }
 
 window.onload = init;
