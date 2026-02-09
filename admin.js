@@ -1,9 +1,9 @@
-// v1.9.7.10 - Restored Missing Buttons & Wizard Logic
+// v1.9.7.11 - Chapter 0 Fix & Smart Error Wizard
 import { db, auth } from "./firebase-config.js";
 import { doc, setDoc, getDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const ADMIN_VERSION = "1.9.7.10";
+const ADMIN_VERSION = "1.9.7.11";
 
 // DOM Elements
 const statusEl = document.getElementById('status');
@@ -122,22 +122,25 @@ async function loadBookList() {
 
 bookSelect.onchange = () => {
     stagingArea.classList.add('hidden'); 
-    
-    // Toggle UI Containers
     if (bookSelect.value === "__NEW__") {
-        createNewUI.classList.remove('hidden');
+        newBookInput.classList.remove('hidden');
+        activeBookId = "";
+        activeBookTitle.value = "";
+        
+        // Hide existing, show create inputs
         editExistingUI.classList.add('hidden');
+        createNewUI.classList.remove('hidden');
         
-        // Reset fields
-        newBookId.value = "";
-        newBookTitle.value = "";
-        newEpubFile.value = "";
+        // Show empty staging for new book
+        stagingArea.classList.remove('hidden');
     } else {
-        createNewUI.classList.add('hidden');
-        editExistingUI.classList.remove('hidden');
-        
+        newBookInput.classList.add('hidden');
         activeBookId = bookSelect.value;
         activeBookTitle.value = bookTitlesMap[activeBookId] || activeBookId;
+        
+        // Show Open btn, hide create inputs
+        editExistingUI.classList.remove('hidden');
+        createNewUI.classList.add('hidden');
     }
 };
 
@@ -188,7 +191,7 @@ createParseBtn.onclick = async () => {
     activeBookTitle.value = title;
     await parseEpubFile(file);
     stagingArea.classList.remove('hidden');
-    overwriteSection.classList.add('hidden'); // No overwrite for new
+    overwriteSection.classList.add('hidden'); 
 };
 
 // --- OVERWRITE ---
@@ -202,7 +205,7 @@ confirmOverwriteBtn.onclick = async () => {
     await parseEpubFile(overwriteEpubFile.files[0]);
 };
 
-// --- EPUB PARSER & ERROR SCANNER ---
+// --- EPUB PARSER ---
 async function parseEpubFile(file) {
     statusEl.innerText = "Parsing...";
     chapterListEl.innerHTML = "Parsing...";
@@ -327,11 +330,10 @@ function showErrorWizard() {
     const badCharCode = err.badChar.charCodeAt(0).toString(16).toUpperCase();
     wizardCharDisplay.innerText = `"${err.badChar}" (U+${badCharCode})`;
     
-    // --- CONTEXT ---
+    // --- CONTEXT EXTRACTION ---
     const text = err.segmentRef.text;
     const charIndex = text.indexOf(err.badChar);
     
-    // Sentence isolation logic
     let start = -1;
     for(let i = charIndex - 1; i >= 0; i--) {
         if(['.', '!', '?'].includes(text[i])) { start = i + 1; break; }
@@ -362,6 +364,7 @@ function showErrorWizard() {
     
     err.contextStart = start;
     err.contextEnd = end;
+    err.contextOriginal = sub; 
     
     wizardModal.classList.remove('hidden');
 }
@@ -376,13 +379,11 @@ wizardSaveBtn.onclick = () => {
     const err = importErrors[currentErrorIdx];
     const fullText = err.segmentRef.text;
     
-    // Re-validation
     const badMatches = newSnippet.match(/[^ -~\t\n]/g);
     
     if (badMatches) {
         alert(`Still found untypable character: "${badMatches[0]}"`);
     } else {
-        // Stitch
         const prefix = fullText.substring(0, err.contextStart);
         const suffix = fullText.substring(err.contextEnd);
         err.segmentRef.text = prefix + newSnippet + suffix;
@@ -461,7 +462,7 @@ updateStagedBtn.onclick = () => {
     } catch (e) { alert("Invalid JSON"); }
 };
 
-// --- SAVE TITLE ---
+// --- SAVE TITLE ONLY ---
 saveTitleBtn.onclick = async () => {
     if (!activeBookId) return alert("No active book.");
     const newTitle = activeBookTitle.value.trim();
