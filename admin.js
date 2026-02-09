@@ -1,9 +1,15 @@
-// v1.9.7.10 - Restored Missing Buttons & Wizard Logic
+// v2.0.0 - Security: Admin Email Whitelist
 import { db, auth } from "./firebase-config.js";
 import { doc, setDoc, getDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const ADMIN_VERSION = "1.9.7.10";
+const ADMIN_VERSION = "2.0.0";
+
+// Only these emails can access the admin panel
+const ADMIN_EMAILS = [
+    "jacob.wilson@sumnerk12.net",
+    "jacob.v.wilson@gmail.com",
+];
 
 // DOM Elements
 const statusEl = document.getElementById('status');
@@ -72,13 +78,20 @@ if(footerEl) footerEl.innerText = `Admin JS: v${ADMIN_VERSION}`;
 // --- AUTH ---
 onAuthStateChanged(auth, async (user) => {
     if (user) {
+        if (!ADMIN_EMAILS.includes(user.email)) {
+            statusEl.innerText = "Access Denied — your account is not an admin.";
+            statusEl.style.borderColor = "#ff3333";
+            loginSec.classList.remove('hidden');
+            editorSec.classList.add('hidden');
+            return;
+        }
         statusEl.innerText = "Logged in as: " + user.email;
         statusEl.style.borderColor = "#00ff41"; 
         loginSec.classList.add('hidden');
         editorSec.classList.remove('hidden');
         await loadBookList();
     } else {
-        statusEl.innerText = "Access Restricted.";
+        statusEl.innerText = "Access Restricted. Admin login required.";
         statusEl.style.borderColor = "#ff3333"; 
         loginSec.classList.remove('hidden');
         editorSec.classList.add('hidden');
@@ -402,6 +415,13 @@ wizardCancelBtn.onclick = () => {
     }
 };
 
+// Security: escape HTML to prevent XSS from Firestore data
+function escapeHtml(str) {
+    const d = document.createElement('div');
+    d.appendChild(document.createTextNode(String(str)));
+    return d.innerHTML;
+}
+
 // --- RENDER LIST ---
 function renderChapterList() {
     chapterListEl.innerHTML = "";
@@ -411,7 +431,7 @@ function renderChapterList() {
         div.id = `ui-chap-${index}`;
         div.innerHTML = `
             <div class="chap-info">
-                <div class="chap-title">ID: ${chap.id} | ${chap.title}</div>
+                <div class="chap-title">ID: ${escapeHtml(chap.id)} | ${escapeHtml(chap.title)}</div>
                 <div class="chap-meta">${chap.segments.length} segments <span class="chap-status"></span></div>
             </div>
             <div class="chap-actions">
