@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TypeThatBook Reports v2.1.0</title>
+    <title>TypeThatBook Reports v2.2.0</title>
     <style>
         body { background: #111; color: #eee; font-family: 'Courier New', monospace; padding: 20px; margin: 0; }
         .container { max-width: 960px; margin: 0 auto; padding-bottom: 40px; }
@@ -110,6 +110,38 @@
             background: rgba(255,255,255,0.8);
             padding: 2px 5px; border-radius: 3px; z-index: 101;
         }
+
+        /* --- GOALS PANEL --- */
+        .goals-panel {
+            background: #1a1a1a; border: 1px solid #333;
+            padding: 20px; margin-bottom: 20px;
+        }
+        .goals-row {
+            display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;
+        }
+        .goal-card {
+            background: #222; border: 1px solid #333; border-radius: 6px;
+            padding: 15px 20px; flex: 1; min-width: 180px;
+        }
+        .goal-card label {
+            color: #888; font-size: 0.7rem; text-transform: uppercase;
+            letter-spacing: 1px; display: block; margin-bottom: 8px;
+        }
+        .goal-icon { font-size: 1.5rem; margin-bottom: 6px; }
+        .goal-input-row { display: flex; align-items: center; gap: 8px; }
+        .goal-input-row input[type="number"] {
+            background: #111; border: 1px solid #444; color: #fff;
+            padding: 8px 10px; font-family: inherit; font-size: 1.1rem;
+            width: 80px; text-align: center; border-radius: 4px;
+        }
+        .goal-input-row input:focus { border-color: #4B9CD3; outline: none; }
+        .goal-unit { color: #666; font-size: 0.8rem; }
+        .goal-hint { color: #555; font-size: 0.65rem; margin-top: 6px; font-style: italic; }
+        .goal-status {
+            margin-top: 10px; font-size: 0.8rem; min-height: 1.2em;
+        }
+        .goal-status.ok { color: #22c55e; }
+        .goal-status.err { color: #ff3333; }
     </style>
 </head>
 <body>
@@ -131,6 +163,34 @@
     </div>
 
     <div id="reports-section" class="hidden">
+        <!-- GOALS MANAGEMENT -->
+        <div class="goals-panel">
+            <h2 style="font-size:1rem; color:#4B9CD3; margin-bottom:15px; letter-spacing:1px;">STUDENT GOALS</h2>
+            <div class="goals-row">
+                <div class="goal-card">
+                    <div class="goal-icon">🎉</div>
+                    <label>Daily Goal</label>
+                    <div class="goal-input-row">
+                        <input type="number" id="daily-goal" min="0" max="120" step="1" value="0" />
+                        <span class="goal-unit">minutes</span>
+                    </div>
+                    <div class="goal-hint">Confetti when reached</div>
+                </div>
+                <div class="goal-card">
+                    <div class="goal-icon">🎆</div>
+                    <label>Weekly Goal (Sat–Fri)</label>
+                    <div class="goal-input-row">
+                        <input type="number" id="weekly-goal" min="0" max="600" step="5" value="0" />
+                        <span class="goal-unit">minutes</span>
+                    </div>
+                    <div class="goal-hint">Fireworks when reached</div>
+                </div>
+                <button id="save-goals-btn">Save Goals</button>
+            </div>
+            <div class="goal-status" id="goal-status"></div>
+        </div>
+
+        <!-- REPORTS -->
         <div class="controls">
             <div class="control-group">
                 <label>Start Date</label>
@@ -176,11 +236,11 @@
     </div>
 </div>
 
-<footer>Reports v2.1.0</footer>
+<footer>Reports v2.2.0</footer>
 
 <script type="module">
     import { db, auth } from "./firebase-config.js";
-    import { collection, getDocs, query, where } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+    import { collection, getDocs, query, where, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
     import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
     const ADMIN_EMAILS = [
@@ -194,13 +254,14 @@
     let sortAsc = false;
 
     // --- AUTH ---
-    onAuthStateChanged(auth, (user) => {
+    onAuthStateChanged(auth, async (user) => {
         if (user && ADMIN_EMAILS.includes(user.email)) {
             statusEl.innerText = "Logged in as: " + user.email;
             statusEl.style.borderColor = "#00ff41";
             document.getElementById('login-section').classList.add('hidden');
             document.getElementById('reports-section').classList.remove('hidden');
             setDefaultDates();
+            await loadGoals();
         } else if (user) {
             statusEl.innerText = "Access Denied — not an admin account.";
             statusEl.style.borderColor = "#ff3333";
@@ -215,6 +276,36 @@
     document.getElementById('login-btn').onclick = async () => {
         try { await signInWithPopup(auth, new GoogleAuthProvider()); }
         catch (e) { alert(e.message); }
+    };
+
+    // --- GOALS MANAGEMENT ---
+    async function loadGoals() {
+        try {
+            const goalsSnap = await getDoc(doc(db, "settings", "goals"));
+            if (goalsSnap.exists()) {
+                const data = goalsSnap.data();
+                document.getElementById('daily-goal').value = Math.round((data.dailySeconds || 0) / 60);
+                document.getElementById('weekly-goal').value = Math.round((data.weeklySeconds || 0) / 60);
+            }
+        } catch (e) { console.warn("Goals load error:", e); }
+    }
+
+    document.getElementById('save-goals-btn').onclick = async () => {
+        const dailyMins = parseInt(document.getElementById('daily-goal').value) || 0;
+        const weeklyMins = parseInt(document.getElementById('weekly-goal').value) || 0;
+        const statusDiv = document.getElementById('goal-status');
+        try {
+            await setDoc(doc(db, "settings", "goals"), {
+                dailySeconds: dailyMins * 60,
+                weeklySeconds: weeklyMins * 60,
+                updatedAt: new Date()
+            });
+            statusDiv.textContent = `Saved: ${dailyMins}m daily / ${weeklyMins}m weekly`;
+            statusDiv.className = 'goal-status ok';
+        } catch (e) {
+            statusDiv.textContent = "Save failed: " + e.message;
+            statusDiv.className = 'goal-status err';
+        }
     };
 
     // --- DATE HELPERS ---
