@@ -1,4 +1,4 @@
-// v2.2.1 - Fix book switch white screen
+// v2.2.2 - Fix book switch: refresh modal, user confirms with Go
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc, getDocs, collection } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -8,7 +8,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "2.2.1";
+const VERSION = "2.2.2";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000; 
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -55,6 +55,7 @@ let sprintCharStart = 0; let timerInterval = null;
 let isGameActive = false; let isOvertime = false;
 let isModalOpen = false; let isInputBlocked = false; 
 let isHardStop = false; 
+let bookSwitchPending = false;
 let modalActionCallback = null;
 let lastInputTime = 0; let timeAccumulator = 0;
 let wpmHistory = []; let accuracyHistory = [];
@@ -877,27 +878,80 @@ async function openMenuModal() {
     };
 
     document.getElementById('book-select').onchange = async (e) => {
-        if(confirm("Switch book? Progress saved.")) {
-            await saveProgress(true);
-            currentBookId = e.target.value;
-            localStorage.setItem('currentBookId', currentBookId);
-            // Update URL so refresh loads the right book
-            const newUrl = `game.html?book=${encodeURIComponent(currentBookId)}`;
-            window.history.replaceState(null, '', newUrl);
-            // Reset state before loading new book
-            currentChapterNum = 1;
-            savedCharIndex = 0;
-            lastSavedIndex = 0;
-            currentCharIndex = 0;
-            await loadBookMetadata();
-            await loadUserProgress();
-            closeModal();
+        const newBookId = e.target.value;
+        if (newBookId === currentBookId) return;
+        
+        // Save current book's progress first
+        await saveProgress(true);
+        
+        // Switch to new book
+        currentBookId = newBookId;
+        localStorage.setItem('currentBookId', currentBookId);
+        const newUrl = `game.html?book=${encodeURIComponent(currentBookId)}`;
+        window.history.replaceState(null, '', newUrl);
+        
+        // Load new book's metadata
+        await loadBookMetadata();
+        
+        // Peek at saved progress (without loading chapter)
+        let resumeChapter = 1;
+        let resumeChar = 0;
+        if (currentUser && !currentUser.isAnonymous) {
+            try {
+                const progSnap = await getDoc(doc(db, "users", currentUser.uid, "progress", currentBookId));
+                if (progSnap.exists()) {
+                    const data = progSnap.data();
+                    if (data.chapter !== undefined && data.chapter !== null) resumeChapter = data.chapter;
+                    if (data.charIndex !== undefined) resumeChar = data.charIndex;
+                }
+            } catch (e) { console.warn("Progress peek error:", e); }
         }
+        
+        // Rebuild chapter dropdown with new book's chapters
+        let newChapterOptions = "";
+        if (bookMetadata && bookMetadata.chapters) {
+            bookMetadata.chapters.forEach((chap) => {
+                const num = chap.id.replace("chapter_", "");
+                let sel = (num == resumeChapter) ? "selected" : "";
+                let label = `Chapter ${escapeHtml(num)}`;
+                if (chap.title && chap.title != num) {
+                    if (chap.title.toLowerCase().startsWith('chapter')) label = escapeHtml(chap.title);
+                    else label = `Chapter ${escapeHtml(num)}: ${escapeHtml(chap.title)}`;
+                }
+                newChapterOptions += `<option value="${escapeHtml(num)}" ${sel}>${label}</option>`;
+            });
+        }
+        
+        const chapSelect = document.getElementById('chapter-nav-select');
+        if (chapSelect) chapSelect.innerHTML = newChapterOptions;
+        
+        // Update state but don't load chapter yet — user hits Go
+        currentChapterNum = resumeChapter;
+        savedCharIndex = resumeChar;
+        lastSavedIndex = resumeChar;
+        currentCharIndex = 0;
+        
+        textStream.innerHTML = `<span style="color:#888;">Switched to <b>${escapeHtml(bookMetadata.title || currentBookId)}</b>. Pick a chapter and hit Go.</span>`;
+        bookSwitchPending = true;
+        isInputBlocked = true;
     };
 
     document.getElementById('go-btn').onclick = () => {
         const val = document.getElementById('chapter-nav-select').value;
-        if(val != currentChapterNum) {
+        if (bookSwitchPending) {
+            // After a book switch, just load the chapter — no restart prompt
+            bookSwitchPending = false;
+            // If they picked a different chapter than their saved one, reset position
+            if (val != currentChapterNum) {
+                savedCharIndex = 0;
+            }
+            currentChapterNum = val;
+            currentCharIndex = 0;
+            lastSavedIndex = 0;
+            closeModal();
+            textStream.innerHTML = "Loading...";
+            loadChapter(val);
+        } else if (val != currentChapterNum) {
             handleChapterSwitch(val);
         } else {
             if(confirm(`Restart Chapter ${val}?`)) switchChapterHot(val);
@@ -906,7 +960,21 @@ async function openMenuModal() {
 
     const btn = document.getElementById('action-btn');
     btn.innerText = "Close";
-    btn.onclick = () => { closeModal(); if(!isGameActive && savedCharIndex > 0) startGame(); };
+    btn.onclick = () => { 
+        if (bookSwitchPending) {
+            // They switched books but didn't hit Go — load the chapter first
+            bookSwitchPending = false;
+            const val = document.getElementById('chapter-nav-select').value;
+            currentChapterNum = val;
+            currentCharIndex = 0;
+            lastSavedIndex = 0;
+            closeModal();
+            loadChapter(val);
+        } else {
+            closeModal(); 
+            if(!isGameActive && savedCharIndex > 0) startGame(); 
+        }
+    };
     btn.disabled = false;
     modal.classList.remove('hidden');
 }
