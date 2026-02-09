@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TypeThatBook v2.0.0</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    
+    <div id="hud">
+        <div class="hud-section left">
+            <a href="index.html" style="color:#999; text-decoration:none; margin-right:12px; font-size:13px;" title="Back to Library">← Library</a>
+            Active: <span id="timer-display">00:00</span>
+        </div>
+    
+        <div class="hud-section center">
+            WPM: <span id="wpm-display">0</span> | Acc: <span id="acc-display">100%</span>
+        </div>
+    
+        <div class="hud-section right" id="auth-container">
+            <div id="user-info" class="hidden">
+                <span id="user-name">Guest</span>
+                <button id="logout-btn" class="text-btn">(Logout)</button>
+            </div>
+            <button id="login-btn" class="action-btn">Sign In</button>
+        </div>
+    </div>
+
+    <div id="game-container">
+        <div id="text-stream">Loading book...</div>
+        <div id="image-panel"><img id="story-img" src="" alt="Story illustration"></div>
+    </div>
+
+    <div id="virtual-keyboard"></div>
+
+    <div id="modal" class="modal hidden">
+        <div class="modal-content">
+            <h2 id="modal-title">Title</h2>
+            <p id="modal-body">Body text goes here.</p>
+            <br>
+            <button id="action-btn" style="padding: 10px 20px; background: #4B9CD3; color: white; border: none; font-size: 16px; cursor: pointer;">
+                Action
+            </button>
+        </div>
+    </div>
+
+    <footer>v2.0.0 (game.js)</footer>
+
+    <script type="module" src="game.js"></script>
+</body>
+</html>
