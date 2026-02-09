@@ -102,7 +102,7 @@ async function fetchAvailableBooks() {
                 title: b.title || doc.id
             });
         });
-        // Sort?
+        // Sort
         availableBooks.sort((a,b) => a.title.localeCompare(b.title));
     } catch(e) { console.warn("Book fetch error:", e); }
 }
@@ -110,7 +110,7 @@ async function fetchAvailableBooks() {
 // --- LANDING SCREEN LOGIC ---
 function showLandingModal() {
     isModalOpen = true; 
-    isInputBlocked = true; // Block typing while choosing
+    isInputBlocked = true; 
     const modal = document.getElementById('modal');
     document.getElementById('modal-title').style.display = 'block';
     document.getElementById('modal-title').innerText = "Welcome";
@@ -140,10 +140,9 @@ function showLandingModal() {
         localStorage.setItem('currentBookId', currentBookId);
     };
 
-    // Initial UI State
     updateLandingUI();
     
-    // Hide default Action Btn (we use custom buttons)
+    // Hide default Action Btn
     const btn = document.getElementById('action-btn');
     btn.style.display = 'none';
     modal.classList.remove('hidden');
@@ -165,7 +164,6 @@ function updateLandingUI() {
         document.getElementById('landing-start-btn').onclick = startSession;
         document.getElementById('landing-switch-account').onclick = async () => {
             await signOut(auth);
-            // UI updates automatically via onAuthStateChanged
         };
     } else {
         // Guest View
@@ -183,7 +181,6 @@ function updateLandingUI() {
         document.getElementById('landing-guest-btn').onclick = async () => {
             try { 
                 await signInAnonymously(auth);
-                // Auth listener will trigger updateLandingUI, user clicks Start
             } catch(e) { alert(e.message); }
         };
     }
@@ -345,7 +342,15 @@ function setupGame() {
     let btnLabel = "Resume";
     if (savedCharIndex === 0) btnLabel = "Start Reading";
     
-    if (!isGameActive) showStartModal(btnLabel);
+    if (!isGameActive) {
+        // If not started, show the landing (which might call this)
+        // But if we called this from startSession(), we are good.
+        // Actually setupGame doesn't open modal automatically anymore if initiated from landing.
+        // But if resume happens? 
+        // Logic: if called from loadChapter -> setupGame -> just ready to play?
+        // We only want Modal if PAUSED.
+        // But initial load is handled by landing.
+    }
 }
 
 function renderText() {
@@ -679,4 +684,311 @@ function formatTime(seconds) {
     return `${m}m ${s}s`;
 }
 
-function calculateAverageWPM(chars
+function calculateAverageWPM(chars, seconds) {
+    if(!seconds || seconds <= 0) return 0;
+    const mins = seconds / 60;
+    return Math.round((chars / 5) / mins);
+}
+
+function calculateAverageAcc(chars, mistakes) {
+    if(!chars || chars <= 0) return 100;
+    const total = chars + mistakes;
+    if(total === 0) return 100;
+    return Math.round((chars / total) * 100);
+}
+
+function pauseGameForBreak() {
+    isGameActive = false; clearInterval(timerInterval); saveProgress(); 
+    const charsTyped = currentCharIndex - sprintCharStart;
+    const sprintMinutes = sprintSeconds / 60;
+    const sprintWPM = (sprintMinutes > 0) ? Math.round((charsTyped / 5) / sprintMinutes) : 0;
+    const sprintTotalEntries = charsTyped + sprintMistakes;
+    const sprintAcc = (sprintTotalEntries > 0) ? Math.round((charsTyped / sprintTotalEntries) * 100) : 100;
+
+    const todayWPM = calculateAverageWPM(statsData.charsToday, statsData.secondsToday);
+    const todayAcc = calculateAverageAcc(statsData.charsToday, statsData.mistakesToday);
+    const weekWPM = calculateAverageWPM(statsData.charsWeek, statsData.secondsWeek);
+    const weekAcc = calculateAverageAcc(statsData.charsWeek, statsData.mistakesWeek);
+
+    const stats = { 
+        time: sprintSeconds, wpm: sprintWPM, acc: sprintAcc,
+        today: `${formatTime(statsData.secondsToday)} (${todayWPM} WPM | ${todayAcc}%)`,
+        week: `${formatTime(statsData.secondsWeek)} (${weekWPM} WPM | ${weekAcc}%)`
+    };
+    showStatsModal("Sprint Complete", stats, "Continue", startGame);
+}
+
+function finishChapter() {
+    isGameActive = false; clearInterval(timerInterval);
+    
+    let nextChapterId = null;
+    if (bookMetadata && bookMetadata.chapters) {
+        const currentIdx = bookMetadata.chapters.findIndex(c => c.id == "chapter_" + currentChapterNum);
+        if (currentIdx !== -1 && currentIdx + 1 < bookMetadata.chapters.length) {
+            const nextChap = bookMetadata.chapters[currentIdx + 1];
+            nextChapterId = nextChap.id.replace("chapter_", "");
+        }
+    }
+    
+    if (!nextChapterId) {
+        if (!isNaN(currentChapterNum)) nextChapterId = parseFloat(currentChapterNum) + 1;
+        else nextChapterId = 1;
+    }
+    
+    const charsTyped = currentCharIndex - sprintCharStart;
+    const sprintMinutes = sprintSeconds / 60;
+    const sprintWPM = (sprintMinutes > 0) ? Math.round((charsTyped / 5) / sprintMinutes) : 0;
+    const sprintTotalEntries = charsTyped + sprintMistakes;
+    const sprintAcc = (sprintTotalEntries > 0) ? Math.round((charsTyped / sprintTotalEntries) * 100) : 100;
+
+    const todayWPM = calculateAverageWPM(statsData.charsToday, statsData.secondsToday);
+    const todayAcc = calculateAverageAcc(statsData.charsToday, statsData.mistakesToday);
+    const weekWPM = calculateAverageWPM(statsData.charsWeek, statsData.secondsWeek);
+    const weekAcc = calculateAverageAcc(statsData.charsWeek, statsData.mistakesWeek);
+
+    const stats = {
+        time: sprintSeconds, wpm: sprintWPM, acc: sprintAcc, 
+        today: `${formatTime(statsData.secondsToday)} (${todayWPM} WPM | ${todayAcc}%)`,
+        week: `${formatTime(statsData.secondsWeek)} (${weekWPM} WPM | ${weekAcc}%)`
+    };
+    
+    showStatsModal(`Chapter ${currentChapterNum} Complete!`, stats, `Start Next`, async () => {
+        await saveProgress(true); 
+        currentChapterNum = nextChapterId;
+        savedCharIndex = 0; currentCharIndex = 0; lastSavedIndex = 0;
+        await setDoc(doc(db, "users", currentUser.uid, "progress", currentBookId), {
+            chapter: currentChapterNum, charIndex: 0
+        }, { merge: true });
+        loadChapter(nextChapterId);
+    });
+}
+
+function getHeaderHTML() {
+    let bookTitle = (bookMetadata && bookMetadata.title) ? bookMetadata.title : currentBookId.replace(/_/g, ' ');
+    
+    let displayChapTitle = `Chapter ${currentChapterNum}`;
+    
+    if (bookMetadata && bookMetadata.chapters) {
+        const c = bookMetadata.chapters.find(ch => ch.id == "chapter_" + currentChapterNum);
+        if (c && c.title) {
+            if(c.title != currentChapterNum) {
+                if(c.title.toLowerCase().startsWith('chapter')) {
+                    displayChapTitle = c.title;
+                } else {
+                    displayChapTitle = `Chapter ${currentChapterNum} | ${c.title}`;
+                }
+            }
+        }
+    }
+    
+    return `<div class="modal-book-title">${bookTitle}</div><div class="modal-chap-info">${displayChapTitle}</div>`;
+}
+
+function showStartModal(btnText) {
+    isModalOpen = true; isInputBlocked = false; 
+    modalActionCallback = startGame;
+    const modal = document.getElementById('modal');
+    document.getElementById('modal-title').style.display = 'none'; 
+    
+    const html = `
+        ${getHeaderHTML()}
+        ${getDropdownHTML()}
+        <p style="font-size:0.8rem; color:#777; margin-top: 15px;">
+            Type the first character to start.<br>
+            (You can skip Space or Enter at the start, but Tabs are required.)<br>
+            Press <b>ESC</b> anytime to pause.
+        </p>
+    `;
+    document.getElementById('modal-body').innerHTML = html;
+    
+    const btn = document.getElementById('action-btn');
+    btn.style.display = 'inline-block';
+    btn.innerText = btnText; btn.onclick = startGame; btn.disabled = false;
+    modal.classList.remove('hidden');
+}
+
+function showStatsModal(title, stats, btnText, callback) {
+    isModalOpen = true; isInputBlocked = true; 
+    modalActionCallback = () => { closeModal(); if(callback) callback(); };
+    const modal = document.getElementById('modal');
+    document.getElementById('modal-title').style.display = 'none'; 
+    
+    const html = `
+        ${getHeaderHTML()}
+        <div style="font-size:1.2em; font-weight:bold; color:#4B9CD3; margin-bottom:15px;">${title}</div>
+        <div class="stat-grid" style="display:flex; justify-content:center; gap:20px; margin:20px 0;">
+            <div class="stat-box"><div style="font-size:1.8em; font-weight:bold;">${stats.wpm}</div><div style="font-size:0.9em; color:#777;">WPM</div></div>
+            <div class="stat-box"><div style="font-size:1.8em; font-weight:bold;">${stats.acc}%</div><div style="font-size:0.9em; color:#777;">Accuracy</div></div>
+            <div class="stat-box"><div style="font-size:1.8em; font-weight:bold;">${formatTime(stats.time)}</div><div style="font-size:0.9em; color:#777;">Time</div></div>
+        </div>
+        <div class="stat-subtext">Today: <span class="highlight">${stats.today}</span><br>Week: <span class="highlight">${stats.week}</span></div>
+    `;
+    
+    document.getElementById('modal-body').innerHTML = html;
+    const btn = document.getElementById('action-btn');
+    btn.style.display = 'inline-block';
+    btn.innerText = "Wait..."; btn.onclick = modalActionCallback; btn.disabled = true; btn.style.opacity = '0.5'; 
+    modal.classList.remove('hidden');
+    setTimeout(() => {
+        isInputBlocked = false;
+        if(document.getElementById('action-btn')) {
+            const b = document.getElementById('action-btn');
+            b.style.opacity = '1'; b.innerText = btnText; b.disabled = false;
+        }
+    }, SPRINT_COOLDOWN_MS);
+}
+
+function getDropdownHTML() {
+    const options = [{val: "30", label: "30 Seconds"}, {val: "60", label: "1 Minute"}, {val: "120", label: "2 Minutes"}, {val: "300", label: "5 Minutes"}, {val: "infinity", label: "Open Ended (∞)"}];
+    let optionsHtml = options.map(opt => `<option value="${opt.val}" ${sessionValueStr === opt.val ? 'selected' : ''}>${opt.label}</option>`).join('');
+    return `<div style="margin-bottom: 20px; text-align:center;"><label for="sprint-select" style="color:#777; font-size:0.8rem; display:block; margin-bottom:5px; text-transform:uppercase; letter-spacing:1px;">Session Length</label><select id="sprint-select" class="modal-select">${optionsHtml}</select></div>`;
+}
+
+function closeModal() {
+    isModalOpen = false; isInputBlocked = false; document.getElementById('modal').classList.add('hidden');
+    const keyboard = document.getElementById('virtual-keyboard'); if(keyboard) keyboard.focus();
+}
+
+async function openMenuModal() {
+    if (isGameActive) pauseGameForBreak();
+    isModalOpen = true; isInputBlocked = false; 
+    modalActionCallback = () => { closeModal(); startGame(); };
+    
+    const modal = document.getElementById('modal');
+    document.getElementById('modal-title').style.display = 'block'; 
+    document.getElementById('modal-title').innerText = "Settings";
+    
+    let chapterOptions = "";
+    if (bookMetadata && bookMetadata.chapters) {
+        bookMetadata.chapters.forEach((chap) => {
+            const num = chap.id.replace("chapter_", "");
+            let sel = (num == currentChapterNum) ? "selected" : "";
+            
+            let label = `Chapter ${num}`;
+            if(chap.title && chap.title != num) {
+                if(chap.title.toLowerCase().startsWith('chapter')) label = chap.title;
+                else label = `Chapter ${num}: ${chap.title}`;
+            }
+            chapterOptions += `<option value="${num}" ${sel}>${label}</option>`;
+        });
+    }
+
+    let bookOptions = availableBooks.map(b => 
+        `<option value="${b.id}" ${b.id === currentBookId ? 'selected' : ''}>${b.title}</option>`
+    ).join('');
+
+    document.getElementById('modal-body').innerHTML = `
+        <div class="menu-section">
+            <div class="menu-label">Current Book</div>
+            <select id="book-select" class="modal-select">${bookOptions}</select>
+        </div>
+        <div class="menu-section">
+            <div class="menu-label">Chapter</div>
+            <div style="display:flex; gap:10px;">
+                <select id="chapter-nav-select" class="modal-select" style="margin:0; flex-grow:1;">${chapterOptions}</select>
+                <button id="go-btn" class="modal-btn" style="width:auto; padding:0 20px;">Go</button>
+            </div>
+        </div>
+        <div class="menu-section">
+            <div class="menu-label">Session</div>
+            ${getDropdownHTML()}
+        </div>
+    `;
+    
+    document.getElementById('book-select').onchange = (e) => {
+        if(confirm("Switch book? Progress saved.")) {
+            currentBookId = e.target.value;
+            localStorage.setItem('currentBookId', currentBookId);
+            loadBookMetadata().then(() => {
+                loadUserProgress(); 
+                closeModal();
+            });
+        }
+    };
+
+    document.getElementById('go-btn').onclick = () => {
+        const val = document.getElementById('chapter-nav-select').value;
+        if(val != currentChapterNum) {
+            handleChapterSwitch(val);
+        } else {
+            if(confirm(`Restart Chapter ${val}?`)) switchChapterHot(val);
+        }
+    };
+
+    const btn = document.getElementById('action-btn');
+    btn.style.display = 'inline-block';
+    btn.innerText = "Close";
+    btn.onclick = () => { closeModal(); if(!isGameActive && savedCharIndex > 0) startGame(); };
+    btn.disabled = false;
+    modal.classList.remove('hidden');
+}
+
+function handleChapterSwitch(newChapter) {
+    if (newChapter != currentChapterNum) switchChapterHot(newChapter);
+    else if(confirm(`Go back to Chapter ${newChapter}?`)) switchChapterHot(newChapter);
+}
+
+async function switchChapterHot(newChapter) {
+    await setDoc(doc(db, "users", currentUser.uid, "progress", currentBookId), {
+        chapter: newChapter, charIndex: 0
+    }, { merge: true });
+    currentChapterNum = newChapter; savedCharIndex = 0; currentCharIndex = 0; lastSavedIndex = 0;
+    closeModal(); textStream.innerHTML = "Switching..."; loadChapter(newChapter);
+}
+
+const rows = [['q','w','e','r','t','y','u','i','o','p','[',']','\\'],['a','s','d','f','g','h','j','k','l',';',"'"],['z','x','c','v','b','n','m',',','.','/']];
+const shiftRows = [['Q','W','E','R','T','Y','U','I','O','P','{','}','|'],['A','S','D','F','G','H','J','K','L',':','"'],['Z','X','C','V','B','N','M','<','>','?']];
+
+function createKeyboard() {
+    keyboardDiv.innerHTML = '';
+    rows.forEach((rowChars, rIndex) => {
+        const rowDiv = document.createElement('div'); rowDiv.className = 'kb-row'; 
+        if (rIndex === 1) addSpecialKey(rowDiv, "CAPS"); if (rIndex === 2) addSpecialKey(rowDiv, "SHIFT");
+        rowChars.forEach((char, cIndex) => {
+            const key = document.createElement('div'); key.className = 'key'; key.innerText = char; key.dataset.char = char; key.dataset.shift = shiftRows[rIndex][cIndex]; key.id = `key-${char}`; rowDiv.appendChild(key);
+        });
+        if (rIndex === 0) addSpecialKey(rowDiv, "BACK"); if (rIndex === 1) addSpecialKey(rowDiv, "ENTER"); if (rIndex === 2) addSpecialKey(rowDiv, "SHIFT");
+        keyboardDiv.appendChild(rowDiv);
+    });
+    const spaceRow = document.createElement('div'); spaceRow.className = 'kb-row'; 
+    const space = document.createElement('div'); space.className = 'key space'; space.innerText = ""; space.id = "key- ";
+    spaceRow.appendChild(space); keyboardDiv.appendChild(spaceRow);
+}
+
+function addSpecialKey(parent, text) {
+    const key = document.createElement('div'); key.className = 'key wide'; key.innerText = text; key.id = `key-${text}`; parent.appendChild(key);
+}
+
+function toggleKeyboardCase(isShift) {
+    document.querySelectorAll('.key').forEach(k => {
+        if (k.dataset.char) k.innerText = isShift ? k.dataset.shift : k.dataset.char;
+        if (k.id === 'key-SHIFT') isShift ? k.classList.add('shift-active') : k.classList.remove('shift-active');
+    });
+}
+
+function highlightKey(char) {
+    document.querySelectorAll('.key').forEach(k => k.classList.remove('target'));
+    let targetId = ''; let needsShift = false;
+    if (char === ' ') targetId = 'key- '; else if (char === '\t') targetId = 'key-TAB'; else if (char === '\n') targetId = 'key-ENTER'; 
+    else {
+        const keys = Array.from(document.querySelectorAll('.key'));
+        const found = keys.find(k => k.dataset.char === char || k.dataset.shift === char);
+        if (found) { targetId = found.id; if (found.dataset.shift === char) needsShift = true; }
+    }
+    const el = document.getElementById(targetId); if (el) el.classList.add('target');
+    toggleKeyboardCase(needsShift);
+}
+
+function flashKey(char) {
+    let targetId = '';
+    if (char === ' ') targetId = 'key- '; else if (char === '\t' || char === 'Tab') targetId = 'key-TAB'; else if (char === '\\n' || char === 'Enter') targetId = 'key-ENTER'; 
+    else {
+        const keys = Array.from(document.querySelectorAll('.key'));
+        const found = keys.find(k => k.dataset.char === char || k.dataset.shift === char);
+        if (found) targetId = found.id;
+    }
+    const el = document.getElementById(targetId);
+    if (el) { el.style.backgroundColor = 'var(--brute-force-color)'; setTimeout(() => el.style.backgroundColor = '', 200); }
+}
+
+window.onload = init;
