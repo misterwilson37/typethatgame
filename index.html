@@ -2,50 +2,416 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>TypeThatBook v1.1.0.2</title>
-    <link rel="stylesheet" href="style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TypeThatBook — Type Your Way Through Literature</title>
+    <link href="https://fonts.googleapis.com/css2?family=Courier+Prime:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --carolina-blue: #4B9CD3;
+            --carolina-dark: #2b7ca8;
+            --ink: #1a1a1a;
+            --paper: #f5f0e8;
+            --paper-dark: #e8e0d0;
+            --text: #333;
+            --text-light: #666;
+            --text-faint: #999;
+        }
+
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Courier Prime', 'Courier New', monospace;
+            background: var(--ink);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* --- HEADER --- */
+        header {
+            background: #000;
+            border-bottom: 4px solid var(--carolina-blue);
+            padding: 0 24px;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
+        }
+
+        .logo {
+            color: white;
+            font-weight: 700;
+            font-size: 1.1rem;
+            letter-spacing: 1px;
+        }
+        .logo span { color: var(--carolina-blue); }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .auth-btn {
+            background: var(--carolina-blue);
+            color: white;
+            border: none;
+            padding: 7px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: inherit;
+            font-weight: 700;
+            font-size: 13px;
+            transition: background 0.2s;
+        }
+        .auth-btn:hover { background: #4a90e2; }
+
+        .user-badge {
+            color: white;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .user-badge img {
+            width: 28px; height: 28px;
+            border-radius: 50%;
+            border: 2px solid var(--carolina-blue);
+        }
+        .sign-out-btn {
+            background: none; border: none;
+            color: #777; text-decoration: underline;
+            cursor: pointer; font-family: inherit; font-size: 11px;
+        }
+        .sign-out-btn:hover { color: white; }
+
+        .admin-link {
+            color: #555; font-size: 11px; text-decoration: none;
+        }
+        .admin-link:hover { color: var(--carolina-blue); }
+
+        /* --- HERO --- */
+        .hero {
+            background: linear-gradient(180deg, #111 0%, var(--ink) 100%);
+            text-align: center;
+            padding: 48px 24px 40px;
+            position: relative;
+        }
+        .hero::after {
+            content: '';
+            position: absolute;
+            bottom: 0; left: 50%;
+            transform: translateX(-50%);
+            width: 80px; height: 3px;
+            background: var(--carolina-blue);
+            border-radius: 2px;
+        }
+        .hero h1 {
+            color: white;
+            font-size: clamp(1.5rem, 4vw, 2.2rem);
+            font-weight: 700;
+            margin-bottom: 12px;
+            letter-spacing: 2px;
+        }
+        .hero h1 .blue { color: var(--carolina-blue); }
+        .hero p {
+            color: #888;
+            font-size: clamp(0.85rem, 2vw, 1rem);
+            max-width: 500px;
+            margin: 0 auto;
+            line-height: 1.6;
+        }
+        .save-notice {
+            display: inline-block;
+            margin-top: 16px;
+            padding: 6px 14px;
+            background: rgba(75, 156, 211, 0.1);
+            border: 1px solid rgba(75, 156, 211, 0.3);
+            border-radius: 4px;
+            color: var(--carolina-blue);
+            font-size: 0.75rem;
+            letter-spacing: 0.5px;
+        }
+        .save-notice.signed-in {
+            background: rgba(34, 197, 94, 0.1);
+            border-color: rgba(34, 197, 94, 0.3);
+            color: #22c55e;
+        }
+        .mobile-notice {
+            display: none;
+            margin-top: 10px;
+            padding: 6px 14px;
+            background: rgba(243, 156, 18, 0.1);
+            border: 1px solid rgba(243, 156, 18, 0.3);
+            border-radius: 4px;
+            color: #f39c12;
+            font-size: 0.72rem;
+        }
+        @media (max-width: 768px) and (hover: none) {
+            .mobile-notice { display: inline-block; }
+        }
+
+        /* --- BOOK GRID --- */
+        .library {
+            flex: 1;
+            padding: 40px 24px 60px;
+            max-width: 960px;
+            margin: 0 auto;
+            width: 100%;
+        }
+        .section-label {
+            color: #555;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .book-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+        }
+        .book-card {
+            background: var(--paper);
+            border-radius: 6px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            position: relative;
+            border: 1px solid var(--paper-dark);
+        }
+        .book-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 30px rgba(75, 156, 211, 0.2), 0 2px 8px rgba(0,0,0,0.3);
+        }
+        .book-card:active { transform: translateY(-1px); }
+        .book-spine {
+            position: absolute; left: 0; top: 0; bottom: 0;
+            width: 6px; background: var(--carolina-blue);
+        }
+        .book-inner { padding: 24px 24px 20px 28px; }
+        .book-title {
+            font-size: 1.1rem; font-weight: 700;
+            color: var(--ink); margin-bottom: 4px; line-height: 1.3;
+        }
+        .book-author {
+            font-size: 0.8rem; color: var(--text-light);
+            font-style: italic; margin-bottom: 16px;
+        }
+        .book-meta {
+            display: flex; justify-content: space-between; align-items: center;
+            border-top: 1px solid var(--paper-dark);
+            padding-top: 12px; font-size: 0.75rem; color: var(--text-faint);
+        }
+        .book-chapters { letter-spacing: 0.5px; }
+        .book-progress { display: flex; align-items: center; gap: 6px; }
+        .progress-bar {
+            width: 60px; height: 5px;
+            background: #ddd; border-radius: 3px; overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%; background: var(--carolina-blue);
+            border-radius: 3px; transition: width 0.3s;
+        }
+        .start-label {
+            color: var(--carolina-blue);
+            font-weight: 700; font-size: 0.8rem; letter-spacing: 0.5px;
+        }
+
+        /* --- STATES --- */
+        .loading {
+            text-align: center; color: #555; padding: 60px 0; font-size: 0.9rem;
+        }
+        .loading::after {
+            content: ''; display: block;
+            width: 30px; height: 3px;
+            background: var(--carolina-blue);
+            margin: 16px auto 0;
+            animation: pulse 1.2s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 0.3; width: 30px; }
+            50% { opacity: 1; width: 60px; }
+        }
+        .empty-state { text-align: center; color: #555; padding: 60px 0; }
+        .empty-state p { margin-bottom: 8px; }
+
+        footer {
+            text-align: center; padding: 16px;
+            color: #333; font-size: 0.7rem; letter-spacing: 0.5px;
+        }
+        footer a { color: #555; text-decoration: none; }
+        footer a:hover { color: var(--carolina-blue); }
+
+        @media (max-width: 600px) {
+            .book-grid { grid-template-columns: 1fr; }
+            .hero { padding: 32px 20px 28px; }
+            .library { padding: 28px 16px 40px; }
+        }
+
+        .hidden { display: none !important; }
+    </style>
 </head>
 <body>
-    
-    <div id="hud">
-        <div class="hud-section left">
-            Active: <span id="timer-display">00:00</span>
-        </div>
-    
-        <div class="hud-section center">
-            WPM: <span id="wpm-display">0</span> | Acc: <span id="acc-display">100%</span>
-        </div>
-    
-        <div class="hud-section right" id="auth-container">
-            <div id="user-info" class="hidden">
-                <span id="user-name">Guest</span>
-                <button id="logout-btn" class="text-btn">(Logout)</button>
+
+    <header>
+        <div class="logo">TYPE<span>THAT</span>BOOK</div>
+        <div class="header-right">
+            <a href="admin.html" class="admin-link hidden" id="admin-link">Admin</a>
+            <div id="signed-out-ui">
+                <button class="auth-btn" id="login-btn">Sign In</button>
             </div>
-            <button id="login-btn" class="action-btn">Sign In</button>
+            <div id="signed-in-ui" class="hidden">
+                <div class="user-badge">
+                    <img id="user-photo" src="" alt="" />
+                    <span id="user-name">Reader</span>
+                    <button class="sign-out-btn" id="logout-btn">(logout)</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="hero">
+        <h1>TYPE YOUR WAY THROUGH<br><span class="blue">LITERATURE</span></h1>
+        <p>Practice typing with real books from Project Gutenberg.<br>Pick a book below and start reading with your fingers.</p>
+        <div class="save-notice" id="save-notice">
+            Sign in with Google to save your progress across devices
+        </div>
+        <div class="mobile-notice">
+            ⌨️ This app works best with a physical keyboard
         </div>
     </div>
 
-    <div id="game-container">
-        <div id="text-stream">Loading book...</div>
-        <div id="image-panel"><img id="story-img" src="" alt="Story illustration"></div>
-    </div>
-
-    <div id="virtual-keyboard"></div>
-
-    <div id="modal" class="modal hidden">
-        <div class="modal-content">
-            <h2 id="modal-title">Title</h2>
-            <p id="modal-body">Body text goes here.</p>
-            <br>
-            <button id="action-btn" style="padding: 10px 20px; background: #4B9CD3; color: white; border: none; font-size: 16px; cursor: pointer;">
-                Action
-            </button>
+    <main class="library">
+        <div class="section-label">Available Books</div>
+        <div id="book-grid" class="book-grid">
+            <div class="loading" id="loading-state">Loading library...</div>
         </div>
-    </div>
+    </main>
 
-    <footer>v1.1.0 (game.js)</footer>
+    <footer>TypeThatBook v2.0.0</footer>
 
-    <script type="module" src="game.js"></script>
+    <script type="module">
+        import { db, auth } from "./firebase-config.js";
+        import { collection, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import {
+            onAuthStateChanged,
+            GoogleAuthProvider,
+            signInWithPopup,
+            signOut
+        } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+
+        const ADMIN_EMAILS = [
+            "jacob.wilson@sumnerk12.net",
+            "jacob.v.wilson@gmail.com",
+        ];
+
+        let currentUser = null;
+        let userProgress = {};
+
+        onAuthStateChanged(auth, async (user) => {
+            currentUser = user;
+            updateAuthUI();
+            if (user && !user.isAnonymous) await loadUserProgress();
+            loadBooks();
+        });
+
+        document.getElementById('login-btn').addEventListener('click', async () => {
+            try { await signInWithPopup(auth, new GoogleAuthProvider()); }
+            catch (e) { if (e.code !== 'auth/popup-closed-by-user') console.error(e); }
+        });
+
+        document.getElementById('logout-btn').addEventListener('click', async () => {
+            await signOut(auth);
+            currentUser = null;
+            userProgress = {};
+            updateAuthUI();
+            loadBooks();
+        });
+
+        function updateAuthUI() {
+            const signedIn = currentUser && !currentUser.isAnonymous;
+            document.getElementById('signed-out-ui').classList.toggle('hidden', signedIn);
+            document.getElementById('signed-in-ui').classList.toggle('hidden', !signedIn);
+            if (signedIn) {
+                document.getElementById('user-name').textContent = currentUser.displayName || 'Reader';
+                const photo = document.getElementById('user-photo');
+                if (currentUser.photoURL) { photo.src = currentUser.photoURL; photo.style.display = ''; }
+                else { photo.style.display = 'none'; }
+                document.getElementById('save-notice').textContent = '✓ Progress will be saved to your account';
+                document.getElementById('save-notice').classList.add('signed-in');
+                if (ADMIN_EMAILS.includes(currentUser.email))
+                    document.getElementById('admin-link').classList.remove('hidden');
+            } else {
+                document.getElementById('save-notice').textContent = 'Sign in with Google to save your progress across devices';
+                document.getElementById('save-notice').classList.remove('signed-in');
+                document.getElementById('admin-link').classList.add('hidden');
+            }
+        }
+
+        async function loadUserProgress() {
+            if (!currentUser || currentUser.isAnonymous) return;
+            try {
+                const snap = await getDocs(collection(db, "users", currentUser.uid, "progress"));
+                snap.forEach(d => { userProgress[d.id] = d.data(); });
+            } catch (e) { console.warn("Progress load error:", e); }
+        }
+
+        async function loadBooks() {
+            const grid = document.getElementById('book-grid');
+            try {
+                const snap = await getDocs(collection(db, "books"));
+                const books = [];
+                snap.forEach(d => { books.push({ id: d.id, ...d.data() }); });
+
+                if (books.length === 0) {
+                    grid.innerHTML = '<div class="empty-state"><p>No books yet.</p><p>Use the <a href="admin.html" style="color:var(--carolina-blue);">Admin Panel</a> to import an EPUB.</p></div>';
+                    return;
+                }
+
+                books.sort((a, b) => (a.title || a.id).localeCompare(b.title || b.id));
+
+                grid.innerHTML = books.map(book => {
+                    const title = escapeHtml(book.title || book.id.replace(/_/g, ' '));
+                    const chapCount = book.chapters ? book.chapters.length : '?';
+                    let displayTitle = title, author = '';
+                    const byMatch = title.match(/^(.+?)\s+by\s+(.+)$/i);
+                    if (byMatch) { displayTitle = byMatch[1].trim(); author = byMatch[2].trim(); }
+
+                    const prog = userProgress[book.id];
+                    let progressHtml = '<span class="start-label">START →</span>';
+                    if (prog && prog.chapter) {
+                        const pct = chapCount !== '?' ? Math.round((prog.chapter / chapCount) * 100) : 0;
+                        progressHtml = `<div class="book-progress"><span>Ch. ${escapeHtml(String(prog.chapter))}</span><div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div></div>`;
+                    }
+
+                    return `
+                        <div class="book-card" onclick="location.href='game.html?book=${encodeURIComponent(book.id)}'">
+                            <div class="book-spine"></div>
+                            <div class="book-inner">
+                                <div class="book-title">${displayTitle}</div>
+                                ${author ? `<div class="book-author">by ${author}</div>` : '<div class="book-author">&nbsp;</div>'}
+                                <div class="book-meta">
+                                    <span class="book-chapters">${chapCount} chapter${chapCount !== 1 ? 's' : ''}</span>
+                                    ${progressHtml}
+                                </div>
+                            </div>
+                        </div>`;
+                }).join('');
+            } catch (e) {
+                console.error("Library load error:", e);
+                grid.innerHTML = `<div class="empty-state"><p>Error loading books.</p><p style="font-size:0.8rem; color:#555;">${escapeHtml(e.message)}</p></div>`;
+            }
+        }
+
+        function escapeHtml(str) {
+            const d = document.createElement('div');
+            d.appendChild(document.createTextNode(str));
+            return d.innerHTML;
+        }
+    </script>
 </body>
 </html>
