@@ -1,9 +1,9 @@
-// v2.0.0 - Security: Admin Email Whitelist
+// v2.1.0 - Security: Admin Email Whitelist
 import { db, auth } from "./firebase-config.js";
 import { doc, setDoc, getDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const ADMIN_VERSION = "2.0.0";
+const ADMIN_VERSION = "2.1.0";
 
 // Only these emails can access the admin panel
 const ADMIN_EMAILS = [
