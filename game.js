@@ -1,4 +1,4 @@
-// v1.9.3.7 - Auto-Pause, Capitalization Hints, Chapter Titles
+// v1.9.3.9 - Landing Screen & Book Selection First
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc, getDocs, collection } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,10 +9,10 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.9.3.7";
+const VERSION = "1.9.3.9";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000; 
-const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
+const AFK_THRESHOLD = 5000; 
 const SPRINT_COOLDOWN_MS = 1500; 
 const SPAM_THRESHOLD = 5; 
 
@@ -21,6 +21,7 @@ let currentBookId = localStorage.getItem('currentBookId') || DEFAULT_BOOK;
 let currentUser = null;
 let bookData = null;
 let bookMetadata = null; 
+let availableBooks = []; // Cache for landing
 let fullText = "";
 let currentCharIndex = 0;
 let savedCharIndex = 0; 
@@ -72,19 +73,130 @@ async function init() {
     createKeyboard();
     setupAuthListeners();
     
+    // 1. Fetch Books immediately for the Landing Screen
+    await fetchAvailableBooks();
+
+    // 2. Show Landing Screen (Modal)
+    showLandingModal();
+
+    // 3. Listen for Auth Changes (Updates UI, doesn't auto-start game anymore)
     onAuthStateChanged(auth, async (user) => {
-        if (user) {
-            currentUser = user;
-            updateAuthUI(true);
-            try {
-                await loadBookMetadata(); 
-                await loadUserProgress(); 
-                await loadUserStats();    
-            } catch(e) { console.error("Init Error:", e); }
-        } else {
-            signInAnonymously(auth);
+        currentUser = user;
+        updateAuthUI(!!user);
+        
+        // If modal is open, update it to reflect login state
+        if (isModalOpen && document.getElementById('landing-ui')) {
+            updateLandingUI();
         }
     });
+}
+
+async function fetchAvailableBooks() {
+    try {
+        availableBooks = [];
+        const querySnapshot = await getDocs(collection(db, "books"));
+        querySnapshot.forEach((doc) => {
+            const b = doc.data();
+            availableBooks.push({
+                id: doc.id,
+                title: b.title || doc.id
+            });
+        });
+        // Sort?
+        availableBooks.sort((a,b) => a.title.localeCompare(b.title));
+    } catch(e) { console.warn("Book fetch error:", e); }
+}
+
+// --- LANDING SCREEN LOGIC ---
+function showLandingModal() {
+    isModalOpen = true; 
+    isInputBlocked = true; // Block typing while choosing
+    const modal = document.getElementById('modal');
+    document.getElementById('modal-title').style.display = 'block';
+    document.getElementById('modal-title').innerText = "Welcome";
+    
+    // Build HTML
+    let bookOptions = availableBooks.map(b => 
+        `<option value="${b.id}" ${b.id === currentBookId ? 'selected' : ''}>${b.title}</option>`
+    ).join('');
+
+    const html = `
+        <div id="landing-ui" style="text-align: center;">
+            <label style="color:#888; font-size:0.8rem; text-transform:uppercase; letter-spacing:1px; margin-bottom:10px; display:block;">Select a Book</label>
+            <select id="landing-book-select" class="modal-select" style="margin-bottom: 25px; font-size: 1.1rem;">
+                ${bookOptions}
+            </select>
+            
+            <div id="landing-auth-container">
+                </div>
+        </div>
+    `;
+    
+    document.getElementById('modal-body').innerHTML = html;
+    
+    // Bind Change Event
+    document.getElementById('landing-book-select').onchange = (e) => {
+        currentBookId = e.target.value;
+        localStorage.setItem('currentBookId', currentBookId);
+    };
+
+    // Initial UI State
+    updateLandingUI();
+    
+    // Hide default Action Btn (we use custom buttons)
+    const btn = document.getElementById('action-btn');
+    btn.style.display = 'none';
+    modal.classList.remove('hidden');
+}
+
+function updateLandingUI() {
+    const container = document.getElementById('landing-auth-container');
+    if (!container) return;
+
+    if (currentUser) {
+        // Logged In View
+        container.innerHTML = `
+            <div style="margin-bottom: 15px; color: #4B9CD3;">Signed in as ${currentUser.email || "User"}</div>
+            <button id="landing-start-btn" class="landing-btn primary">Start Reading</button>
+            <div style="margin-top:15px; font-size:0.8em;">
+                <a href="#" id="landing-switch-account" style="color:#666;">Switch Account</a>
+            </div>
+        `;
+        document.getElementById('landing-start-btn').onclick = startSession;
+        document.getElementById('landing-switch-account').onclick = async () => {
+            await signOut(auth);
+            // UI updates automatically via onAuthStateChanged
+        };
+    } else {
+        // Guest View
+        container.innerHTML = `
+            <button id="landing-login-btn" class="landing-btn primary" style="margin-bottom: 10px;">Log In (Google)</button>
+            <div style="margin-bottom: 10px; color: #666;">- OR -</div>
+            <button id="landing-guest-btn" class="landing-btn secondary">Continue as Guest</button>
+        `;
+        
+        document.getElementById('landing-login-btn').onclick = async () => {
+            try { await signInWithPopup(auth, new GoogleAuthProvider()); } 
+            catch (e) { alert(e.message); }
+        };
+        
+        document.getElementById('landing-guest-btn').onclick = async () => {
+            try { 
+                await signInAnonymously(auth);
+                // Auth listener will trigger updateLandingUI, user clicks Start
+            } catch(e) { alert(e.message); }
+        };
+    }
+}
+
+async function startSession() {
+    closeModal();
+    // Load Sequence
+    try {
+        await loadBookMetadata(); 
+        await loadUserProgress(); 
+        await loadUserStats();    
+    } catch(e) { console.error("Init Error:", e); }
 }
 
 function setupAuthListeners() {
@@ -296,7 +408,6 @@ function gameTick() {
     if (!isGameActive) return;
     const now = Date.now();
     
-    // AUTO PAUSE FOR INACTIVITY
     if (now - lastInputTime > AFK_THRESHOLD && !isModalOpen) {
         triggerHardStop(fullText[currentCharIndex], true);
         return;
@@ -355,7 +466,6 @@ document.addEventListener('keydown', (e) => {
     if (isModalOpen) {
         if (isInputBlocked) return; 
         
-        // --- HARD STOP / PAUSE LOGIC ---
         if (isHardStop) {
             let targetChar = fullText[currentCharIndex];
             let isMatch = (e.key === targetChar);
@@ -369,7 +479,6 @@ document.addEventListener('keydown', (e) => {
             return;
         }
 
-        // --- SMART START LOGIC ---
         let shouldStart = false;
         let shouldSkip = false;
         
@@ -488,13 +597,13 @@ function triggerHardStop(targetChar, isAfk) {
     if (targetChar === '\n') friendlyKey = 'Enter';
     if (targetChar === '\t') friendlyKey = 'Tab';
 
-    // Capitalization Hint Logic
     let hintHtml = "";
     if (friendlyKey.length === 1 && friendlyKey.match(/[A-Z]/)) {
         hintHtml = `<div class="modal-hint-text">(Requires Shift)</div>`;
     }
 
     const modal = document.getElementById('modal');
+    document.getElementById('modal-title').style.display = 'block';
     document.getElementById('modal-title').innerText = isAfk ? "Session Paused (Inactive)" : "Pausing for Accuracy";
     
     let msg = isAfk ? "You've been away for a while." : "Too many errors!";
@@ -570,316 +679,4 @@ function formatTime(seconds) {
     return `${m}m ${s}s`;
 }
 
-function calculateAverageWPM(chars, seconds) {
-    if(!seconds || seconds <= 0) return 0;
-    const mins = seconds / 60;
-    return Math.round((chars / 5) / mins);
-}
-
-function calculateAverageAcc(chars, mistakes) {
-    if(!chars || chars <= 0) return 100;
-    const total = chars + mistakes;
-    if(total === 0) return 100;
-    return Math.round((chars / total) * 100);
-}
-
-function pauseGameForBreak() {
-    isGameActive = false; clearInterval(timerInterval); saveProgress(); 
-    const charsTyped = currentCharIndex - sprintCharStart;
-    const sprintMinutes = sprintSeconds / 60;
-    const sprintWPM = (sprintMinutes > 0) ? Math.round((charsTyped / 5) / sprintMinutes) : 0;
-    const sprintTotalEntries = charsTyped + sprintMistakes;
-    const sprintAcc = (sprintTotalEntries > 0) ? Math.round((charsTyped / sprintTotalEntries) * 100) : 100;
-
-    const todayWPM = calculateAverageWPM(statsData.charsToday, statsData.secondsToday);
-    const todayAcc = calculateAverageAcc(statsData.charsToday, statsData.mistakesToday);
-    const weekWPM = calculateAverageWPM(statsData.charsWeek, statsData.secondsWeek);
-    const weekAcc = calculateAverageAcc(statsData.charsWeek, statsData.mistakesWeek);
-
-    const stats = { 
-        time: sprintSeconds, wpm: sprintWPM, acc: sprintAcc,
-        today: `${formatTime(statsData.secondsToday)} (${todayWPM} WPM | ${todayAcc}%)`,
-        week: `${formatTime(statsData.secondsWeek)} (${weekWPM} WPM | ${weekAcc}%)`
-    };
-    showStatsModal("Sprint Complete", stats, "Continue", startGame);
-}
-
-function finishChapter() {
-    isGameActive = false; clearInterval(timerInterval);
-    
-    let nextChapterId = null;
-    if (bookMetadata && bookMetadata.chapters) {
-        const currentIdx = bookMetadata.chapters.findIndex(c => c.id == "chapter_" + currentChapterNum);
-        if (currentIdx !== -1 && currentIdx + 1 < bookMetadata.chapters.length) {
-            const nextChap = bookMetadata.chapters[currentIdx + 1];
-            nextChapterId = nextChap.id.replace("chapter_", "");
-        }
-    }
-    
-    if (!nextChapterId) {
-        if (!isNaN(currentChapterNum)) nextChapterId = parseFloat(currentChapterNum) + 1;
-        else nextChapterId = 1;
-    }
-    
-    const charsTyped = currentCharIndex - sprintCharStart;
-    const sprintMinutes = sprintSeconds / 60;
-    const sprintWPM = (sprintMinutes > 0) ? Math.round((charsTyped / 5) / sprintMinutes) : 0;
-    const sprintTotalEntries = charsTyped + sprintMistakes;
-    const sprintAcc = (sprintTotalEntries > 0) ? Math.round((charsTyped / sprintTotalEntries) * 100) : 100;
-
-    const todayWPM = calculateAverageWPM(statsData.charsToday, statsData.secondsToday);
-    const todayAcc = calculateAverageAcc(statsData.charsToday, statsData.mistakesToday);
-    const weekWPM = calculateAverageWPM(statsData.charsWeek, statsData.secondsWeek);
-    const weekAcc = calculateAverageAcc(statsData.charsWeek, statsData.mistakesWeek);
-
-    const stats = {
-        time: sprintSeconds, wpm: sprintWPM, acc: sprintAcc, 
-        today: `${formatTime(statsData.secondsToday)} (${todayWPM} WPM | ${todayAcc}%)`,
-        week: `${formatTime(statsData.secondsWeek)} (${weekWPM} WPM | ${weekAcc}%)`
-    };
-    
-    showStatsModal(`Chapter ${currentChapterNum} Complete!`, stats, `Start Next`, async () => {
-        await saveProgress(true); 
-        currentChapterNum = nextChapterId;
-        savedCharIndex = 0; currentCharIndex = 0; lastSavedIndex = 0;
-        await setDoc(doc(db, "users", currentUser.uid, "progress", currentBookId), {
-            chapter: currentChapterNum, charIndex: 0
-        }, { merge: true });
-        loadChapter(nextChapterId);
-    });
-}
-
-function getHeaderHTML() {
-    let bookTitle = (bookMetadata && bookMetadata.title) ? bookMetadata.title : currentBookId.replace(/_/g, ' ');
-    
-    let displayChapTitle = `Chapter ${currentChapterNum}`;
-    
-    if (bookMetadata && bookMetadata.chapters) {
-        const c = bookMetadata.chapters.find(ch => ch.id == "chapter_" + currentChapterNum);
-        if (c && c.title) {
-            if(c.title != currentChapterNum) {
-                if(c.title.toLowerCase().startsWith('chapter')) {
-                    displayChapTitle = c.title;
-                } else {
-                    displayChapTitle = `Chapter ${currentChapterNum} | ${c.title}`;
-                }
-            }
-        }
-    }
-    
-    return `<div class="modal-book-title">${bookTitle}</div><div class="modal-chap-info">${displayChapTitle}</div>`;
-}
-
-function showStartModal(btnText) {
-    isModalOpen = true; isInputBlocked = false; 
-    modalActionCallback = startGame;
-    const modal = document.getElementById('modal');
-    document.getElementById('modal-title').style.display = 'none'; 
-    
-    const html = `
-        ${getHeaderHTML()}
-        ${getDropdownHTML()}
-        <p style="font-size:0.8rem; color:#777; margin-top: 15px;">
-            Type the first character to start.<br>
-            (You can skip Space or Enter at the start, but Tabs are required.)<br>
-            Press <b>ESC</b> anytime to pause.
-        </p>
-    `;
-    document.getElementById('modal-body').innerHTML = html;
-    
-    const btn = document.getElementById('action-btn');
-    btn.innerText = btnText; btn.onclick = startGame; btn.disabled = false; btn.style.display = 'inline-block';
-    modal.classList.remove('hidden');
-}
-
-function showStatsModal(title, stats, btnText, callback) {
-    isModalOpen = true; isInputBlocked = true; 
-    modalActionCallback = () => { closeModal(); if(callback) callback(); };
-    const modal = document.getElementById('modal');
-    document.getElementById('modal-title').style.display = 'none'; 
-    
-    const html = `
-        ${getHeaderHTML()}
-        <div style="font-size:1.2em; font-weight:bold; color:#4B9CD3; margin-bottom:15px;">${title}</div>
-        <div class="stat-grid" style="display:flex; justify-content:center; gap:20px; margin:20px 0;">
-            <div class="stat-box"><div style="font-size:1.8em; font-weight:bold;">${stats.wpm}</div><div style="font-size:0.9em; color:#777;">WPM</div></div>
-            <div class="stat-box"><div style="font-size:1.8em; font-weight:bold;">${stats.acc}%</div><div style="font-size:0.9em; color:#777;">Accuracy</div></div>
-            <div class="stat-box"><div style="font-size:1.8em; font-weight:bold;">${formatTime(stats.time)}</div><div style="font-size:0.9em; color:#777;">Time</div></div>
-        </div>
-        <div class="stat-subtext">Today: <span class="highlight">${stats.today}</span><br>Week: <span class="highlight">${stats.week}</span></div>
-    `;
-    
-    document.getElementById('modal-body').innerHTML = html;
-    const btn = document.getElementById('action-btn');
-    btn.innerText = "Wait..."; btn.onclick = modalActionCallback; btn.disabled = true; btn.style.opacity = '0.5'; 
-    modal.classList.remove('hidden');
-    setTimeout(() => {
-        isInputBlocked = false;
-        if(document.getElementById('action-btn')) {
-            const b = document.getElementById('action-btn');
-            b.style.opacity = '1'; b.innerText = btnText; b.disabled = false;
-        }
-    }, SPRINT_COOLDOWN_MS);
-}
-
-function getDropdownHTML() {
-    const options = [{val: "30", label: "30 Seconds"}, {val: "60", label: "1 Minute"}, {val: "120", label: "2 Minutes"}, {val: "300", label: "5 Minutes"}, {val: "infinity", label: "Open Ended (∞)"}];
-    let optionsHtml = options.map(opt => `<option value="${opt.val}" ${sessionValueStr === opt.val ? 'selected' : ''}>${opt.label}</option>`).join('');
-    return `<div style="margin-bottom: 20px; text-align:center;"><label for="sprint-select" style="color:#777; font-size:0.8rem; display:block; margin-bottom:5px; text-transform:uppercase; letter-spacing:1px;">Session Length</label><select id="sprint-select" class="modal-select">${optionsHtml}</select></div>`;
-}
-
-function closeModal() {
-    isModalOpen = false; isInputBlocked = false; document.getElementById('modal').classList.add('hidden');
-    const keyboard = document.getElementById('virtual-keyboard'); if(keyboard) keyboard.focus();
-}
-
-async function openMenuModal() {
-    if (isGameActive) pauseGameForBreak();
-    isModalOpen = true; isInputBlocked = false; 
-    modalActionCallback = () => { closeModal(); startGame(); };
-    
-    const modal = document.getElementById('modal');
-    document.getElementById('modal-title').style.display = 'block'; 
-    document.getElementById('modal-title').innerText = "Settings";
-    
-    let chapterOptions = "";
-    if (bookMetadata && bookMetadata.chapters) {
-        bookMetadata.chapters.forEach((chap) => {
-            const num = chap.id.replace("chapter_", "");
-            let sel = (num == currentChapterNum) ? "selected" : "";
-            
-            let label = `Chapter ${num}`;
-            if(chap.title && chap.title != num) {
-                if(chap.title.toLowerCase().startsWith('chapter')) label = chap.title;
-                else label = `Chapter ${num}: ${chap.title}`;
-            }
-            chapterOptions += `<option value="${num}" ${sel}>${label}</option>`;
-        });
-    }
-
-    let bookOptions = "";
-    try {
-        const querySnapshot = await getDocs(collection(db, "books"));
-        querySnapshot.forEach((doc) => {
-            const b = doc.data();
-            const id = doc.id;
-            const title = b.title || id;
-            const sel = (id === currentBookId) ? "selected" : "";
-            bookOptions += `<option value="${id}" ${sel}>${title}</option>`;
-        });
-    } catch(e) { console.warn(e); }
-
-    document.getElementById('modal-body').innerHTML = `
-        <div class="menu-section">
-            <div class="menu-label">Current Book</div>
-            <select id="book-select" class="modal-select">${bookOptions}</select>
-        </div>
-        <div class="menu-section">
-            <div class="menu-label">Chapter</div>
-            <div style="display:flex; gap:10px;">
-                <select id="chapter-nav-select" class="modal-select" style="margin:0; flex-grow:1;">${chapterOptions}</select>
-                <button id="go-btn" class="modal-btn" style="width:auto; padding:0 20px;">Go</button>
-            </div>
-        </div>
-        <div class="menu-section">
-            <div class="menu-label">Session</div>
-            ${getDropdownHTML()}
-        </div>
-    `;
-    
-    document.getElementById('book-select').onchange = (e) => {
-        if(confirm("Switch book? Progress saved.")) {
-            currentBookId = e.target.value;
-            localStorage.setItem('currentBookId', currentBookId);
-            loadBookMetadata().then(() => {
-                loadUserProgress(); 
-                closeModal();
-            });
-        }
-    };
-
-    document.getElementById('go-btn').onclick = () => {
-        const val = document.getElementById('chapter-nav-select').value;
-        if(val != currentChapterNum) {
-            handleChapterSwitch(val);
-        } else {
-            if(confirm(`Restart Chapter ${val}?`)) switchChapterHot(val);
-        }
-    };
-
-    const btn = document.getElementById('action-btn');
-    btn.innerText = "Close";
-    btn.onclick = () => { closeModal(); if(!isGameActive && savedCharIndex > 0) startGame(); };
-    btn.disabled = false;
-    modal.classList.remove('hidden');
-}
-
-function handleChapterSwitch(newChapter) {
-    if (newChapter != currentChapterNum) switchChapterHot(newChapter);
-    else if(confirm(`Go back to Chapter ${newChapter}?`)) switchChapterHot(newChapter);
-}
-
-async function switchChapterHot(newChapter) {
-    await setDoc(doc(db, "users", currentUser.uid, "progress", currentBookId), {
-        chapter: newChapter, charIndex: 0
-    }, { merge: true });
-    currentChapterNum = newChapter; savedCharIndex = 0; currentCharIndex = 0; lastSavedIndex = 0;
-    closeModal(); textStream.innerHTML = "Switching..."; loadChapter(newChapter);
-}
-
-const rows = [['q','w','e','r','t','y','u','i','o','p','[',']','\\'],['a','s','d','f','g','h','j','k','l',';',"'"],['z','x','c','v','b','n','m',',','.','/']];
-const shiftRows = [['Q','W','E','R','T','Y','U','I','O','P','{','}','|'],['A','S','D','F','G','H','J','K','L',':','"'],['Z','X','C','V','B','N','M','<','>','?']];
-
-function createKeyboard() {
-    keyboardDiv.innerHTML = '';
-    rows.forEach((rowChars, rIndex) => {
-        const rowDiv = document.createElement('div'); rowDiv.className = 'kb-row'; 
-        if (rIndex === 1) addSpecialKey(rowDiv, "CAPS"); if (rIndex === 2) addSpecialKey(rowDiv, "SHIFT");
-        rowChars.forEach((char, cIndex) => {
-            const key = document.createElement('div'); key.className = 'key'; key.innerText = char; key.dataset.char = char; key.dataset.shift = shiftRows[rIndex][cIndex]; key.id = `key-${char}`; rowDiv.appendChild(key);
-        });
-        if (rIndex === 0) addSpecialKey(rowDiv, "BACK"); if (rIndex === 1) addSpecialKey(rowDiv, "ENTER"); if (rIndex === 2) addSpecialKey(rowDiv, "SHIFT");
-        keyboardDiv.appendChild(rowDiv);
-    });
-    const spaceRow = document.createElement('div'); spaceRow.className = 'kb-row'; 
-    const space = document.createElement('div'); space.className = 'key space'; space.innerText = ""; space.id = "key- ";
-    spaceRow.appendChild(space); keyboardDiv.appendChild(spaceRow);
-}
-
-function addSpecialKey(parent, text) {
-    const key = document.createElement('div'); key.className = 'key wide'; key.innerText = text; key.id = `key-${text}`; parent.appendChild(key);
-}
-
-function toggleKeyboardCase(isShift) {
-    document.querySelectorAll('.key').forEach(k => {
-        if (k.dataset.char) k.innerText = isShift ? k.dataset.shift : k.dataset.char;
-        if (k.id === 'key-SHIFT') isShift ? k.classList.add('shift-active') : k.classList.remove('shift-active');
-    });
-}
-
-function highlightKey(char) {
-    document.querySelectorAll('.key').forEach(k => k.classList.remove('target'));
-    let targetId = ''; let needsShift = false;
-    if (char === ' ') targetId = 'key- '; else if (char === '\t') targetId = 'key-TAB'; else if (char === '\n') targetId = 'key-ENTER'; 
-    else {
-        const keys = Array.from(document.querySelectorAll('.key'));
-        const found = keys.find(k => k.dataset.char === char || k.dataset.shift === char);
-        if (found) { targetId = found.id; if (found.dataset.shift === char) needsShift = true; }
-    }
-    const el = document.getElementById(targetId); if (el) el.classList.add('target');
-    toggleKeyboardCase(needsShift);
-}
-
-function flashKey(char) {
-    let targetId = '';
-    if (char === ' ') targetId = 'key- '; else if (char === '\t' || char === 'Tab') targetId = 'key-TAB'; else if (char === '\\n' || char === 'Enter') targetId = 'key-ENTER'; 
-    else {
-        const keys = Array.from(document.querySelectorAll('.key'));
-        const found = keys.find(k => k.dataset.char === char || k.dataset.shift === char);
-        if (found) targetId = found.id;
-    }
-    const el = document.getElementById(targetId);
-    if (el) { el.style.backgroundColor = 'var(--brute-force-color)'; setTimeout(() => el.style.backgroundColor = '', 200); }
-}
-
-window.onload = init;
+function calculateAverageWPM(chars
