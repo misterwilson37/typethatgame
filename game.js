@@ -1,4 +1,4 @@
-// v2.2.0 - Goals & Celebrations
+// v2.2.1 - Fix book switch white screen
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc, getDocs, collection } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -8,7 +8,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "2.2.0";
+const VERSION = "2.2.1";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000; 
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -876,14 +876,22 @@ async function openMenuModal() {
         setKeyboardLayout(e.target.value);
     };
 
-    document.getElementById('book-select').onchange = (e) => {
+    document.getElementById('book-select').onchange = async (e) => {
         if(confirm("Switch book? Progress saved.")) {
+            await saveProgress(true);
             currentBookId = e.target.value;
             localStorage.setItem('currentBookId', currentBookId);
-            loadBookMetadata().then(() => {
-                loadUserProgress(); 
-                closeModal();
-            });
+            // Update URL so refresh loads the right book
+            const newUrl = `game.html?book=${encodeURIComponent(currentBookId)}`;
+            window.history.replaceState(null, '', newUrl);
+            // Reset state before loading new book
+            currentChapterNum = 1;
+            savedCharIndex = 0;
+            lastSavedIndex = 0;
+            currentCharIndex = 0;
+            await loadBookMetadata();
+            await loadUserProgress();
+            closeModal();
         }
     };
 
