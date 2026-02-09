@@ -1,4 +1,4 @@
-// v2.0.0 - Security Fixes, Landing Page, URL Params
+// v2.0.1 - Dvorak Layout Support
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc, getDocs, collection } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -8,7 +8,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "2.0.0";
+const VERSION = "2.0.1";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000; 
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -819,8 +819,19 @@ async function openMenuModal() {
             <div class="menu-label">Session</div>
             ${getDropdownHTML()}
         </div>
+        <div class="menu-section">
+            <div class="menu-label">Keyboard Layout</div>
+            <select id="layout-select" class="modal-select">
+                <option value="qwerty" ${currentLayout === 'qwerty' ? 'selected' : ''}>QWERTY</option>
+                <option value="dvorak" ${currentLayout === 'dvorak' ? 'selected' : ''}>Dvorak</option>
+            </select>
+        </div>
     `;
     
+    document.getElementById('layout-select').onchange = (e) => {
+        setKeyboardLayout(e.target.value);
+    };
+
     document.getElementById('book-select').onchange = (e) => {
         if(confirm("Switch book? Progress saved.")) {
             currentBookId = e.target.value;
@@ -863,8 +874,31 @@ async function switchChapterHot(newChapter) {
     closeModal(); textStream.innerHTML = "Switching..."; loadChapter(newChapter);
 }
 
-const rows = [['q','w','e','r','t','y','u','i','o','p','[',']','\\'],['a','s','d','f','g','h','j','k','l',';',"'"],['z','x','c','v','b','n','m',',','.','/']];
-const shiftRows = [['Q','W','E','R','T','Y','U','I','O','P','{','}','|'],['A','S','D','F','G','H','J','K','L',':','"'],['Z','X','C','V','B','N','M','<','>','?']];
+// --- KEYBOARD LAYOUTS ---
+const LAYOUTS = {
+    qwerty: {
+        rows:      [['q','w','e','r','t','y','u','i','o','p','[',']','\\'],['a','s','d','f','g','h','j','k','l',';',"'"],['z','x','c','v','b','n','m',',','.','/']],
+        shiftRows: [['Q','W','E','R','T','Y','U','I','O','P','{','}','|'],['A','S','D','F','G','H','J','K','L',':','"'],['Z','X','C','V','B','N','M','<','>','?']]
+    },
+    dvorak: {
+        rows:      [["'",',','.','p','y','f','g','c','r','l','/','+','\\'],['a','o','e','u','i','d','h','t','n','s','-'],[';','q','j','k','x','b','m','w','v','z']],
+        shiftRows: [['"','<','>','P','Y','F','G','C','R','L','?','=','|'],['A','O','E','U','I','D','H','T','N','S','_'],[':', 'Q','J','K','X','B','M','W','V','Z']]
+    }
+};
+
+let currentLayout = localStorage.getItem('keyboardLayout') || 'qwerty';
+let rows = LAYOUTS[currentLayout].rows;
+let shiftRows = LAYOUTS[currentLayout].shiftRows;
+
+function setKeyboardLayout(layout) {
+    if (!LAYOUTS[layout]) return;
+    currentLayout = layout;
+    localStorage.setItem('keyboardLayout', layout);
+    rows = LAYOUTS[layout].rows;
+    shiftRows = LAYOUTS[layout].shiftRows;
+    createKeyboard();
+    highlightCurrentChar();
+}
 
 function createKeyboard() {
     keyboardDiv.innerHTML = '';
