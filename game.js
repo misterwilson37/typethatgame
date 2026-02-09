@@ -1,4 +1,4 @@
-// v2.0.1 - Dvorak Layout Support
+// v2.1.0 - Dvorak Support, Daily Logging, Reports
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc, getDocs, collection } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -8,7 +8,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "2.0.1";
+const VERSION = "2.1.0";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000; 
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -592,6 +592,20 @@ async function saveProgress(force = false) {
             lastSavedIndex = currentCharIndex;
         }
         await setDoc(doc(db, "users", currentUser.uid, "stats", "time_tracking"), statsData, { merge: true });
+        
+        // Daily log for admin reporting
+        const today = new Date().toISOString().split('T')[0];
+        const logId = `${currentUser.uid}_${today}`;
+        await setDoc(doc(db, "typing_logs", logId), {
+            uid: currentUser.uid,
+            email: currentUser.email || "",
+            displayName: currentUser.displayName || "Anonymous",
+            date: today,
+            seconds: statsData.secondsToday || 0,
+            chars: statsData.charsToday || 0,
+            mistakes: statsData.mistakesToday || 0,
+            lastUpdated: new Date()
+        }, { merge: true });
     } catch (e) { console.warn("Save failed:", e); }
 }
 
