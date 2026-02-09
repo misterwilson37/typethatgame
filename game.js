@@ -1,4 +1,4 @@
-// v1.9.3.9 - Landing Screen & Book Selection First
+// v1.9.3.7 - Auto-Pause, Capitalization Hints, Chapter Titles
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc, getDocs, collection } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -9,10 +9,10 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "1.9.3.9";
+const VERSION = "1.9.3.7";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000; 
-const AFK_THRESHOLD = 5000; 
+const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
 const SPRINT_COOLDOWN_MS = 1500; 
 const SPAM_THRESHOLD = 5; 
 
@@ -21,7 +21,6 @@ let currentBookId = localStorage.getItem('currentBookId') || DEFAULT_BOOK;
 let currentUser = null;
 let bookData = null;
 let bookMetadata = null; 
-let availableBooks = []; // Cache for landing
 let fullText = "";
 let currentCharIndex = 0;
 let savedCharIndex = 0; 
@@ -73,127 +72,19 @@ async function init() {
     createKeyboard();
     setupAuthListeners();
     
-    // 1. Fetch Books immediately for the Landing Screen
-    await fetchAvailableBooks();
-
-    // 2. Show Landing Screen (Modal)
-    showLandingModal();
-
-    // 3. Listen for Auth Changes (Updates UI, doesn't auto-start game anymore)
     onAuthStateChanged(auth, async (user) => {
-        currentUser = user;
-        updateAuthUI(!!user);
-        
-        // If modal is open, update it to reflect login state
-        if (isModalOpen && document.getElementById('landing-ui')) {
-            updateLandingUI();
+        if (user) {
+            currentUser = user;
+            updateAuthUI(true);
+            try {
+                await loadBookMetadata(); 
+                await loadUserProgress(); 
+                await loadUserStats();    
+            } catch(e) { console.error("Init Error:", e); }
+        } else {
+            signInAnonymously(auth);
         }
     });
-}
-
-async function fetchAvailableBooks() {
-    try {
-        availableBooks = [];
-        const querySnapshot = await getDocs(collection(db, "books"));
-        querySnapshot.forEach((doc) => {
-            const b = doc.data();
-            availableBooks.push({
-                id: doc.id,
-                title: b.title || doc.id
-            });
-        });
-        // Sort
-        availableBooks.sort((a,b) => a.title.localeCompare(b.title));
-    } catch(e) { console.warn("Book fetch error:", e); }
-}
-
-// --- LANDING SCREEN LOGIC ---
-function showLandingModal() {
-    isModalOpen = true; 
-    isInputBlocked = true; 
-    const modal = document.getElementById('modal');
-    document.getElementById('modal-title').style.display = 'block';
-    document.getElementById('modal-title').innerText = "Welcome";
-    
-    // Build HTML
-    let bookOptions = availableBooks.map(b => 
-        `<option value="${b.id}" ${b.id === currentBookId ? 'selected' : ''}>${b.title}</option>`
-    ).join('');
-
-    const html = `
-        <div id="landing-ui" style="text-align: center;">
-            <label style="color:#888; font-size:0.8rem; text-transform:uppercase; letter-spacing:1px; margin-bottom:10px; display:block;">Select a Book</label>
-            <select id="landing-book-select" class="modal-select" style="margin-bottom: 25px; font-size: 1.1rem;">
-                ${bookOptions}
-            </select>
-            
-            <div id="landing-auth-container">
-                </div>
-        </div>
-    `;
-    
-    document.getElementById('modal-body').innerHTML = html;
-    
-    // Bind Change Event
-    document.getElementById('landing-book-select').onchange = (e) => {
-        currentBookId = e.target.value;
-        localStorage.setItem('currentBookId', currentBookId);
-    };
-
-    updateLandingUI();
-    
-    // Hide default Action Btn
-    const btn = document.getElementById('action-btn');
-    btn.style.display = 'none';
-    modal.classList.remove('hidden');
-}
-
-function updateLandingUI() {
-    const container = document.getElementById('landing-auth-container');
-    if (!container) return;
-
-    if (currentUser) {
-        // Logged In View
-        container.innerHTML = `
-            <div style="margin-bottom: 15px; color: #4B9CD3;">Signed in as ${currentUser.email || "User"}</div>
-            <button id="landing-start-btn" class="landing-btn primary">Start Reading</button>
-            <div style="margin-top:15px; font-size:0.8em;">
-                <a href="#" id="landing-switch-account" style="color:#666;">Switch Account</a>
-            </div>
-        `;
-        document.getElementById('landing-start-btn').onclick = startSession;
-        document.getElementById('landing-switch-account').onclick = async () => {
-            await signOut(auth);
-        };
-    } else {
-        // Guest View
-        container.innerHTML = `
-            <button id="landing-login-btn" class="landing-btn primary" style="margin-bottom: 10px;">Log In (Google)</button>
-            <div style="margin-bottom: 10px; color: #666;">- OR -</div>
-            <button id="landing-guest-btn" class="landing-btn secondary">Continue as Guest</button>
-        `;
-        
-        document.getElementById('landing-login-btn').onclick = async () => {
-            try { await signInWithPopup(auth, new GoogleAuthProvider()); } 
-            catch (e) { alert(e.message); }
-        };
-        
-        document.getElementById('landing-guest-btn').onclick = async () => {
-            try { 
-                await signInAnonymously(auth);
-            } catch(e) { alert(e.message); }
-        };
-    }
-}
-
-async function startSession() {
-    closeModal();
-    // Load Sequence
-    try {
-        await loadBookMetadata(); 
-        await loadUserProgress(); 
-        await loadUserStats();    
-    } catch(e) { console.error("Init Error:", e); }
 }
 
 function setupAuthListeners() {
@@ -342,15 +233,7 @@ function setupGame() {
     let btnLabel = "Resume";
     if (savedCharIndex === 0) btnLabel = "Start Reading";
     
-    if (!isGameActive) {
-        // If not started, show the landing (which might call this)
-        // But if we called this from startSession(), we are good.
-        // Actually setupGame doesn't open modal automatically anymore if initiated from landing.
-        // But if resume happens? 
-        // Logic: if called from loadChapter -> setupGame -> just ready to play?
-        // We only want Modal if PAUSED.
-        // But initial load is handled by landing.
-    }
+    if (!isGameActive) showStartModal(btnLabel);
 }
 
 function renderText() {
@@ -413,6 +296,7 @@ function gameTick() {
     if (!isGameActive) return;
     const now = Date.now();
     
+    // AUTO PAUSE FOR INACTIVITY
     if (now - lastInputTime > AFK_THRESHOLD && !isModalOpen) {
         triggerHardStop(fullText[currentCharIndex], true);
         return;
@@ -471,6 +355,7 @@ document.addEventListener('keydown', (e) => {
     if (isModalOpen) {
         if (isInputBlocked) return; 
         
+        // --- HARD STOP / PAUSE LOGIC ---
         if (isHardStop) {
             let targetChar = fullText[currentCharIndex];
             let isMatch = (e.key === targetChar);
@@ -484,6 +369,7 @@ document.addEventListener('keydown', (e) => {
             return;
         }
 
+        // --- SMART START LOGIC ---
         let shouldStart = false;
         let shouldSkip = false;
         
@@ -602,13 +488,13 @@ function triggerHardStop(targetChar, isAfk) {
     if (targetChar === '\n') friendlyKey = 'Enter';
     if (targetChar === '\t') friendlyKey = 'Tab';
 
+    // Capitalization Hint Logic
     let hintHtml = "";
     if (friendlyKey.length === 1 && friendlyKey.match(/[A-Z]/)) {
         hintHtml = `<div class="modal-hint-text">(Requires Shift)</div>`;
     }
 
     const modal = document.getElementById('modal');
-    document.getElementById('modal-title').style.display = 'block';
     document.getElementById('modal-title').innerText = isAfk ? "Session Paused (Inactive)" : "Pausing for Accuracy";
     
     let msg = isAfk ? "You've been away for a while." : "Too many errors!";
@@ -802,8 +688,7 @@ function showStartModal(btnText) {
     document.getElementById('modal-body').innerHTML = html;
     
     const btn = document.getElementById('action-btn');
-    btn.style.display = 'inline-block';
-    btn.innerText = btnText; btn.onclick = startGame; btn.disabled = false;
+    btn.innerText = btnText; btn.onclick = startGame; btn.disabled = false; btn.style.display = 'inline-block';
     modal.classList.remove('hidden');
 }
 
@@ -826,7 +711,6 @@ function showStatsModal(title, stats, btnText, callback) {
     
     document.getElementById('modal-body').innerHTML = html;
     const btn = document.getElementById('action-btn');
-    btn.style.display = 'inline-block';
     btn.innerText = "Wait..."; btn.onclick = modalActionCallback; btn.disabled = true; btn.style.opacity = '0.5'; 
     modal.classList.remove('hidden');
     setTimeout(() => {
@@ -873,9 +757,17 @@ async function openMenuModal() {
         });
     }
 
-    let bookOptions = availableBooks.map(b => 
-        `<option value="${b.id}" ${b.id === currentBookId ? 'selected' : ''}>${b.title}</option>`
-    ).join('');
+    let bookOptions = "";
+    try {
+        const querySnapshot = await getDocs(collection(db, "books"));
+        querySnapshot.forEach((doc) => {
+            const b = doc.data();
+            const id = doc.id;
+            const title = b.title || id;
+            const sel = (id === currentBookId) ? "selected" : "";
+            bookOptions += `<option value="${id}" ${sel}>${title}</option>`;
+        });
+    } catch(e) { console.warn(e); }
 
     document.getElementById('modal-body').innerHTML = `
         <div class="menu-section">
@@ -916,7 +808,6 @@ async function openMenuModal() {
     };
 
     const btn = document.getElementById('action-btn');
-    btn.style.display = 'inline-block';
     btn.innerText = "Close";
     btn.onclick = () => { closeModal(); if(!isGameActive && savedCharIndex > 0) startGame(); };
     btn.disabled = false;
