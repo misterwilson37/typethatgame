@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>TypeThatBook Admin v2.1.0</title>
+    <title>TypeThatBook Admin v2.4.1</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
         body { background: #111; color: #eee; font-family: 'Courier New', monospace; padding: 20px; }
@@ -233,6 +233,18 @@
             <div class="col"><button id="wizard-ignore-btn" class="secondary-btn">Ignore (Keep Char)</button></div>
             <div class="col"><button id="wizard-save-btn" style="background:#0047AB;">Save & Check</button></div>
             <div class="col"><button id="wizard-cancel-btn" class="danger-btn">Cancel Import</button></div>
+        </div>
+        
+        <div id="replace-all-section" style="margin-top:20px; padding-top:15px; border-top:1px solid #444;">
+            <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+                <span style="color:#ccc; white-space:nowrap;">Replace all <span id="replace-all-count" style="color:#ffaa00; font-weight:bold;"></span> instances of</span>
+                <span id="replace-all-char" style="font-weight:bold; color:#ff3333; border:1px solid #555; padding:2px 5px; font-family:'Courier New', monospace;"></span>
+                <span style="color:#ccc;">with:</span>
+            </div>
+            <div class="row">
+                <div class="col" style="flex:2;"><input id="replace-all-input" type="text" style="margin:0;" placeholder="Replacement text" /></div>
+                <div class="col"><button id="replace-all-btn" style="background:#0047AB; margin:0;">Replace All</button></div>
+            </div>
         </div>
     </div>
 </div>
