@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TypeThatBook Reports v2.3.0</title>
+    <title>TypeThatBook Reports v2.4.0</title>
     <style>
         body { background: #111; color: #eee; font-family: 'Courier New', monospace; padding: 20px; margin: 0; }
         .container { max-width: 960px; margin: 0 auto; padding-bottom: 40px; }
@@ -174,6 +174,20 @@
         }
         .save-log-btn:hover { border-color: #22c55e; color: #22c55e; }
         .log-save-status { font-size: 0.75rem; min-width: 60px; }
+        .expand-sessions { cursor: pointer; user-select: none; }
+        .expand-sessions:hover { color: #4B9CD3; }
+        .sessions-container { padding: 4px 0 8px 20px; }
+        .sessions-container.hidden { display: none; }
+        .session-entry {
+            display: flex; align-items: center; gap: 12px;
+            padding: 4px 8px; font-size: 0.75rem; color: #aaa;
+            border-left: 2px solid #333;
+        }
+        .session-entry.suspicious { border-left-color: #ff6b6b; background: rgba(255,50,50,0.05); }
+        .session-time { color: #888; width: 70px; flex-shrink: 0; }
+        .session-stat { width: 65px; text-align: right; }
+        .session-book { color: #555; font-style: italic; font-size: 0.7rem; }
+        .flag-icon { font-size: 0.85rem; }
     </style>
 </head>
 <body>
@@ -269,7 +283,7 @@
     </div>
 </div>
 
-<footer>Reports v2.3.0</footer>
+<footer>Reports v2.4.0</footer>
 
 <script type="module">
     import { db, auth } from "./firebase-config.js";
@@ -511,13 +525,14 @@
                     <div class="daily-logs">
                         ${r.dailyLogs.map((log, li) => `
                             <div class="daily-log-entry" data-idx="${idx}" data-li="${li}">
-                                <span class="log-date">${log.date}</span>
+                                <span class="log-date expand-sessions" data-uid="${r.uid}" data-date="${log.date}" title="Click to view sessions">▶ ${log.date}</span>
                                 <input type="number" class="log-seconds-input" value="${Math.floor(log.seconds / 60)}" min="0" step="1" title="Minutes" />
                                 <span class="goal-unit">min</span>
                                 <span class="log-chars">${log.chars.toLocaleString()} chars</span>
                                 <button class="save-log-btn" data-idx="${idx}" data-li="${li}">Save</button>
                                 <span class="log-save-status" id="log-status-${idx}-${li}"></span>
                             </div>
+                            <div class="sessions-container hidden" id="sessions-${r.uid}-${log.date}"></div>
                         `).join('')}
                     </div>
                 </td>
@@ -556,6 +571,76 @@
             if (detailRow) {
                 detailRow.classList.toggle('hidden');
                 e.target.textContent = detailRow.classList.contains('hidden') ? 'Edit' : '▾';
+            }
+            return;
+        }
+
+        // Expand sessions for a day
+        if (e.target.classList.contains('expand-sessions')) {
+            const uid = e.target.dataset.uid;
+            const date = e.target.dataset.date;
+            const container = document.getElementById(`sessions-${uid}-${date}`);
+            if (!container) return;
+            
+            if (!container.classList.contains('hidden')) {
+                container.classList.add('hidden');
+                e.target.textContent = `▶ ${date}`;
+                return;
+            }
+            
+            e.target.textContent = `▼ ${date}`;
+            container.classList.remove('hidden');
+            container.innerHTML = '<div style="padding:8px; color:#888; font-size:0.75rem;">Loading sessions...</div>';
+            
+            try {
+                const sessionsRef = collection(db, "typing_sessions");
+                const q = query(sessionsRef, 
+                    where("uid", "==", uid), 
+                    where("date", "==", date)
+                );
+                const snap = await getDocs(q);
+                
+                if (snap.empty) {
+                    container.innerHTML = '<div style="padding:8px; color:#666; font-size:0.75rem; font-style:italic;">No session data (sessions logged from v2.4.0+)</div>';
+                    return;
+                }
+                
+                // Collect and sort by timestamp
+                const sessions = [];
+                snap.forEach(d => sessions.push(d.data()));
+                sessions.sort((a, b) => {
+                    const ta = a.timestamp?.toDate ? a.timestamp.toDate().getTime() : 0;
+                    const tb = b.timestamp?.toDate ? b.timestamp.toDate().getTime() : 0;
+                    return ta - tb;
+                });
+                
+                // Calculate averages for flagging outliers
+                let totalWPM = 0, totalAcc = 0;
+                sessions.forEach(s => { totalWPM += s.wpm || 0; totalAcc += s.accuracy || 0; });
+                const avgWPM = Math.round(totalWPM / sessions.length);
+                const avgAcc = Math.round(totalAcc / sessions.length);
+                
+                container.innerHTML = sessions.map(s => {
+                    const time = s.timestamp?.toDate ? s.timestamp.toDate() : new Date(s.timestamp);
+                    const timeStr = time.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+                    // Flag if WPM is 50%+ above average OR accuracy is 15%+ above average
+                    const suspicious = (s.wpm > avgWPM * 1.5 && avgWPM > 10) || (s.accuracy > avgAcc + 15 && avgAcc < 90);
+                    const flag = suspicious ? '<span class="flag-icon" title="Unusual stats">🚩</span>' : '';
+                    return `
+                        <div class="session-entry${suspicious ? ' suspicious' : ''}">
+                            <span class="session-time">${timeStr}</span>
+                            <span class="session-stat">${formatTime(s.seconds)}</span>
+                            <span class="session-stat">${s.wpm} WPM</span>
+                            <span class="session-stat">${s.accuracy}%</span>
+                            <span class="session-book">${escapeHtml((s.bookId || '').replace(/_/g, ' '))}</span>
+                            ${flag}
+                        </div>
+                    `;
+                }).join('');
+                
+            } catch (err) {
+                console.error("Sessions load error:", err);
+                container.innerHTML = `<div style="padding:8px; color:#ff3333; font-size:0.75rem;">Error: ${err.message}</div>`;
             }
             return;
         }
