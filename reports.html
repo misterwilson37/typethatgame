@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TypeThatBook Reports v2.2.0</title>
+    <title>TypeThatBook Reports v2.3.0</title>
     <style>
         body { background: #111; color: #eee; font-family: 'Courier New', monospace; padding: 20px; margin: 0; }
         .container { max-width: 960px; margin: 0 auto; padding-bottom: 40px; }
@@ -142,6 +142,38 @@
         }
         .goal-status.ok { color: #22c55e; }
         .goal-status.err { color: #ff3333; }
+
+        /* --- EDIT UI --- */
+        .edit-row-btn {
+            background: transparent; border: 1px solid #555; color: #aaa;
+            padding: 3px 10px; font-size: 0.7rem; cursor: pointer;
+            font-family: inherit; border-radius: 3px;
+        }
+        .edit-row-btn:hover { border-color: #4B9CD3; color: #4B9CD3; }
+        .detail-row td { padding: 0 !important; background: #111; }
+        .detail-row.hidden { display: none; }
+        .daily-logs { padding: 10px 15px; }
+        .daily-log-entry {
+            display: flex; align-items: center; gap: 10px;
+            padding: 6px 0; border-bottom: 1px solid #222;
+            font-size: 0.8rem;
+        }
+        .daily-log-entry:last-child { border-bottom: none; }
+        .log-date { color: #888; width: 90px; flex-shrink: 0; }
+        .log-seconds-input {
+            background: #1a1a1a; border: 1px solid #444; color: #fff;
+            padding: 4px 6px; width: 60px; text-align: center;
+            font-family: inherit; font-size: 0.8rem; border-radius: 3px;
+        }
+        .log-seconds-input:focus { border-color: #4B9CD3; outline: none; }
+        .log-chars { color: #666; font-size: 0.75rem; }
+        .save-log-btn {
+            background: #333; border: 1px solid #555; color: #aaa;
+            padding: 3px 10px; font-size: 0.7rem; cursor: pointer;
+            font-family: inherit; border-radius: 3px;
+        }
+        .save-log-btn:hover { border-color: #22c55e; color: #22c55e; }
+        .log-save-status { font-size: 0.75rem; min-width: 60px; }
     </style>
 </head>
 <body>
@@ -224,6 +256,7 @@
                         <th data-col="wpm">Avg WPM <span class="sort-arrow">▲</span></th>
                         <th data-col="accuracy">Accuracy <span class="sort-arrow">▲</span></th>
                         <th data-col="days">Days Active <span class="sort-arrow">▲</span></th>
+                        <th style="width:50px;"></th>
                     </tr>
                 </thead>
                 <tbody id="report-body"></tbody>
@@ -236,11 +269,11 @@
     </div>
 </div>
 
-<footer>Reports v2.2.0</footer>
+<footer>Reports v2.3.0</footer>
 
 <script type="module">
     import { db, auth } from "./firebase-config.js";
-    import { collection, getDocs, query, where, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+    import { collection, getDocs, query, where, doc, getDoc, setDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
     import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
     const ADMIN_EMAILS = [
@@ -385,30 +418,40 @@
                 const uid = data.uid;
                 if (!userMap[uid]) {
                     userMap[uid] = {
+                        uid: uid,
                         name: data.displayName || "Unknown",
                         email: data.email || "",
                         seconds: 0,
                         chars: 0,
                         mistakes: 0,
-                        days: new Set()
+                        days: new Set(),
+                        dailyLogs: []
                     };
                 }
                 userMap[uid].seconds += (data.seconds || 0);
                 userMap[uid].chars += (data.chars || 0);
                 userMap[uid].mistakes += (data.mistakes || 0);
                 userMap[uid].days.add(data.date);
-                // Use most recent name/email
+                userMap[uid].dailyLogs.push({
+                    docId: d.id,
+                    date: data.date,
+                    seconds: data.seconds || 0,
+                    chars: data.chars || 0,
+                    mistakes: data.mistakes || 0
+                });
                 if (data.displayName) userMap[uid].name = data.displayName;
                 if (data.email) userMap[uid].email = data.email;
             });
 
             reportData = Object.values(userMap).map(u => ({
+                uid: u.uid,
                 name: u.name,
                 email: u.email,
                 seconds: u.seconds,
                 chars: u.chars,
                 mistakes: u.mistakes,
                 days: u.days.size,
+                dailyLogs: u.dailyLogs.sort((a, b) => a.date.localeCompare(b.date)),
                 wpm: u.seconds > 0 ? Math.round((u.chars / 5) / (u.seconds / 60)) : 0,
                 accuracy: (u.chars + u.mistakes) > 0 ? Math.round((u.chars / (u.chars + u.mistakes)) * 100) : 100
             }));
@@ -452,8 +495,8 @@
         });
 
         const tbody = document.getElementById('report-body');
-        tbody.innerHTML = reportData.map(r => `
-            <tr>
+        tbody.innerHTML = reportData.map((r, idx) => `
+            <tr class="summary-row" data-idx="${idx}">
                 <td>${escapeHtml(r.name)}</td>
                 <td>${escapeHtml(r.email)}</td>
                 <td class="time-cell">${formatTime(r.seconds)}</td>
@@ -461,6 +504,23 @@
                 <td class="wpm-cell">${r.wpm}</td>
                 <td>${r.accuracy}%</td>
                 <td>${r.days}</td>
+                <td><button class="edit-row-btn" data-idx="${idx}">Edit</button></td>
+            </tr>
+            <tr class="detail-row hidden" id="detail-${idx}">
+                <td colspan="8">
+                    <div class="daily-logs">
+                        ${r.dailyLogs.map((log, li) => `
+                            <div class="daily-log-entry" data-idx="${idx}" data-li="${li}">
+                                <span class="log-date">${log.date}</span>
+                                <input type="number" class="log-seconds-input" value="${Math.floor(log.seconds / 60)}" min="0" step="1" title="Minutes" />
+                                <span class="goal-unit">min</span>
+                                <span class="log-chars">${log.chars.toLocaleString()} chars</span>
+                                <button class="save-log-btn" data-idx="${idx}" data-li="${li}">Save</button>
+                                <span class="log-save-status" id="log-status-${idx}-${li}"></span>
+                            </div>
+                        `).join('')}
+                    </div>
+                </td>
             </tr>
         `).join('');
 
@@ -485,6 +545,86 @@
             else { sortCol = col; sortAsc = (col === 'name' || col === 'email'); }
             renderTable();
         };
+    });
+
+    // Edit/Save delegation on table
+    document.getElementById('report-body').addEventListener('click', async (e) => {
+        // Toggle detail row
+        if (e.target.classList.contains('edit-row-btn')) {
+            const idx = e.target.dataset.idx;
+            const detailRow = document.getElementById(`detail-${idx}`);
+            if (detailRow) {
+                detailRow.classList.toggle('hidden');
+                e.target.textContent = detailRow.classList.contains('hidden') ? 'Edit' : '▾';
+            }
+            return;
+        }
+
+        // Save individual daily log
+        if (e.target.classList.contains('save-log-btn')) {
+            const idx = parseInt(e.target.dataset.idx);
+            const li = parseInt(e.target.dataset.li);
+            const r = reportData[idx];
+            const log = r.dailyLogs[li];
+            const entry = e.target.closest('.daily-log-entry');
+            const input = entry.querySelector('.log-seconds-input');
+            const newMinutes = parseInt(input.value) || 0;
+            const newSeconds = newMinutes * 60;
+            const statusEl2 = document.getElementById(`log-status-${idx}-${li}`);
+
+            try {
+                e.target.disabled = true;
+                statusEl2.textContent = 'Saving...';
+                statusEl2.style.color = '#888';
+
+                // Update the typing_log document
+                await updateDoc(doc(db, "typing_logs", log.docId), {
+                    seconds: newSeconds,
+                    lastUpdated: new Date()
+                });
+
+                // If this is today's log, also update the user's live stats
+                const today = new Date().toISOString().split('T')[0];
+                if (log.date === today) {
+                    const statsRef = doc(db, "users", r.uid, "stats", "time_tracking");
+                    try {
+                        await updateDoc(statsRef, { secondsToday: newSeconds });
+                    } catch (statsErr) {
+                        console.warn("Could not update live stats (user may need to refresh):", statsErr);
+                    }
+                }
+
+                // Update local data
+                const oldSeconds = log.seconds;
+                log.seconds = newSeconds;
+                r.seconds = r.seconds - oldSeconds + newSeconds;
+                r.wpm = r.seconds > 0 ? Math.round((r.chars / 5) / (r.seconds / 60)) : 0;
+
+                // Update the summary row without collapsing the detail
+                const summaryRow = document.querySelector(`.summary-row[data-idx="${idx}"]`);
+                if (summaryRow) {
+                    const cells = summaryRow.querySelectorAll('td');
+                    cells[2].textContent = formatTime(r.seconds);
+                    cells[4].textContent = r.wpm;
+                }
+
+                // Update totals
+                const totalSecs = reportData.reduce((s, rr) => s + rr.seconds, 0);
+                document.getElementById('total-line').innerHTML = 
+                    `<strong>${reportData.length}</strong> students — <strong>${formatTime(totalSecs)}</strong> total typing time`;
+
+                statusEl2.textContent = '✓ Saved';
+                statusEl2.style.color = '#22c55e';
+                setTimeout(() => { statusEl2.textContent = ''; }, 2000);
+            } catch (err) {
+                console.error("Save error:", err);
+                statusEl2.textContent = '✗ ' + err.message;
+                statusEl2.style.color = '#ff3333';
+            } finally {
+                e.target.disabled = false;
+            }
+            return;
+        }
     });
 
     // --- CSV EXPORT ---
