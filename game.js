@@ -1,4 +1,4 @@
-// v2.4.3 - Fix settings menu freeze bug
+// v2.4.4 - Chapter end fix, multi-backspace, modal sizing
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc, getDocs, collection, addDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -8,7 +8,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "2.4.3";
+const VERSION = "2.4.4";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000; 
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -519,8 +519,21 @@ function handleTyping(key) {
 
     if (key === "Backspace") {
         if (currentLetterStatus === 'error') {
+            // First backspace: clear the error on current char
             currentLetterStatus = 'fixed';
             currentEl.classList.remove('error-state');
+        } else if (currentCharIndex > sprintCharStart) {
+            // Additional backspaces: move back to previous char
+            currentCharIndex--;
+            currentLetterStatus = 'fixed'; // will show as fixed when retyped
+            const prevEl = document.getElementById(`char-${currentCharIndex}`);
+            if (prevEl) {
+                prevEl.classList.remove('done-perfect', 'done-fixed', 'done-dirty');
+                prevEl.classList.add('active');
+            }
+            // Un-highlight the char we just left
+            if (currentEl) currentEl.classList.remove('active');
+            highlightCurrentChar(); centerView();
         }
         return;
     }
@@ -544,14 +557,14 @@ function handleTyping(key) {
 
         updateRunningWPM(); updateRunningAccuracy(true);
 
+        if (currentCharIndex >= fullText.length) { finishChapter(); return; }
+
         if (isOvertime) {
             if (['.', '!', '?', '\n'].includes(targetChar)) {
                 const nextChar = fullText[currentCharIndex]; 
                 if (nextChar !== '"' && nextChar !== "'") { triggerStop(); return; }
             }
         }
-
-        if (currentCharIndex >= fullText.length) { finishChapter(); return; }
         
         highlightCurrentChar(); centerView();
     } else {
