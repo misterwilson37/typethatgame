@@ -3,7 +3,7 @@ import { db, auth } from "./firebase-config.js";
 import { doc, setDoc, getDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const ADMIN_VERSION = "2.1.0";
+const ADMIN_VERSION = "2.4.1";
 
 // Only these emails can access the admin panel
 const ADMIN_EMAILS = [
@@ -64,6 +64,27 @@ const wizardInput = document.getElementById('wizard-edit-input');
 const wizardIgnoreBtn = document.getElementById('wizard-ignore-btn');
 const wizardSaveBtn = document.getElementById('wizard-save-btn');
 const wizardCancelBtn = document.getElementById('wizard-cancel-btn');
+const replaceAllSection = document.getElementById('replace-all-section');
+const replaceAllCount = document.getElementById('replace-all-count');
+const replaceAllChar = document.getElementById('replace-all-char');
+const replaceAllInput = document.getElementById('replace-all-input');
+const replaceAllBtn = document.getElementById('replace-all-btn');
+
+// Suggested replacements for common characters
+const CHAR_SUGGESTIONS = {
+    '\u00E6': 'ae', '\u00C6': 'Ae',   // æ Æ
+    '\u0153': 'oe', '\u0152': 'Oe',   // œ Œ
+    '\u00DF': 'ss',                     // ß
+    '\u00A0': ' ',                      // NBSP
+    '\u00AD': '',                       // soft hyphen
+    '\u2013': '-', '\u2014': '--',     // en/em dash
+    '\u2018': "'", '\u2019': "'",      // smart quotes
+    '\u201C': '"', '\u201D': '"',
+    '\u2026': '...',                    // ellipsis
+    '\u00D7': 'x',                     // ×
+    '\u00B7': '-',                     // middle dot
+    '\u2022': '-',                     // bullet
+};
 
 // State
 let stagedChapters = [];
@@ -276,6 +297,19 @@ async function parseEpubFile(file) {
                 text = text.replace(/[\u2018\u2019]/g, "'"); 
                 text = text.replace(/[\u201C\u201D]/g, '"');
                 text = text.replace(/\u2026/g, "..."); 
+                text = text.replace(/\u00A0/g, ' ');        // non-breaking space → space
+                text = text.replace(/[\u2002\u2003\u2009]/g, ' '); // en/em/thin space → space
+                text = text.replace(/\u2013/g, '-');         // en dash → hyphen
+                text = text.replace(/[\u200B\u200C\u200D\uFEFF]/g, ''); // zero-width chars, BOM → remove
+                text = text.replace(/\u00AD/g, '');          // soft hyphen → remove
+                text = text.replace(/\u00E6/g, 'ae');        // æ → ae
+                text = text.replace(/\u00C6/g, 'Ae');        // Æ → Ae
+                text = text.replace(/\u0153/g, 'oe');        // œ → oe
+                text = text.replace(/\u0152/g, 'Oe');        // Œ → Oe
+                text = text.replace(/\u00DF/g, 'ss');        // ß → ss
+                text = text.replace(/\u00D7/g, 'x');         // × → x
+                text = text.replace(/\u00B7/g, '-');          // · (middle dot) → hyphen
+                text = text.replace(/\u2022/g, '-');          // bullet → hyphen
                 
                 if (normalizeCharsCb.checked) {
                     text = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -376,6 +410,29 @@ function showErrorWizard() {
     err.contextStart = start;
     err.contextEnd = end;
     
+    // Populate Replace All section
+    const sameCharErrors = importErrors.filter(e => e.badChar === err.badChar);
+    // Count total occurrences across all segments
+    let totalOccurrences = 0;
+    const seenSegments = new Set();
+    stagedChapters.forEach(ch => {
+        ch.segments.forEach(seg => {
+            if (!seenSegments.has(seg)) {
+                seenSegments.add(seg);
+                const matches = seg.text.match(new RegExp(escapeRegex(err.badChar), 'g'));
+                if (matches) totalOccurrences += matches.length;
+            }
+        });
+    });
+    
+    const badCode = err.badChar.charCodeAt(0).toString(16).toUpperCase();
+    replaceAllCount.textContent = totalOccurrences;
+    replaceAllChar.textContent = `"${err.badChar}" (U+${badCode})`;
+    replaceAllInput.value = CHAR_SUGGESTIONS[err.badChar] || '';
+    replaceAllInput.placeholder = CHAR_SUGGESTIONS[err.badChar] !== undefined 
+        ? `Suggested: "${CHAR_SUGGESTIONS[err.badChar] || '(remove)'}"`
+        : 'Replacement text';
+    
     wizardModal.classList.remove('hidden');
 }
 
@@ -414,6 +471,47 @@ wizardCancelBtn.onclick = () => {
         chapterListEl.innerHTML = "";
     }
 };
+
+replaceAllBtn.onclick = () => {
+    const err = importErrors[currentErrorIdx];
+    const badChar = err.badChar;
+    const replacement = replaceAllInput.value;
+    const badCode = badChar.charCodeAt(0).toString(16).toUpperCase();
+    
+    const displayReplacement = replacement === '' ? '(remove)' : `"${replacement}"`;
+    if (!confirm(`Replace ALL "${badChar}" (U+${badCode}) with ${displayReplacement} across all chapters?`)) return;
+    
+    // Global replace across all staged chapter segments
+    const regex = new RegExp(escapeRegex(badChar), 'g');
+    let replaceCount = 0;
+    stagedChapters.forEach(ch => {
+        ch.segments.forEach(seg => {
+            const matches = seg.text.match(regex);
+            if (matches) {
+                replaceCount += matches.length;
+                seg.text = seg.text.replace(regex, replacement);
+            }
+        });
+    });
+    
+    // Remove all errors with this same badChar
+    importErrors = importErrors.filter(e => e.badChar !== badChar);
+    
+    // Reset index (may have shifted)
+    if (currentErrorIdx >= importErrors.length) currentErrorIdx = importErrors.length - 1;
+    if (currentErrorIdx < 0) currentErrorIdx = 0;
+    
+    // Re-scan all segments for any remaining bad chars that weren't in importErrors
+    // (a segment could have had multiple different bad chars)
+    statusEl.innerText = `Replaced ${replaceCount} instances of "${badChar}" (U+${badCode}).`;
+    statusEl.style.borderColor = "#00ff41";
+    
+    showErrorWizard();
+};
+
+function escapeRegex(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 // Security: escape HTML to prevent XSS from Firestore data
 function escapeHtml(str) {
