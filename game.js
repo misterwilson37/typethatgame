@@ -1,4 +1,4 @@
-// v2.4.1 - Fix midnight rollover bug
+// v2.4.3 - Fix settings menu freeze bug
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc, getDocs, collection, addDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -8,7 +8,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "2.4.1";
+const VERSION = "2.4.3";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000; 
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -54,6 +54,7 @@ let activeSeconds = 0; let sprintSeconds = 0;
 let sprintCharStart = 0; let timerInterval = null;
 let isGameActive = false; let isOvertime = false;
 let isModalOpen = false; let isInputBlocked = false; 
+let modalGeneration = 0;
 let isHardStop = false; 
 let bookSwitchPending = false;
 let modalActionCallback = null;
@@ -884,7 +885,9 @@ function showStatsModal(title, stats, btnText, callback) {
     const btn = document.getElementById('action-btn');
     btn.innerText = "Wait..."; btn.onclick = modalActionCallback; btn.disabled = true; btn.style.opacity = '0.5'; 
     modal.classList.remove('hidden');
+    const gen = ++modalGeneration;
     setTimeout(() => {
+        if (modalGeneration !== gen) return; // modal was replaced
         isInputBlocked = false;
         if(document.getElementById('action-btn')) {
             const b = document.getElementById('action-btn');
@@ -937,6 +940,7 @@ function closeModal() {
 async function openMenuModal() {
     if (isGameActive) pauseGameForBreak();
     isModalOpen = true; isInputBlocked = false; 
+    modalGeneration++; // prevent stale setTimeout from showStatsModal
     modalActionCallback = () => { closeModal(); startGame(); };
     
     const modal = document.getElementById('modal');
@@ -1094,10 +1098,10 @@ async function openMenuModal() {
             loadChapter(val);
         } else {
             closeModal(); 
-            if(!isGameActive && savedCharIndex > 0) startGame(); 
+            if (!isGameActive) startGame(); 
         }
     };
-    btn.disabled = false;
+    btn.disabled = false; btn.style.opacity = '1';
     modal.classList.remove('hidden');
 }
 
