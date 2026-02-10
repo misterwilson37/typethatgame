@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TypeThatBook v2.4.4</title>
+    <title>TypeThatBook v2.4.5</title>
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
 </head>
@@ -35,18 +35,17 @@
 
     <div id="virtual-keyboard"></div>
 
-    <div id="modal" class="modal hidden">
-        <div class="modal-content">
-            <h2 id="modal-title">Title</h2>
-            <p id="modal-body">Body text goes here.</p>
-            <br>
-            <button id="action-btn" style="padding: 10px 20px; background: #4B9CD3; color: white; border: none; font-size: 16px; cursor: pointer;">
-                Action
-            </button>
+    <div id="modal" class="hidden">
+        <div id="modal-title-bar">
+            <span id="modal-title"></span>
+        </div>
+        <div id="modal-body"></div>
+        <div id="modal-footer">
+            <button id="action-btn" class="modal-btn">Action</button>
         </div>
     </div>
 
-    <footer>v2.4.4 (game.js)</footer>
+    <footer>v2.4.5 (game.js)</footer>
 
     <script type="module" src="game.js"></script>
 </body>
