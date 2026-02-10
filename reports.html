@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TypeThatBook Reports v2.4.0</title>
+    <title>TypeThatBook Reports v2.4.1</title>
     <style>
         body { background: #111; color: #eee; font-family: 'Courier New', monospace; padding: 20px; margin: 0; }
         .container { max-width: 960px; margin: 0 auto; padding-bottom: 40px; }
@@ -144,12 +144,12 @@
         .goal-status.err { color: #ff3333; }
 
         /* --- EDIT UI --- */
-        .edit-row-btn {
+        .details-row-btn {
             background: transparent; border: 1px solid #555; color: #aaa;
             padding: 3px 10px; font-size: 0.7rem; cursor: pointer;
             font-family: inherit; border-radius: 3px;
         }
-        .edit-row-btn:hover { border-color: #4B9CD3; color: #4B9CD3; }
+        .details-row-btn:hover { border-color: #4B9CD3; color: #4B9CD3; }
         .detail-row td { padding: 0 !important; background: #111; }
         .detail-row.hidden { display: none; }
         .daily-logs { padding: 10px 15px; }
@@ -173,6 +173,19 @@
             font-family: inherit; border-radius: 3px;
         }
         .save-log-btn:hover { border-color: #22c55e; color: #22c55e; }
+        .recalc-btn {
+            background: transparent; border: 1px solid #555; color: #aaa;
+            padding: 3px 8px; font-size: 0.8rem; cursor: pointer;
+            font-family: inherit; border-radius: 3px; line-height: 1;
+        }
+        .recalc-btn:hover { border-color: #4B9CD3; color: #4B9CD3; }
+        .recalc-btn:disabled { opacity: 0.4; cursor: default; }
+        .delete-session-btn {
+            background: transparent; border: 1px solid transparent; color: #666;
+            padding: 2px 6px; font-size: 0.75rem; cursor: pointer;
+            font-family: inherit; border-radius: 3px; margin-left: auto;
+        }
+        .delete-session-btn:hover { border-color: #ff3333; color: #ff3333; }
         .log-save-status { font-size: 0.75rem; min-width: 60px; }
         .expand-sessions { cursor: pointer; user-select: none; }
         .expand-sessions:hover { color: #4B9CD3; }
@@ -283,11 +296,11 @@
     </div>
 </div>
 
-<footer>Reports v2.4.0</footer>
+<footer>Reports v2.4.1</footer>
 
 <script type="module">
     import { db, auth } from "./firebase-config.js";
-    import { collection, getDocs, query, where, doc, getDoc, setDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+    import { collection, getDocs, query, where, doc, getDoc, setDoc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
     import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
     const ADMIN_EMAILS = [
@@ -518,22 +531,28 @@
                 <td class="wpm-cell">${r.wpm}</td>
                 <td>${r.accuracy}%</td>
                 <td>${r.days}</td>
-                <td><button class="edit-row-btn" data-idx="${idx}">Edit</button></td>
+                <td><button class="details-row-btn" data-idx="${idx}">Details</button></td>
             </tr>
             <tr class="detail-row hidden" id="detail-${idx}">
                 <td colspan="8">
                     <div class="daily-logs">
-                        ${r.dailyLogs.map((log, li) => `
+                        ${r.dailyLogs.map((log, li) => {
+                            const mins = Math.floor(log.seconds / 60);
+                            const secs = log.seconds % 60;
+                            return `
                             <div class="daily-log-entry" data-idx="${idx}" data-li="${li}">
                                 <span class="log-date expand-sessions" data-uid="${r.uid}" data-date="${log.date}" title="Click to view sessions">▶ ${log.date}</span>
-                                <input type="number" class="log-seconds-input" value="${Math.floor(log.seconds / 60)}" min="0" step="1" title="Minutes" />
-                                <span class="goal-unit">min</span>
+                                <input type="number" class="log-min-input" value="${mins}" min="0" step="1" title="Minutes" style="width:45px;" />
+                                <span class="goal-unit">m</span>
+                                <input type="number" class="log-sec-input" value="${secs}" min="0" max="59" step="1" title="Seconds" style="width:45px;" />
+                                <span class="goal-unit">s</span>
                                 <span class="log-chars">${log.chars.toLocaleString()} chars</span>
                                 <button class="save-log-btn" data-idx="${idx}" data-li="${li}">Save</button>
+                                <button class="recalc-btn" data-idx="${idx}" data-li="${li}" data-uid="${r.uid}" data-date="${log.date}" title="Recalculate from sessions">⟳</button>
                                 <span class="log-save-status" id="log-status-${idx}-${li}"></span>
                             </div>
                             <div class="sessions-container hidden" id="sessions-${r.uid}-${log.date}"></div>
-                        `).join('')}
+                        `}).join('')}
                     </div>
                 </td>
             </tr>
@@ -565,12 +584,12 @@
     // Edit/Save delegation on table
     document.getElementById('report-body').addEventListener('click', async (e) => {
         // Toggle detail row
-        if (e.target.classList.contains('edit-row-btn')) {
+        if (e.target.classList.contains('details-row-btn')) {
             const idx = e.target.dataset.idx;
             const detailRow = document.getElementById(`detail-${idx}`);
             if (detailRow) {
                 detailRow.classList.toggle('hidden');
-                e.target.textContent = detailRow.classList.contains('hidden') ? 'Edit' : '▾';
+                e.target.textContent = detailRow.classList.contains('hidden') ? 'Details' : '▾';
             }
             return;
         }
@@ -607,14 +626,13 @@
                 
                 // Collect and sort by timestamp
                 const sessions = [];
-                snap.forEach(d => sessions.push(d.data()));
+                snap.forEach(d => sessions.push({ id: d.id, ...d.data() }));
                 sessions.sort((a, b) => {
                     const ta = a.timestamp?.toDate ? a.timestamp.toDate().getTime() : 0;
                     const tb = b.timestamp?.toDate ? b.timestamp.toDate().getTime() : 0;
                     return ta - tb;
                 });
                 
-                // Calculate averages for flagging outliers
                 let totalWPM = 0, totalAcc = 0;
                 sessions.forEach(s => { totalWPM += s.wpm || 0; totalAcc += s.accuracy || 0; });
                 const avgWPM = Math.round(totalWPM / sessions.length);
@@ -623,17 +641,17 @@
                 container.innerHTML = sessions.map(s => {
                     const time = s.timestamp?.toDate ? s.timestamp.toDate() : new Date(s.timestamp);
                     const timeStr = time.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-                    // Flag if WPM is 50%+ above average OR accuracy is 15%+ above average
                     const suspicious = (s.wpm > avgWPM * 1.5 && avgWPM > 10) || (s.accuracy > avgAcc + 15 && avgAcc < 90);
                     const flag = suspicious ? '<span class="flag-icon" title="Unusual stats">🚩</span>' : '';
                     return `
-                        <div class="session-entry${suspicious ? ' suspicious' : ''}">
+                        <div class="session-entry${suspicious ? ' suspicious' : ''}" data-session-id="${s.id}">
                             <span class="session-time">${timeStr}</span>
                             <span class="session-stat">${formatTime(s.seconds)}</span>
                             <span class="session-stat">${s.wpm} WPM</span>
                             <span class="session-stat">${s.accuracy}%</span>
                             <span class="session-book">${escapeHtml((s.bookId || '').replace(/_/g, ' '))}</span>
                             ${flag}
+                            <button class="delete-session-btn" data-session-id="${s.id}" title="Delete session">✕</button>
                         </div>
                     `;
                 }).join('');
@@ -645,16 +663,35 @@
             return;
         }
 
-        // Save individual daily log
+        // Delete a session
+        if (e.target.classList.contains('delete-session-btn')) {
+            const sessionId = e.target.dataset.sessionId;
+            if (!confirm("Delete this typing session?")) return;
+            try {
+                e.target.disabled = true;
+                await deleteDoc(doc(db, "typing_sessions", sessionId));
+                const row = e.target.closest('.session-entry');
+                if (row) row.remove();
+            } catch (err) {
+                console.error("Delete session error:", err);
+                alert("Delete failed: " + err.message);
+                e.target.disabled = false;
+            }
+            return;
+        }
+
+        // Save individual daily log (min + sec inputs)
         if (e.target.classList.contains('save-log-btn')) {
             const idx = parseInt(e.target.dataset.idx);
             const li = parseInt(e.target.dataset.li);
             const r = reportData[idx];
             const log = r.dailyLogs[li];
             const entry = e.target.closest('.daily-log-entry');
-            const input = entry.querySelector('.log-seconds-input');
-            const newMinutes = parseInt(input.value) || 0;
-            const newSeconds = newMinutes * 60;
+            const minInput = entry.querySelector('.log-min-input');
+            const secInput = entry.querySelector('.log-sec-input');
+            const newMins = parseInt(minInput.value) || 0;
+            const newSecs = Math.min(59, Math.max(0, parseInt(secInput.value) || 0));
+            const newSeconds = (newMins * 60) + newSecs;
             const statusEl2 = document.getElementById(`log-status-${idx}-${li}`);
 
             try {
@@ -662,41 +699,23 @@
                 statusEl2.textContent = 'Saving...';
                 statusEl2.style.color = '#888';
 
-                // Update the typing_log document
                 await updateDoc(doc(db, "typing_logs", log.docId), {
                     seconds: newSeconds,
                     lastUpdated: new Date()
                 });
 
-                // If this is today's log, also update the user's live stats
                 const today = new Date().toISOString().split('T')[0];
                 if (log.date === today) {
-                    const statsRef = doc(db, "users", r.uid, "stats", "time_tracking");
                     try {
-                        await updateDoc(statsRef, { secondsToday: newSeconds });
-                    } catch (statsErr) {
-                        console.warn("Could not update live stats (user may need to refresh):", statsErr);
-                    }
+                        await updateDoc(doc(db, "users", r.uid, "stats", "time_tracking"), { secondsToday: newSeconds });
+                    } catch (statsErr) { console.warn("Could not update live stats:", statsErr); }
                 }
 
-                // Update local data
                 const oldSeconds = log.seconds;
                 log.seconds = newSeconds;
                 r.seconds = r.seconds - oldSeconds + newSeconds;
                 r.wpm = r.seconds > 0 ? Math.round((r.chars / 5) / (r.seconds / 60)) : 0;
-
-                // Update the summary row without collapsing the detail
-                const summaryRow = document.querySelector(`.summary-row[data-idx="${idx}"]`);
-                if (summaryRow) {
-                    const cells = summaryRow.querySelectorAll('td');
-                    cells[2].textContent = formatTime(r.seconds);
-                    cells[4].textContent = r.wpm;
-                }
-
-                // Update totals
-                const totalSecs = reportData.reduce((s, rr) => s + rr.seconds, 0);
-                document.getElementById('total-line').innerHTML = 
-                    `<strong>${reportData.length}</strong> students — <strong>${formatTime(totalSecs)}</strong> total typing time`;
+                updateSummaryRow(idx, r);
 
                 statusEl2.textContent = '✓ Saved';
                 statusEl2.style.color = '#22c55e';
@@ -710,7 +729,96 @@
             }
             return;
         }
+
+        // Recalculate daily total from sessions
+        if (e.target.classList.contains('recalc-btn')) {
+            const idx = parseInt(e.target.dataset.idx);
+            const li = parseInt(e.target.dataset.li);
+            const uid = e.target.dataset.uid;
+            const date = e.target.dataset.date;
+            const r = reportData[idx];
+            const log = r.dailyLogs[li];
+            const statusEl2 = document.getElementById(`log-status-${idx}-${li}`);
+
+            try {
+                e.target.disabled = true;
+                statusEl2.textContent = 'Recalculating...';
+                statusEl2.style.color = '#888';
+
+                const q = query(collection(db, "typing_sessions"), where("uid", "==", uid), where("date", "==", date));
+                const snap = await getDocs(q);
+
+                if (snap.empty) {
+                    statusEl2.textContent = 'No sessions found';
+                    statusEl2.style.color = '#ff6b6b';
+                    e.target.disabled = false;
+                    return;
+                }
+
+                let totalSec = 0, totalChars = 0, totalMistakes = 0;
+                snap.forEach(d => {
+                    const s = d.data();
+                    totalSec += s.seconds || 0;
+                    totalChars += s.chars || 0;
+                    totalMistakes += s.mistakes || 0;
+                });
+
+                await updateDoc(doc(db, "typing_logs", log.docId), {
+                    seconds: totalSec, chars: totalChars, mistakes: totalMistakes,
+                    lastUpdated: new Date()
+                });
+
+                const today = new Date().toISOString().split('T')[0];
+                if (log.date === today) {
+                    try {
+                        await updateDoc(doc(db, "users", uid, "stats", "time_tracking"), {
+                            secondsToday: totalSec, charsToday: totalChars, mistakesToday: totalMistakes
+                        });
+                    } catch (e2) { console.warn("Live stats update skipped:", e2); }
+                }
+
+                const oldSeconds = log.seconds;
+                log.seconds = totalSec;
+                log.chars = totalChars;
+                log.mistakes = totalMistakes;
+                r.seconds = r.seconds - oldSeconds + totalSec;
+                r.chars = r.dailyLogs.reduce((s, l) => s + l.chars, 0);
+                r.mistakes = r.dailyLogs.reduce((s, l) => s + l.mistakes, 0);
+                r.wpm = r.seconds > 0 ? Math.round((r.chars / 5) / (r.seconds / 60)) : 0;
+                r.accuracy = (r.chars + r.mistakes) > 0 ? Math.round((r.chars / (r.chars + r.mistakes)) * 100) : 100;
+
+                const entry = e.target.closest('.daily-log-entry');
+                entry.querySelector('.log-min-input').value = Math.floor(totalSec / 60);
+                entry.querySelector('.log-sec-input').value = totalSec % 60;
+                entry.querySelector('.log-chars').textContent = totalChars.toLocaleString() + ' chars';
+                updateSummaryRow(idx, r);
+
+                statusEl2.textContent = `✓ ${formatTime(totalSec)} from ${snap.size} sessions`;
+                statusEl2.style.color = '#22c55e';
+                setTimeout(() => { statusEl2.textContent = ''; }, 3000);
+            } catch (err) {
+                console.error("Recalc error:", err);
+                statusEl2.textContent = '✗ ' + err.message;
+                statusEl2.style.color = '#ff3333';
+            } finally {
+                e.target.disabled = false;
+            }
+            return;
+        }
     });
+
+    function updateSummaryRow(idx, r) {
+        const summaryRow = document.querySelector(`.summary-row[data-idx="${idx}"]`);
+        if (summaryRow) {
+            const cells = summaryRow.querySelectorAll('td');
+            cells[2].textContent = formatTime(r.seconds);
+            cells[4].textContent = r.wpm;
+            cells[5].textContent = r.accuracy + '%';
+        }
+        const totalSecs = reportData.reduce((s, rr) => s + rr.seconds, 0);
+        document.getElementById('total-line').innerHTML = 
+            `<strong>${reportData.length}</strong> students — <strong>${formatTime(totalSecs)}</strong> total typing time`;
+    }
 
     // --- CSV EXPORT ---
     document.getElementById('export-btn').onclick = () => {
