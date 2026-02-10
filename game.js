@@ -1,19 +1,19 @@
-// v2.4.4 - Chapter end fix, multi-backspace, modal sizing
+// v2.4.5 - In-flow modal panel replaces keyboard
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc, getDocs, collection, addDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-import { 
-    onAuthStateChanged, 
-    GoogleAuthProvider, 
-    signInWithPopup, 
-    signOut 
+import {
+    onAuthStateChanged,
+    GoogleAuthProvider,
+    signInWithPopup,
+    signOut
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "2.4.4";
+const VERSION = "2.4.5";
 const DEFAULT_BOOK = "wizard_of_oz";
-const IDLE_THRESHOLD = 2000; 
+const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
-const SPRINT_COOLDOWN_MS = 1500; 
-const SPAM_THRESHOLD = 5; 
+const SPRINT_COOLDOWN_MS = 1500;
+const SPAM_THRESHOLD = 5;
 
 // ADMIN WHITELIST - same list as index.html, used to show admin link
 const ADMIN_EMAILS = [
@@ -30,16 +30,16 @@ let currentBookId = getBookIdFromUrl() || localStorage.getItem('currentBookId') 
 localStorage.setItem('currentBookId', currentBookId); // sync
 let currentUser = null;
 let bookData = null;
-let bookMetadata = null; 
+let bookMetadata = null;
 let fullText = "";
 let currentCharIndex = 0;
-let savedCharIndex = 0; 
-let lastSavedIndex = 0; 
+let savedCharIndex = 0;
+let lastSavedIndex = 0;
 let currentChapterNum = 1;
 
 // Stats
-let sessionLimit = 30; 
-let sessionValueStr = "30"; 
+let sessionLimit = 30;
+let sessionValueStr = "30";
 let statsData = { secondsToday:0, secondsWeek:0, charsToday:0, charsWeek:0, mistakesToday:0, mistakesWeek:0, lastDate:"", weekStart:0 };
 
 // Goals
@@ -48,19 +48,19 @@ let dailyGoalCelebrated = false;
 let weeklyGoalCelebrated = false;
 
 // Game Vars
-let mistakes = 0; let sprintMistakes = 0; 
-let consecutiveMistakes = 0; 
-let activeSeconds = 0; let sprintSeconds = 0; 
+let mistakes = 0; let sprintMistakes = 0;
+let consecutiveMistakes = 0;
+let activeSeconds = 0; let sprintSeconds = 0;
 let sprintCharStart = 0; let timerInterval = null;
 let isGameActive = false; let isOvertime = false;
-let isModalOpen = false; let isInputBlocked = false; 
+let isModalOpen = false; let isInputBlocked = false;
 let modalGeneration = 0;
-let isHardStop = false; 
+let isHardStop = false;
 let bookSwitchPending = false;
 let modalActionCallback = null;
 let lastInputTime = 0; let timeAccumulator = 0;
 let wpmHistory = []; let accuracyHistory = [];
-let currentLetterStatus = 'clean'; 
+let currentLetterStatus = 'clean';
 
 // DOM
 const textStream = document.getElementById('text-stream');
@@ -84,25 +84,25 @@ async function init() {
     console.log("Initializing JS v" + VERSION);
     const footer = document.querySelector('footer');
     if(footer) footer.innerText = `JS: v${VERSION}`;
-    
+
     if (!document.getElementById('menu-btn')) {
         const btn = document.createElement('button');
         btn.id = 'menu-btn';
-        btn.innerHTML = '&#9881;'; 
+        btn.innerHTML = '&#9881;';
         btn.onclick = openMenuModal;
         document.body.appendChild(btn);
     }
-    
+
     createKeyboard();
     setupAuthListeners();
-    
+
     onAuthStateChanged(auth, async (user) => {
         if (user) {
             currentUser = user;
             updateAuthUI(true);
             try {
-                await loadBookMetadata(); 
-                await loadUserProgress(); 
+                await loadBookMetadata();
+                await loadUserProgress();
                 await loadUserStats();
                 await loadGoals();
             } catch(e) { console.error("Init Error:", e); }
@@ -120,11 +120,11 @@ async function init() {
 
 function setupAuthListeners() {
     loginBtn.addEventListener('click', async () => {
-        try { await signInWithPopup(auth, new GoogleAuthProvider()); } 
+        try { await signInWithPopup(auth, new GoogleAuthProvider()); }
         catch (e) { alert("Login failed: " + e.message); }
     });
     logoutBtn.addEventListener('click', async () => {
-        try { await signOut(auth); location.reload(); } 
+        try { await signOut(auth); location.reload(); }
         catch (e) { console.error(e); }
     });
 }
@@ -150,7 +150,7 @@ async function loadBookMetadata() {
             if(currentBookId !== DEFAULT_BOOK) {
                 currentBookId = DEFAULT_BOOK;
                 localStorage.setItem('currentBookId', DEFAULT_BOOK);
-                await loadBookMetadata(); 
+                await loadBookMetadata();
             }
         }
     } catch (e) { console.warn("Meta Error:", e); }
@@ -160,8 +160,8 @@ async function loadUserStats() {
     if (!currentUser || currentUser.isAnonymous) return;
     try {
         const today = new Date();
-        const dateStr = today.toISOString().split('T')[0]; 
-        const weekStart = getWeekStart(today); 
+        const dateStr = today.toISOString().split('T')[0];
+        const weekStart = getWeekStart(today);
         const docRef = doc(db, "users", currentUser.uid, "stats", "time_tracking");
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
@@ -188,8 +188,8 @@ async function loadUserStats() {
 
 function getWeekStart(date) {
     const d = new Date(date);
-    const day = d.getDay(); 
-    const diff = (day + 1) % 7; 
+    const day = d.getDay();
+    const diff = (day + 1) % 7;
     d.setDate(d.getDate() - diff);
     d.setHours(0,0,0,0);
     return d.getTime();
@@ -215,7 +215,7 @@ async function loadGoals() {
             weeklyGoalCelebrated = true;
             console.log(`Weekly goal already met (${statsData.secondsWeek}s >= ${goals.weeklySeconds}s)`);
         }
-    } catch (e) { 
+    } catch (e) {
         console.error("Goals load FAILED — check Firestore rules for 'settings' collection:", e);
     }
 }
@@ -240,7 +240,7 @@ async function loadUserProgress() {
             if (data.chapter !== undefined && data.chapter !== null) currentChapterNum = data.chapter;
             if (data.charIndex !== undefined) savedCharIndex = data.charIndex;
         }
-        lastSavedIndex = savedCharIndex; 
+        lastSavedIndex = savedCharIndex;
         loadChapter(currentChapterNum);
     } catch (e) { loadChapter(1); }
 }
@@ -265,19 +265,19 @@ async function loadChapter(chapterNum) {
                 textStream.innerText = "Book content not found.";
             }
         }
-    } catch (e) { 
+    } catch (e) {
         console.error(e);
-        textStream.innerHTML = "Error loading content."; 
+        textStream.innerHTML = "Error loading content.";
     }
 }
 
 function setupGame() {
     fullText = bookData.segments.map(s => s.text).join("\n");
     fullText = fullText.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
-    
+
     renderText();
     currentCharIndex = savedCharIndex;
-    
+
     if (currentCharIndex > 0) {
         for (let i = 0; i < currentCharIndex; i++) {
             const el = document.getElementById(`char-${i}`);
@@ -290,14 +290,14 @@ function setupGame() {
         }
     }
 
-    highlightCurrentChar(); 
-    centerView(); 
-    
+    highlightCurrentChar();
+    centerView();
+
     accDisplay.innerText = "---"; wpmDisplay.innerText = "0"; timerDisplay.innerText = "00:00";
-    
+
     let btnLabel = "Resume";
     if (savedCharIndex === 0) btnLabel = "Start Reading";
-    
+
     if (!isGameActive) showStartModal(btnLabel);
 }
 
@@ -324,7 +324,7 @@ function renderText() {
             wordBuffer = document.createElement('span'); wordBuffer.className = 'word';
         } else if (char === '\t') {
             if (wordBuffer.hasChildNodes()) { container.appendChild(wordBuffer); wordBuffer = document.createElement('span'); wordBuffer.className = 'word'; }
-            const tabSpan = document.createElement('span'); tabSpan.className = 'word'; 
+            const tabSpan = document.createElement('span'); tabSpan.className = 'word';
             const span = document.createElement('span'); span.className = 'letter tab'; span.innerHTML = '&nbsp;'; span.id = `char-${i}`;
             tabSpan.appendChild(span); container.appendChild(tabSpan);
         } else {
@@ -342,25 +342,25 @@ function startGame() {
         sessionValueStr = select.value;
         sessionLimit = (sessionValueStr === 'infinity') ? 'infinity' : parseInt(sessionValueStr);
     }
-    
-    sprintSeconds = 0; sprintMistakes = 0; sprintCharStart = currentCharIndex; 
-    activeSeconds = 0; timeAccumulator = 0; lastInputTime = Date.now(); 
-    consecutiveMistakes = 0; 
+
+    sprintSeconds = 0; sprintMistakes = 0; sprintCharStart = currentCharIndex;
+    activeSeconds = 0; timeAccumulator = 0; lastInputTime = Date.now();
+    consecutiveMistakes = 0;
     wpmHistory = []; accuracyHistory = [];
-    
+
     highlightCurrentChar(); centerView(); closeModal();
     isGameActive = true; isOvertime = false; isHardStop = false;
     accDisplay.innerText = "100%"; wpmDisplay.innerText = "0";
     timerDisplay.style.color = 'white'; timerDisplay.style.opacity = '1';
 
     if (timerInterval) clearInterval(timerInterval);
-    timerInterval = setInterval(gameTick, 100); 
+    timerInterval = setInterval(gameTick, 100);
 }
 
 function gameTick() {
     if (!isGameActive) return;
     const now = Date.now();
-    
+
     // AUTO PAUSE FOR INACTIVITY
     if (now - lastInputTime > AFK_THRESHOLD && !isModalOpen) {
         triggerHardStop(fullText[currentCharIndex], true);
@@ -372,7 +372,7 @@ function gameTick() {
         timerDisplay.style.opacity = '1';
         if (timeAccumulator >= 1000) {
             activeSeconds++; sprintSeconds++;
-            
+
             // Midnight rollover check
             const todayStr = new Date().toISOString().split('T')[0];
             if (statsData.lastDate && statsData.lastDate !== todayStr) {
@@ -392,11 +392,11 @@ function gameTick() {
                     weeklyGoalCelebrated = false;
                 }
             }
-            
+
             statsData.secondsToday++; statsData.secondsWeek++;
             timeAccumulator -= 1000;
             updateTimerUI();
-            
+
             // Goal celebrations
             if (goals.dailySeconds > 0 && !dailyGoalCelebrated && statsData.secondsToday >= goals.dailySeconds) {
                 dailyGoalCelebrated = true;
@@ -409,8 +409,8 @@ function gameTick() {
         }
     } else {
         timerDisplay.style.opacity = '0.5';
-        wpmDisplay.innerText = "0"; 
-        wpmHistory = []; 
+        wpmDisplay.innerText = "0";
+        wpmHistory = [];
     }
 }
 
@@ -420,7 +420,7 @@ function updateTimerUI() {
     timerDisplay.innerText = `${mins}:${secs}`;
     if (sessionLimit !== 'infinity' && sprintSeconds >= sessionLimit) {
         isOvertime = true;
-        timerDisplay.style.color = '#FFA500'; 
+        timerDisplay.style.color = '#FFA500';
     }
 }
 
@@ -431,7 +431,7 @@ function updateRunningWPM() {
     if (wpmHistory.length > 1) {
         const timeDiffMs = now - wpmHistory[0];
         const timeDiffMin = timeDiffMs / 60000;
-        const chars = wpmHistory.length - 1; 
+        const chars = wpmHistory.length - 1;
         if (timeDiffMin > 0) {
             const wpm = Math.round((chars / 5) / timeDiffMin);
             wpmDisplay.innerText = wpm;
@@ -449,15 +449,15 @@ function updateRunningAccuracy(isCorrect) {
 
 document.addEventListener('keydown', (e) => {
     if (isModalOpen) {
-        if (isInputBlocked) return; 
-        
+        if (isInputBlocked) return;
+
         // --- HARD STOP / PAUSE LOGIC ---
         if (isHardStop) {
             let targetChar = fullText[currentCharIndex];
             let isMatch = (e.key === targetChar);
             if (targetChar === '\n' && e.key === 'Enter') isMatch = true;
             if (targetChar === '\t' && e.key === 'Tab') isMatch = true;
-            
+
             if (isMatch) {
                 resumeGame();
                 handleTyping(e.key);
@@ -468,13 +468,13 @@ document.addEventListener('keydown', (e) => {
         // --- SMART START LOGIC ---
         let shouldStart = false;
         let shouldSkip = false;
-        
+
         const targetChar = fullText[currentCharIndex];
-        
+
         if (e.key === targetChar) shouldStart = true;
         if (targetChar === '\n' && e.key === 'Enter') shouldStart = true;
         if (targetChar === '\t' && e.key === 'Tab') shouldStart = true;
-        
+
         if (!shouldStart && (targetChar === ' ' || targetChar === '\n')) {
             const nextCharIndex = currentCharIndex + 1;
             if (nextCharIndex < fullText.length) {
@@ -486,7 +486,7 @@ document.addEventListener('keydown', (e) => {
 
         if (shouldStart && modalActionCallback) {
             e.preventDefault();
-            modalActionCallback(); 
+            modalActionCallback();
             if (shouldSkip) {
                 const skippedEl = document.getElementById(`char-${currentCharIndex}`);
                 if(skippedEl) skippedEl.classList.add('done-perfect');
@@ -497,11 +497,11 @@ document.addEventListener('keydown', (e) => {
         }
         return;
     }
-    
+
     if (e.key === "Escape" && isGameActive) { pauseGameForBreak(); return; }
     if (e.key === "Shift") toggleKeyboardCase(true);
     if (!isGameActive) return;
-    if (["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(e.key)) return; 
+    if (["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(e.key)) return;
     if (e.key === " " || e.key === "Tab" || e.key === "Enter") e.preventDefault();
     handleTyping(e.key);
 });
@@ -540,15 +540,15 @@ function handleTyping(key) {
 
     if (inputChar === targetChar) {
         statsData.charsToday++; statsData.charsWeek++;
-        consecutiveMistakes = 0; 
+        consecutiveMistakes = 0;
 
         currentEl.classList.remove('active'); currentEl.classList.remove('error-state');
-        if (currentLetterStatus === 'clean') currentEl.classList.add('done-perfect'); 
-        else if (currentLetterStatus === 'fixed') currentEl.classList.add('done-fixed'); 
-        else currentEl.classList.add('done-dirty'); 
+        if (currentLetterStatus === 'clean') currentEl.classList.add('done-perfect');
+        else if (currentLetterStatus === 'fixed') currentEl.classList.add('done-fixed');
+        else currentEl.classList.add('done-dirty');
 
-        currentCharIndex++; currentLetterStatus = 'clean'; 
-        
+        currentCharIndex++; currentLetterStatus = 'clean';
+
         if (['.', '!', '?', '\n'].includes(targetChar)) saveProgress();
         else if (['"', "'"].includes(targetChar) && currentCharIndex >= 2) {
             const prevChar = fullText[currentCharIndex - 2];
@@ -561,20 +561,20 @@ function handleTyping(key) {
 
         if (isOvertime) {
             if (['.', '!', '?', '\n'].includes(targetChar)) {
-                const nextChar = fullText[currentCharIndex]; 
+                const nextChar = fullText[currentCharIndex];
                 if (nextChar !== '"' && nextChar !== "'") { triggerStop(); return; }
             }
         }
-        
+
         highlightCurrentChar(); centerView();
     } else {
         mistakes++; sprintMistakes++;
-        consecutiveMistakes++; 
-        
+        consecutiveMistakes++;
+
         statsData.mistakesToday++; statsData.mistakesWeek++;
         if (currentLetterStatus === 'clean') currentLetterStatus = 'error';
         const errEl = document.getElementById(`char-${currentCharIndex}`);
-        if(errEl) errEl.classList.add('error-state'); 
+        if(errEl) errEl.classList.add('error-state');
         flashKey(key); updateRunningAccuracy(false);
 
         if (consecutiveMistakes >= SPAM_THRESHOLD) {
@@ -590,35 +590,33 @@ function triggerStop() {
 function triggerHardStop(targetChar, isAfk) {
     isGameActive = false;
     clearInterval(timerInterval);
-    isHardStop = true; 
-    
+    isHardStop = true;
+
     let friendlyKey = targetChar;
     if (targetChar === ' ') friendlyKey = 'Space';
     if (targetChar === '\n') friendlyKey = 'Enter';
     if (targetChar === '\t') friendlyKey = 'Tab';
 
-    // Capitalization Hint Logic
     let hintHtml = "";
     if (friendlyKey.length === 1 && friendlyKey.match(/[A-Z]/)) {
         hintHtml = `<div class="modal-hint-text">(Requires Shift)</div>`;
     }
 
-    const modal = document.getElementById('modal');
-    document.getElementById('modal-title').innerText = isAfk ? "Session Paused (Inactive)" : "Pausing for Accuracy";
-    
+    setModalTitle(isAfk ? "Session Paused (Inactive)" : "Pausing for Accuracy");
+
     let msg = isAfk ? "You've been away for a while." : "Too many errors!";
-    
+
     document.getElementById('modal-body').innerHTML = `
-        <div style="font-size: 1.1em; margin: 20px 0;">
-            ${msg}<br><br>
+        <div style="font-size: 1.1em;">
+            ${msg}<br>
             Please type <b style="color: #D32F2F; font-size: 1.5em; border: 1px solid #ccc; padding: 2px 8px; border-radius: 4px;">${friendlyKey}</b> to resume.
             ${hintHtml}
         </div>
     `;
     const btn = document.getElementById('action-btn');
-    btn.style.display = 'none'; 
-    modal.classList.remove('hidden');
-    isModalOpen = true; 
+    btn.style.display = 'none';
+    showModalPanel();
+    isModalOpen = true;
     isInputBlocked = false;
 }
 
@@ -626,12 +624,13 @@ function resumeGame() {
     isModalOpen = false;
     isHardStop = false;
     document.getElementById('modal').classList.add('hidden');
+    document.getElementById('virtual-keyboard').classList.remove('hidden');
     isGameActive = true;
-    timerInterval = setInterval(gameTick, 100); 
+    timerInterval = setInterval(gameTick, 100);
     consecutiveMistakes = 0;
-    lastInputTime = Date.now(); 
-    
-    const keyboard = document.getElementById('virtual-keyboard'); 
+    lastInputTime = Date.now();
+
+    const keyboard = document.getElementById('virtual-keyboard');
     if(keyboard) keyboard.focus();
 }
 
@@ -642,7 +641,7 @@ function centerView() {
     const currentEl = document.getElementById(`char-${currentCharIndex}`);
     if (!currentEl) return;
     const container = document.getElementById('game-container');
-    const offset = (container.clientHeight / 2) - currentEl.offsetTop - 25; 
+    const offset = (container.clientHeight / 2) - currentEl.offsetTop - 25;
     textStream.style.transform = `translateY(${offset}px)`;
 }
 
@@ -669,7 +668,7 @@ async function saveProgress(force = false) {
             lastSavedIndex = currentCharIndex;
         }
         await setDoc(doc(db, "users", currentUser.uid, "stats", "time_tracking"), statsData, { merge: true });
-        
+
         // Daily log for admin reporting
         const today = new Date().toISOString().split('T')[0];
         const logId = `${currentUser.uid}_${today}`;
@@ -708,7 +707,7 @@ async function logSession(seconds, chars, mistakes, wpm, accuracy) {
 }
 
 function formatTime(seconds) {
-    if (!seconds) return "0m 0s"; 
+    if (!seconds) return "0m 0s";
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
     return `${m}m ${s}s`;
@@ -728,55 +727,7 @@ function calculateAverageAcc(chars, mistakes) {
 }
 
 function pauseGameForBreak() {
-    isGameActive = false; clearInterval(timerInterval); saveProgress(); 
-    const charsTyped = currentCharIndex - sprintCharStart;
-    const sprintMinutes = sprintSeconds / 60;
-    const sprintWPM = (sprintMinutes > 0) ? Math.round((charsTyped / 5) / sprintMinutes) : 0;
-    const sprintTotalEntries = charsTyped + sprintMistakes;
-    const sprintAcc = (sprintTotalEntries > 0) ? Math.round((charsTyped / sprintTotalEntries) * 100) : 100;
-
-    // Log this session
-    logSession(sprintSeconds, charsTyped, sprintMistakes, sprintWPM, sprintAcc);
-
-    const todayWPM = calculateAverageWPM(statsData.charsToday, statsData.secondsToday);
-    const todayAcc = calculateAverageAcc(statsData.charsToday, statsData.mistakesToday);
-    const weekWPM = calculateAverageWPM(statsData.charsWeek, statsData.secondsWeek);
-    const weekAcc = calculateAverageAcc(statsData.charsWeek, statsData.mistakesWeek);
-
-    const stats = { 
-        time: sprintSeconds, wpm: sprintWPM, acc: sprintAcc,
-        today: `${formatTime(statsData.secondsToday)} (${todayWPM} WPM | ${todayAcc}%)`,
-        week: `${formatTime(statsData.secondsWeek)} (${weekWPM} WPM | ${weekAcc}%)`
-    };
-    
-    let title = "Sprint Complete";
-    if (dailyGoalCelebrated && goals.dailySeconds > 0 && statsData.secondsToday - sprintSeconds < goals.dailySeconds) {
-        title = "🎉 Daily Goal Reached!";
-    }
-    if (weeklyGoalCelebrated && goals.weeklySeconds > 0 && statsData.secondsWeek - sprintSeconds < goals.weeklySeconds) {
-        title = "🎆 Weekly Goal Reached!";
-    }
-    
-    showStatsModal(title, stats, "Continue", startGame);
-}
-
-function finishChapter() {
-    isGameActive = false; clearInterval(timerInterval);
-    
-    let nextChapterId = null;
-    if (bookMetadata && bookMetadata.chapters) {
-        const currentIdx = bookMetadata.chapters.findIndex(c => c.id == "chapter_" + currentChapterNum);
-        if (currentIdx !== -1 && currentIdx + 1 < bookMetadata.chapters.length) {
-            const nextChap = bookMetadata.chapters[currentIdx + 1];
-            nextChapterId = nextChap.id.replace("chapter_", "");
-        }
-    }
-    
-    if (!nextChapterId) {
-        if (!isNaN(currentChapterNum)) nextChapterId = parseFloat(currentChapterNum) + 1;
-        else nextChapterId = 1;
-    }
-    
+    isGameActive = false; clearInterval(timerInterval); saveProgress();
     const charsTyped = currentCharIndex - sprintCharStart;
     const sprintMinutes = sprintSeconds / 60;
     const sprintWPM = (sprintMinutes > 0) ? Math.round((charsTyped / 5) / sprintMinutes) : 0;
@@ -792,11 +743,59 @@ function finishChapter() {
     const weekAcc = calculateAverageAcc(statsData.charsWeek, statsData.mistakesWeek);
 
     const stats = {
-        time: sprintSeconds, wpm: sprintWPM, acc: sprintAcc, 
+        time: sprintSeconds, wpm: sprintWPM, acc: sprintAcc,
         today: `${formatTime(statsData.secondsToday)} (${todayWPM} WPM | ${todayAcc}%)`,
         week: `${formatTime(statsData.secondsWeek)} (${weekWPM} WPM | ${weekAcc}%)`
     };
-    
+
+    let title = "Sprint Complete";
+    if (dailyGoalCelebrated && goals.dailySeconds > 0 && statsData.secondsToday - sprintSeconds < goals.dailySeconds) {
+        title = "🎉 Daily Goal Reached!";
+    }
+    if (weeklyGoalCelebrated && goals.weeklySeconds > 0 && statsData.secondsWeek - sprintSeconds < goals.weeklySeconds) {
+        title = "🎆 Weekly Goal Reached!";
+    }
+
+    showStatsModal(title, stats, "Continue", startGame);
+}
+
+function finishChapter() {
+    isGameActive = false; clearInterval(timerInterval);
+
+    let nextChapterId = null;
+    if (bookMetadata && bookMetadata.chapters) {
+        const currentIdx = bookMetadata.chapters.findIndex(c => c.id == "chapter_" + currentChapterNum);
+        if (currentIdx !== -1 && currentIdx + 1 < bookMetadata.chapters.length) {
+            const nextChap = bookMetadata.chapters[currentIdx + 1];
+            nextChapterId = nextChap.id.replace("chapter_", "");
+        }
+    }
+
+    if (!nextChapterId) {
+        if (!isNaN(currentChapterNum)) nextChapterId = parseFloat(currentChapterNum) + 1;
+        else nextChapterId = 1;
+    }
+
+    const charsTyped = currentCharIndex - sprintCharStart;
+    const sprintMinutes = sprintSeconds / 60;
+    const sprintWPM = (sprintMinutes > 0) ? Math.round((charsTyped / 5) / sprintMinutes) : 0;
+    const sprintTotalEntries = charsTyped + sprintMistakes;
+    const sprintAcc = (sprintTotalEntries > 0) ? Math.round((charsTyped / sprintTotalEntries) * 100) : 100;
+
+    // Log this session
+    logSession(sprintSeconds, charsTyped, sprintMistakes, sprintWPM, sprintAcc);
+
+    const todayWPM = calculateAverageWPM(statsData.charsToday, statsData.secondsToday);
+    const todayAcc = calculateAverageAcc(statsData.charsToday, statsData.mistakesToday);
+    const weekWPM = calculateAverageWPM(statsData.charsWeek, statsData.secondsWeek);
+    const weekAcc = calculateAverageAcc(statsData.charsWeek, statsData.mistakesWeek);
+
+    const stats = {
+        time: sprintSeconds, wpm: sprintWPM, acc: sprintAcc,
+        today: `${formatTime(statsData.secondsToday)} (${todayWPM} WPM | ${todayAcc}%)`,
+        week: `${formatTime(statsData.secondsWeek)} (${weekWPM} WPM | ${weekAcc}%)`
+    };
+
     let title = `Chapter ${currentChapterNum} Complete!`;
     if (dailyGoalCelebrated && goals.dailySeconds > 0 && statsData.secondsToday - sprintSeconds < goals.dailySeconds) {
         title = `🎉 Chapter ${currentChapterNum} Complete + Daily Goal!`;
@@ -804,9 +803,9 @@ function finishChapter() {
     if (weeklyGoalCelebrated && goals.weeklySeconds > 0 && statsData.secondsWeek - sprintSeconds < goals.weeklySeconds) {
         title = `🎆 Chapter ${currentChapterNum} Complete + Weekly Goal!`;
     }
-    
+
     showStatsModal(title, stats, `Start Next`, async () => {
-        await saveProgress(true); 
+        await saveProgress(true);
         currentChapterNum = nextChapterId;
         savedCharIndex = 0; currentCharIndex = 0; lastSavedIndex = 0;
         if (currentUser && !currentUser.isAnonymous) {
@@ -820,9 +819,9 @@ function finishChapter() {
 
 function getHeaderHTML() {
     let bookTitle = (bookMetadata && bookMetadata.title) ? escapeHtml(bookMetadata.title) : escapeHtml(currentBookId.replace(/_/g, ' '));
-    
-    let displayChapTitle = `Chapter ${escapeHtml(String(currentChapterNum))}`;
-    
+
+    let displayChapTitle = `Ch. ${escapeHtml(String(currentChapterNum))}`;
+
     if (bookMetadata && bookMetadata.chapters) {
         const c = bookMetadata.chapters.find(ch => ch.id == "chapter_" + currentChapterNum);
         if (c && c.title) {
@@ -830,20 +829,19 @@ function getHeaderHTML() {
                 if(c.title.toLowerCase().startsWith('chapter')) {
                     displayChapTitle = escapeHtml(c.title);
                 } else {
-                    displayChapTitle = `Chapter ${escapeHtml(String(currentChapterNum))} | ${escapeHtml(c.title)}`;
+                    displayChapTitle = `Ch. ${escapeHtml(String(currentChapterNum))}: ${escapeHtml(c.title)}`;
                 }
             }
         }
     }
-    
-    return `<div class="modal-book-title">${bookTitle}</div><div class="modal-chap-info">${displayChapTitle}</div>`;
+
+    return `<div class="modal-header-compact"><span class="mh-book">${bookTitle}</span> <span class="mh-sep">—</span> <span class="mh-chap">${displayChapTitle}</span></div>`;
 }
 
 function showStartModal(btnText) {
-    isModalOpen = true; isInputBlocked = false; 
+    isModalOpen = true; isInputBlocked = false;
     modalActionCallback = startGame;
-    const modal = document.getElementById('modal');
-    document.getElementById('modal-title').style.display = 'none'; 
+    setModalTitle('');
 
     const todayWPM = calculateAverageWPM(statsData.charsToday, statsData.secondsToday);
     const todayAcc = calculateAverageAcc(statsData.charsToday, statsData.mistakesToday);
@@ -852,52 +850,52 @@ function showStartModal(btnText) {
 
     const hasStats = statsData.secondsToday > 0 || statsData.secondsWeek > 0;
     const statsSection = hasStats ? `
-        <div class="stat-subtext" style="margin-bottom:10px;">
-            Today: <span class="highlight">${formatTime(statsData.secondsToday)} (${todayWPM} WPM | ${todayAcc}%)</span><br>
-            Week: <span class="highlight">${formatTime(statsData.secondsWeek)} (${weekWPM} WPM | ${weekAcc}%)</span>
+        <div class="cumulative-row">
+            <span>Today: ${formatTime(statsData.secondsToday)} (${todayWPM} WPM | ${todayAcc}%)</span>
+            <span>Week: ${formatTime(statsData.secondsWeek)} (${weekWPM} WPM | ${weekAcc}%)</span>
         </div>
         ${getGoalProgressHTML()}
     ` : (goals.dailySeconds > 0 || goals.weeklySeconds > 0) ? getGoalProgressHTML() : '';
 
-    const html = `
+    document.getElementById('modal-body').innerHTML = `
         ${getHeaderHTML()}
         ${statsSection}
-        ${getDropdownHTML()}
-        <p style="font-size:0.8rem; color:#777; margin-top: 15px;">
-            Type the first character to start.<br>
-            (You can skip Space or Enter at the start, but Tabs are required.)<br>
-            Press <b>ESC</b> anytime to pause.
-        </p>
+        <div class="start-controls">
+            ${getDropdownHTML()}
+            <div class="start-hint">Type first character to start · ESC to pause</div>
+        </div>
     `;
-    document.getElementById('modal-body').innerHTML = html;
-    
+
     const btn = document.getElementById('action-btn');
-    btn.innerText = btnText; btn.onclick = startGame; btn.disabled = false; btn.style.display = 'inline-block';
-    modal.classList.remove('hidden');
+    btn.innerText = btnText; btn.onclick = startGame; btn.disabled = false; btn.style.display = 'inline-block'; btn.style.opacity = '1';
+    showModalPanel();
 }
 
 function showStatsModal(title, stats, btnText, callback) {
-    isModalOpen = true; isInputBlocked = true; 
+    isModalOpen = true; isInputBlocked = true;
     modalActionCallback = () => { closeModal(); if(callback) callback(); };
-    const modal = document.getElementById('modal');
-    document.getElementById('modal-title').style.display = 'none'; 
-    
-    const html = `
+    setModalTitle('');
+
+    document.getElementById('modal-body').innerHTML = `
         ${getHeaderHTML()}
-        <div style="font-size:1.2em; font-weight:bold; color:#4B9CD3; margin-bottom:15px;">${title}</div>
-        <div class="stat-grid" style="display:flex; justify-content:center; gap:20px; margin:20px 0;">
-            <div class="stat-box"><div style="font-size:1.8em; font-weight:bold;">${stats.wpm}</div><div style="font-size:0.9em; color:#777;">WPM</div></div>
-            <div class="stat-box"><div style="font-size:1.8em; font-weight:bold;">${stats.acc}%</div><div style="font-size:0.9em; color:#777;">Accuracy</div></div>
-            <div class="stat-box"><div style="font-size:1.8em; font-weight:bold;">${formatTime(stats.time)}</div><div style="font-size:0.9em; color:#777;">Time</div></div>
+        <div class="stats-title">${title}</div>
+        <div class="stats-inline">
+            <span class="si-val">${stats.wpm} <small>WPM</small></span>
+            <span class="si-dot">·</span>
+            <span class="si-val">${stats.acc}% <small>Acc</small></span>
+            <span class="si-dot">·</span>
+            <span class="si-val">${formatTime(stats.time)}</span>
         </div>
-        <div class="stat-subtext">Today: <span class="highlight">${stats.today}</span><br>Week: <span class="highlight">${stats.week}</span></div>
+        <div class="cumulative-row">
+            <span>Today: ${stats.today}</span>
+            <span>Week: ${stats.week}</span>
+        </div>
         ${getGoalProgressHTML()}
     `;
-    
-    document.getElementById('modal-body').innerHTML = html;
+
     const btn = document.getElementById('action-btn');
-    btn.innerText = "Wait..."; btn.onclick = modalActionCallback; btn.disabled = true; btn.style.opacity = '0.5'; 
-    modal.classList.remove('hidden');
+    btn.innerText = "Wait..."; btn.onclick = modalActionCallback; btn.disabled = true; btn.style.opacity = '0.5'; btn.style.display = 'inline-block';
+    showModalPanel();
     const gen = ++modalGeneration;
     setTimeout(() => {
         if (modalGeneration !== gen) return; // modal was replaced
@@ -913,63 +911,78 @@ function showStatsModal(title, stats, btnText, callback) {
 function getGoalProgressHTML() {
     if (goals.dailySeconds <= 0 && goals.weeklySeconds <= 0) return '';
     
-    let html = '<div style="margin-top:15px; padding-top:12px; border-top:1px solid #333; font-size:0.8rem;">';
+    let html = '<div class="goal-progress-row">';
     
     if (goals.dailySeconds > 0) {
         const dailyPct = Math.min(100, Math.round((statsData.secondsToday / goals.dailySeconds) * 100));
         const met = statsData.secondsToday >= goals.dailySeconds;
-        html += `<div style="margin-bottom:6px;">🎉 Daily: ${formatTime(statsData.secondsToday)} / ${formatTime(goals.dailySeconds)} 
-            <span style="color:${met ? '#22c55e' : '#888'};">(${dailyPct}%${met ? ' ✓' : ''})</span></div>
-            <div style="height:4px; background:#333; border-radius:2px; margin-bottom:8px;">
-                <div style="height:100%; width:${dailyPct}%; background:${met ? '#22c55e' : '#4B9CD3'}; border-radius:2px; transition:width 0.3s;"></div>
-            </div>`;
+        html += `<div class="goal-item">
+            <span class="goal-label">🎉 Daily</span>
+            <div class="goal-bar"><div class="goal-fill" style="width:${dailyPct}%; background:${met ? '#22c55e' : '#4B9CD3'};"></div></div>
+            <span class="goal-pct" style="color:${met ? '#22c55e' : '#888'};">${dailyPct}%${met ? ' ✓' : ''}</span>
+        </div>`;
     }
     
     if (goals.weeklySeconds > 0) {
         const weeklyPct = Math.min(100, Math.round((statsData.secondsWeek / goals.weeklySeconds) * 100));
         const met = statsData.secondsWeek >= goals.weeklySeconds;
-        html += `<div style="margin-bottom:6px;">🎆 Weekly: ${formatTime(statsData.secondsWeek)} / ${formatTime(goals.weeklySeconds)}
-            <span style="color:${met ? '#FFD700' : '#888'};">(${weeklyPct}%${met ? ' ✓' : ''})</span></div>
-            <div style="height:4px; background:#333; border-radius:2px;">
-                <div style="height:100%; width:${weeklyPct}%; background:${met ? '#FFD700' : '#4B9CD3'}; border-radius:2px; transition:width 0.3s;"></div>
-            </div>`;
+        html += `<div class="goal-item">
+            <span class="goal-label">🎆 Weekly</span>
+            <div class="goal-bar"><div class="goal-fill" style="width:${weeklyPct}%; background:${met ? '#FFD700' : '#4B9CD3'};"></div></div>
+            <span class="goal-pct" style="color:${met ? '#FFD700' : '#888'};">${weeklyPct}%${met ? ' ✓' : ''}</span>
+        </div>`;
     }
     
     html += '</div>';
     return html;
 }
 
-function getDropdownHTML() {
+function getSessionOptionsHTML() {
     const options = [{val: "30", label: "30 Seconds"}, {val: "60", label: "1 Minute"}, {val: "120", label: "2 Minutes"}, {val: "300", label: "5 Minutes"}, {val: "infinity", label: "Open Ended (∞)"}];
-    let optionsHtml = options.map(opt => `<option value="${opt.val}" ${sessionValueStr === opt.val ? 'selected' : ''}>${opt.label}</option>`).join('');
-    return `<div style="margin-bottom: 20px; text-align:center;"><label for="sprint-select" style="color:#777; font-size:0.8rem; display:block; margin-bottom:5px; text-transform:uppercase; letter-spacing:1px;">Session Length</label><select id="sprint-select" class="modal-select">${optionsHtml}</select></div>`;
+    return options.map(opt => `<option value="${opt.val}" ${sessionValueStr === opt.val ? 'selected' : ''}>${opt.label}</option>`).join('');
+}
+
+function getDropdownHTML() {
+    return `<div style="text-align:center;"><label for="sprint-select" style="color:#777; font-size:0.8rem; display:block; margin-bottom:5px; text-transform:uppercase; letter-spacing:1px;">Session Length</label><select id="sprint-select" class="modal-select">${getSessionOptionsHTML()}</select></div>`;
 }
 
 function closeModal() {
-    isModalOpen = false; isInputBlocked = false; document.getElementById('modal').classList.add('hidden');
+    isModalOpen = false; isInputBlocked = false; 
+    document.getElementById('modal').classList.add('hidden');
+    document.getElementById('virtual-keyboard').classList.remove('hidden');
     const keyboard = document.getElementById('virtual-keyboard'); if(keyboard) keyboard.focus();
+}
+
+function showModalPanel() {
+    document.getElementById('virtual-keyboard').classList.add('hidden');
+    document.getElementById('modal').classList.remove('hidden');
+}
+
+function setModalTitle(text) {
+    const bar = document.getElementById('modal-title-bar');
+    document.getElementById('modal-title').innerText = text;
+    if (text) bar.classList.remove('no-title');
+    else bar.classList.add('no-title');
 }
 
 async function openMenuModal() {
     if (isGameActive) pauseGameForBreak();
-    isModalOpen = true; isInputBlocked = false; 
-    modalGeneration++; // prevent stale setTimeout from showStatsModal
+    isModalOpen = true; isInputBlocked = false;
+    modalGeneration++;
     modalActionCallback = () => { closeModal(); startGame(); };
-    
-    const modal = document.getElementById('modal');
-    document.getElementById('modal-title').style.display = 'block'; 
-    document.getElementById('modal-title').innerText = "Settings";
-    
+
+    setModalTitle('Settings');
+
     let chapterOptions = "";
     if (bookMetadata && bookMetadata.chapters) {
         bookMetadata.chapters.forEach((chap) => {
             const num = chap.id.replace("chapter_", "");
             let sel = (num == currentChapterNum) ? "selected" : "";
-            
-            let label = `Chapter ${escapeHtml(num)}`;
+
+            let label = `Ch. ${escapeHtml(num)}`;
             if(chap.title && chap.title != num) {
                 if(chap.title.toLowerCase().startsWith('chapter')) label = escapeHtml(chap.title);
-                else label = `Chapter ${escapeHtml(num)}: ${escapeHtml(chap.title)}`;
+                else label = `Ch. ${escapeHtml(num)}: ${escapeHtml(chap.title)}`;
             }
             chapterOptions += `<option value="${escapeHtml(num)}" ${sel}>${label}</option>`;
         });
@@ -988,30 +1001,32 @@ async function openMenuModal() {
     } catch(e) { console.warn(e); }
 
     document.getElementById('modal-body').innerHTML = `
-        <div class="menu-section">
-            <div class="menu-label">Current Book</div>
-            <select id="book-select" class="modal-select">${bookOptions}</select>
-        </div>
-        <div class="menu-section">
-            <div class="menu-label">Chapter</div>
-            <div style="display:flex; gap:10px;">
-                <select id="chapter-nav-select" class="modal-select" style="margin:0; flex-grow:1;">${chapterOptions}</select>
-                <button id="go-btn" class="modal-btn" style="width:auto; padding:0 20px;">Go</button>
+        <div class="menu-grid">
+            <div class="menu-section">
+                <div class="menu-label">Book</div>
+                <select id="book-select" class="modal-select">${bookOptions}</select>
+            </div>
+            <div class="menu-section">
+                <div class="menu-label">Chapter</div>
+                <div style="display:flex; gap:8px;">
+                    <select id="chapter-nav-select" class="modal-select" style="margin:0; flex-grow:1;">${chapterOptions}</select>
+                    <button id="go-btn" class="modal-btn" style="width:auto; padding:0 16px; font-size:14px;">Go</button>
+                </div>
+            </div>
+            <div class="menu-section">
+                <div class="menu-label">Session Length</div>
+                <select id="sprint-select" class="modal-select">${getSessionOptionsHTML()}</select>
+            </div>
+            <div class="menu-section">
+                <div class="menu-label">Keyboard</div>
+                <select id="layout-select" class="modal-select">
+                    <option value="qwerty" ${currentLayout === 'qwerty' ? 'selected' : ''}>QWERTY</option>
+                    <option value="dvorak" ${currentLayout === 'dvorak' ? 'selected' : ''}>Dvorak</option>
+                </select>
             </div>
         </div>
-        <div class="menu-section">
-            <div class="menu-label">Session</div>
-            ${getDropdownHTML()}
-        </div>
-        <div class="menu-section">
-            <div class="menu-label">Keyboard Layout</div>
-            <select id="layout-select" class="modal-select">
-                <option value="qwerty" ${currentLayout === 'qwerty' ? 'selected' : ''}>QWERTY</option>
-                <option value="dvorak" ${currentLayout === 'dvorak' ? 'selected' : ''}>Dvorak</option>
-            </select>
-        </div>
     `;
-    
+
     document.getElementById('layout-select').onchange = (e) => {
         setKeyboardLayout(e.target.value);
     };
@@ -1019,19 +1034,19 @@ async function openMenuModal() {
     document.getElementById('book-select').onchange = async (e) => {
         const newBookId = e.target.value;
         if (newBookId === currentBookId) return;
-        
+
         // Save current book's progress first
         await saveProgress(true);
-        
+
         // Switch to new book
         currentBookId = newBookId;
         localStorage.setItem('currentBookId', currentBookId);
         const newUrl = `game.html?book=${encodeURIComponent(currentBookId)}`;
         window.history.replaceState(null, '', newUrl);
-        
+
         // Load new book's metadata
         await loadBookMetadata();
-        
+
         // Peek at saved progress (without loading chapter)
         let resumeChapter = 1;
         let resumeChar = 0;
@@ -1045,7 +1060,7 @@ async function openMenuModal() {
                 }
             } catch (e) { console.warn("Progress peek error:", e); }
         }
-        
+
         // Rebuild chapter dropdown with new book's chapters
         let newChapterOptions = "";
         if (bookMetadata && bookMetadata.chapters) {
@@ -1060,16 +1075,16 @@ async function openMenuModal() {
                 newChapterOptions += `<option value="${escapeHtml(num)}" ${sel}>${label}</option>`;
             });
         }
-        
+
         const chapSelect = document.getElementById('chapter-nav-select');
         if (chapSelect) chapSelect.innerHTML = newChapterOptions;
-        
+
         // Update state but don't load chapter yet — user hits Go
         currentChapterNum = resumeChapter;
         savedCharIndex = resumeChar;
         lastSavedIndex = resumeChar;
         currentCharIndex = 0;
-        
+
         textStream.innerHTML = `<span style="color:#888;">Switched to <b>${escapeHtml(bookMetadata.title || currentBookId)}</b>. Pick a chapter and hit Go.</span>`;
         bookSwitchPending = true;
         isInputBlocked = true;
@@ -1099,7 +1114,7 @@ async function openMenuModal() {
 
     const btn = document.getElementById('action-btn');
     btn.innerText = "Close";
-    btn.onclick = () => { 
+    btn.onclick = () => {
         if (bookSwitchPending) {
             // They switched books but didn't hit Go — load the chapter first
             bookSwitchPending = false;
@@ -1110,12 +1125,12 @@ async function openMenuModal() {
             closeModal();
             loadChapter(val);
         } else {
-            closeModal(); 
-            if (!isGameActive) startGame(); 
+            closeModal();
+            if (!isGameActive) startGame();
         }
     };
-    btn.disabled = false; btn.style.opacity = '1';
-    modal.classList.remove('hidden');
+    btn.disabled = false; btn.style.opacity = '1'; btn.style.display = 'inline-block';
+    showModalPanel();
 }
 
 function handleChapterSwitch(newChapter) {
@@ -1162,7 +1177,7 @@ function setKeyboardLayout(layout) {
 function createKeyboard() {
     keyboardDiv.innerHTML = '';
     rows.forEach((rowChars, rIndex) => {
-        const rowDiv = document.createElement('div'); rowDiv.className = 'kb-row'; 
+        const rowDiv = document.createElement('div'); rowDiv.className = 'kb-row';
         if (rIndex === 1) addSpecialKey(rowDiv, "CAPS"); if (rIndex === 2) addSpecialKey(rowDiv, "SHIFT");
         rowChars.forEach((char, cIndex) => {
             const key = document.createElement('div'); key.className = 'key'; key.innerText = char; key.dataset.char = char; key.dataset.shift = shiftRows[rIndex][cIndex]; key.id = `key-${char}`; rowDiv.appendChild(key);
@@ -1170,7 +1185,7 @@ function createKeyboard() {
         if (rIndex === 0) addSpecialKey(rowDiv, "BACK"); if (rIndex === 1) addSpecialKey(rowDiv, "ENTER"); if (rIndex === 2) addSpecialKey(rowDiv, "SHIFT");
         keyboardDiv.appendChild(rowDiv);
     });
-    const spaceRow = document.createElement('div'); spaceRow.className = 'kb-row'; 
+    const spaceRow = document.createElement('div'); spaceRow.className = 'kb-row';
     const space = document.createElement('div'); space.className = 'key space'; space.innerText = ""; space.id = "key- ";
     spaceRow.appendChild(space); keyboardDiv.appendChild(spaceRow);
 }
@@ -1189,7 +1204,7 @@ function toggleKeyboardCase(isShift) {
 function highlightKey(char) {
     document.querySelectorAll('.key').forEach(k => k.classList.remove('target'));
     let targetId = ''; let needsShift = false;
-    if (char === ' ') targetId = 'key- '; else if (char === '\t') targetId = 'key-TAB'; else if (char === '\n') targetId = 'key-ENTER'; 
+    if (char === ' ') targetId = 'key- '; else if (char === '\t') targetId = 'key-TAB'; else if (char === '\n') targetId = 'key-ENTER';
     else {
         const keys = Array.from(document.querySelectorAll('.key'));
         const found = keys.find(k => k.dataset.char === char || k.dataset.shift === char);
@@ -1201,7 +1216,7 @@ function highlightKey(char) {
 
 function flashKey(char) {
     let targetId = '';
-    if (char === ' ') targetId = 'key- '; else if (char === '\t' || char === 'Tab') targetId = 'key-TAB'; else if (char === '\\n' || char === 'Enter') targetId = 'key-ENTER'; 
+    if (char === ' ') targetId = 'key- '; else if (char === '\t' || char === 'Tab') targetId = 'key-TAB'; else if (char === '\\n' || char === 'Enter') targetId = 'key-ENTER';
     else {
         const keys = Array.from(document.querySelectorAll('.key'));
         const found = keys.find(k => k.dataset.char === char || k.dataset.shift === char);
