@@ -1,4 +1,4 @@
-/* v2.1.0 - Full Width, Hidden Images, Importer Wizard */
+/* v2.4.4 - Modal height capped to keyboard */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -161,10 +161,11 @@ body {
 }
 .modal-content {
     pointer-events: auto; background: white; width: 100%;
-    border-top: 6px solid var(--carolina-blue); padding: 30px; 
-    padding-bottom: 50px; text-align: center;
+    border-top: 6px solid var(--carolina-blue); padding: 20px 30px 30px; 
+    text-align: center;
     box-shadow: 0 -10px 30px rgba(0,0,0,0.2); animation: slideUp 0.3s ease-out;
     box-sizing: border-box;
+    max-height: 284px; overflow-y: auto;
 }
 @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
 
