@@ -1,4 +1,4 @@
-// v2.4.0 - Session logging, start stats, goal celebrations in modals
+// v2.4.1 - Fix midnight rollover bug
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc, getDocs, collection, addDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -8,7 +8,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "2.4.0";
+const VERSION = "2.4.1";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000; 
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -371,6 +371,27 @@ function gameTick() {
         timerDisplay.style.opacity = '1';
         if (timeAccumulator >= 1000) {
             activeSeconds++; sprintSeconds++;
+            
+            // Midnight rollover check
+            const todayStr = new Date().toISOString().split('T')[0];
+            if (statsData.lastDate && statsData.lastDate !== todayStr) {
+                console.log(`Day rolled over: ${statsData.lastDate} → ${todayStr}. Resetting daily stats.`);
+                statsData.secondsToday = 0;
+                statsData.charsToday = 0;
+                statsData.mistakesToday = 0;
+                statsData.lastDate = todayStr;
+                dailyGoalCelebrated = false; // eligible for today's goal
+                // Check week rollover too
+                const weekStart = getWeekStart(new Date());
+                if (statsData.weekStart !== weekStart) {
+                    statsData.secondsWeek = 0;
+                    statsData.charsWeek = 0;
+                    statsData.mistakesWeek = 0;
+                    statsData.weekStart = weekStart;
+                    weeklyGoalCelebrated = false;
+                }
+            }
+            
             statsData.secondsToday++; statsData.secondsWeek++;
             timeAccumulator -= 1000;
             updateTimerUI();
