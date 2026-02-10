@@ -1,4 +1,4 @@
-// v2.2.2 - Fix book switch: refresh modal, user confirms with Go
+// v2.3.0 - Goals, celebrations, book switch fix, debug logging
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc, getDocs, collection } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
@@ -8,7 +8,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "2.2.2";
+const VERSION = "2.3.0";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000; 
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -201,11 +201,22 @@ async function loadGoals() {
             const data = goalsSnap.data();
             goals.dailySeconds = data.dailySeconds || 0;
             goals.weeklySeconds = data.weeklySeconds || 0;
+            console.log(`Goals loaded: daily=${goals.dailySeconds}s (${Math.round(goals.dailySeconds/60)}m), weekly=${goals.weeklySeconds}s (${Math.round(goals.weeklySeconds/60)}m)`);
+        } else {
+            console.log("No goals document found at settings/goals");
         }
-        // If user already exceeded goals coming in, mark as celebrated so we don't fire mid-session
-        if (goals.dailySeconds > 0 && statsData.secondsToday >= goals.dailySeconds) dailyGoalCelebrated = true;
-        if (goals.weeklySeconds > 0 && statsData.secondsWeek >= goals.weeklySeconds) weeklyGoalCelebrated = true;
-    } catch (e) { console.warn("Goals load error:", e); }
+        // If user already exceeded goals coming in, mark as celebrated so we don't fire again
+        if (goals.dailySeconds > 0 && statsData.secondsToday >= goals.dailySeconds) {
+            dailyGoalCelebrated = true;
+            console.log(`Daily goal already met (${statsData.secondsToday}s >= ${goals.dailySeconds}s)`);
+        }
+        if (goals.weeklySeconds > 0 && statsData.secondsWeek >= goals.weeklySeconds) {
+            weeklyGoalCelebrated = true;
+            console.log(`Weekly goal already met (${statsData.secondsWeek}s >= ${goals.weeklySeconds}s)`);
+        }
+    } catch (e) { 
+        console.error("Goals load FAILED — check Firestore rules for 'settings' collection:", e);
+    }
 }
 
 async function loadUserProgress() {
@@ -786,6 +797,7 @@ function showStatsModal(title, stats, btnText, callback) {
             <div class="stat-box"><div style="font-size:1.8em; font-weight:bold;">${formatTime(stats.time)}</div><div style="font-size:0.9em; color:#777;">Time</div></div>
         </div>
         <div class="stat-subtext">Today: <span class="highlight">${stats.today}</span><br>Week: <span class="highlight">${stats.week}</span></div>
+        ${getGoalProgressHTML()}
     `;
     
     document.getElementById('modal-body').innerHTML = html;
@@ -799,6 +811,36 @@ function showStatsModal(title, stats, btnText, callback) {
             b.style.opacity = '1'; b.innerText = btnText; b.disabled = false;
         }
     }, SPRINT_COOLDOWN_MS);
+}
+
+
+function getGoalProgressHTML() {
+    if (goals.dailySeconds <= 0 && goals.weeklySeconds <= 0) return '';
+    
+    let html = '<div style="margin-top:15px; padding-top:12px; border-top:1px solid #333; font-size:0.8rem;">';
+    
+    if (goals.dailySeconds > 0) {
+        const dailyPct = Math.min(100, Math.round((statsData.secondsToday / goals.dailySeconds) * 100));
+        const met = statsData.secondsToday >= goals.dailySeconds;
+        html += `<div style="margin-bottom:6px;">🎉 Daily: ${formatTime(statsData.secondsToday)} / ${formatTime(goals.dailySeconds)} 
+            <span style="color:${met ? '#22c55e' : '#888'};">(${dailyPct}%${met ? ' ✓' : ''})</span></div>
+            <div style="height:4px; background:#333; border-radius:2px; margin-bottom:8px;">
+                <div style="height:100%; width:${dailyPct}%; background:${met ? '#22c55e' : '#4B9CD3'}; border-radius:2px; transition:width 0.3s;"></div>
+            </div>`;
+    }
+    
+    if (goals.weeklySeconds > 0) {
+        const weeklyPct = Math.min(100, Math.round((statsData.secondsWeek / goals.weeklySeconds) * 100));
+        const met = statsData.secondsWeek >= goals.weeklySeconds;
+        html += `<div style="margin-bottom:6px;">🎆 Weekly: ${formatTime(statsData.secondsWeek)} / ${formatTime(goals.weeklySeconds)}
+            <span style="color:${met ? '#FFD700' : '#888'};">(${weeklyPct}%${met ? ' ✓' : ''})</span></div>
+            <div style="height:4px; background:#333; border-radius:2px;">
+                <div style="height:100%; width:${weeklyPct}%; background:${met ? '#FFD700' : '#4B9CD3'}; border-radius:2px; transition:width 0.3s;"></div>
+            </div>`;
+    }
+    
+    html += '</div>';
+    return html;
 }
 
 function getDropdownHTML() {
