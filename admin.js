@@ -3,7 +3,7 @@ import { db, auth } from "./firebase-config.js";
 import { doc, setDoc, getDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const ADMIN_VERSION = "2.4.1";
+const ADMIN_VERSION = "2.4.2";
 
 // Only these emails can access the admin panel
 const ADMIN_EMAILS = [
@@ -69,14 +69,22 @@ const replaceAllCount = document.getElementById('replace-all-count');
 const replaceAllChar = document.getElementById('replace-all-char');
 const replaceAllInput = document.getElementById('replace-all-input');
 const replaceAllBtn = document.getElementById('replace-all-btn');
+const replaceWordRow = document.getElementById('replace-word-row');
+const replaceWordOriginal = document.getElementById('replace-word-original');
+const replaceWordCount = document.getElementById('replace-word-count');
+const replaceWordInput = document.getElementById('replace-word-input');
+const replaceWordBtn = document.getElementById('replace-word-btn');
 
-// Suggested replacements for common characters
+// Suggested replacements for common characters (shown in Replace All)
 const CHAR_SUGGESTIONS = {
     '\u00E6': 'ae', '\u00C6': 'Ae',   // æ Æ
     '\u0153': 'oe', '\u0152': 'Oe',   // œ Œ
     '\u00DF': 'ss',                     // ß
     '\u00A0': ' ',                      // NBSP
+    '\u200A': ' ',                      // hair space
+    '\u2002': ' ', '\u2003': ' ', '\u2009': ' ', // en/em/thin space
     '\u00AD': '',                       // soft hyphen
+    '\u2011': '-',                      // non-breaking hyphen
     '\u2013': '-', '\u2014': '--',     // en/em dash
     '\u2018': "'", '\u2019': "'",      // smart quotes
     '\u201C': '"', '\u201D': '"',
@@ -293,26 +301,27 @@ async function parseEpubFile(file) {
                 if (cleanNewlinesCb.checked) text = text.replace(/[\r\n]+/g, ' '); 
                 text = text.replace(/\s\s+/g, ' ').trim();
                 
+                // Always-on: formatting/invisible chars with obvious ASCII equivalents
                 text = text.replace(/—/g, '--'); 
                 text = text.replace(/[\u2018\u2019]/g, "'"); 
                 text = text.replace(/[\u201C\u201D]/g, '"');
                 text = text.replace(/\u2026/g, "..."); 
-                text = text.replace(/\u00A0/g, ' ');        // non-breaking space → space
-                text = text.replace(/[\u2002\u2003\u2009]/g, ' '); // en/em/thin space → space
-                text = text.replace(/\u2013/g, '-');         // en dash → hyphen
+                text = text.replace(/[\u00A0\u200A\u2002\u2003\u2009]/g, ' '); // NBSP, hair, en, em, thin space → space
+                text = text.replace(/[\u2013\u2011]/g, '-');  // en dash, non-breaking hyphen → hyphen
                 text = text.replace(/[\u200B\u200C\u200D\uFEFF]/g, ''); // zero-width chars, BOM → remove
-                text = text.replace(/\u00AD/g, '');          // soft hyphen → remove
-                text = text.replace(/\u00E6/g, 'ae');        // æ → ae
-                text = text.replace(/\u00C6/g, 'Ae');        // Æ → Ae
-                text = text.replace(/\u0153/g, 'oe');        // œ → oe
-                text = text.replace(/\u0152/g, 'Oe');        // Œ → Oe
-                text = text.replace(/\u00DF/g, 'ss');        // ß → ss
-                text = text.replace(/\u00D7/g, 'x');         // × → x
-                text = text.replace(/\u00B7/g, '-');          // · (middle dot) → hyphen
-                text = text.replace(/\u2022/g, '-');          // bullet → hyphen
+                text = text.replace(/\u00AD/g, '');           // soft hyphen → remove
+                text = text.replace(/\u00D7/g, 'x');          // × → x
+                text = text.replace(/\u00B7/g, '-');           // · (middle dot) → hyphen
+                text = text.replace(/\u2022/g, '-');           // bullet → hyphen
                 
+                // Aggressive: actual letter substitutions (normalize checkbox)
                 if (normalizeCharsCb.checked) {
-                    text = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                    text = text.replace(/\u00E6/g, 'ae');      // æ → ae
+                    text = text.replace(/\u00C6/g, 'Ae');      // Æ → Ae
+                    text = text.replace(/\u0153/g, 'oe');      // œ → oe
+                    text = text.replace(/\u0152/g, 'Oe');      // Œ → Oe
+                    text = text.replace(/\u00DF/g, 'ss');      // ß → ss
+                    text = text.normalize("NFD").replace(/[\u0300-\u036f]/g, ""); // strip accents
                 }
 
                 if (text.length > 0) {
@@ -433,6 +442,42 @@ function showErrorWizard() {
         ? `Suggested: "${CHAR_SUGGESTIONS[err.badChar] || '(remove)'}"`
         : 'Replacement text';
     
+    // Extract the word containing the bad character
+    const charIdx = err.segmentRef.text.indexOf(err.badChar);
+    if (charIdx >= 0) {
+        const txt = err.segmentRef.text;
+        let wStart = charIdx, wEnd = charIdx;
+        while (wStart > 0 && txt[wStart - 1] !== ' ' && txt[wStart - 1] !== '\t') wStart--;
+        while (wEnd < txt.length && txt[wEnd] !== ' ' && txt[wEnd] !== '\t') wEnd++;
+        const badWord = txt.substring(wStart, wEnd).replace(/^[.,;:!?"'()\[\]]+|[.,;:!?"'()\[\]]+$/g, '');
+        
+        if (badWord.length > 1 && badWord !== err.badChar) {
+            // Count word occurrences across all segments
+            let wordCount = 0;
+            const wordRegex = new RegExp(escapeRegex(badWord), 'g');
+            stagedChapters.forEach(ch => {
+                ch.segments.forEach(seg => {
+                    const m = seg.text.match(wordRegex);
+                    if (m) wordCount += m.length;
+                });
+            });
+            
+            replaceWordOriginal.textContent = badWord;
+            replaceWordCount.textContent = wordCount;
+            // Pre-fill suggestion: swap the bad char for its suggested replacement within the word
+            const charSuggestion = CHAR_SUGGESTIONS[err.badChar];
+            replaceWordInput.value = charSuggestion !== undefined 
+                ? badWord.replace(new RegExp(escapeRegex(err.badChar), 'g'), charSuggestion) 
+                : '';
+            replaceWordInput.placeholder = `Replacement for "${badWord}"`;
+            replaceWordRow.classList.remove('hidden');
+        } else {
+            replaceWordRow.classList.add('hidden');
+        }
+    } else {
+        replaceWordRow.classList.add('hidden');
+    }
+    
     wizardModal.classList.remove('hidden');
 }
 
@@ -494,8 +539,20 @@ replaceAllBtn.onclick = () => {
         });
     });
     
-    // Remove all errors with this same badChar
-    importErrors = importErrors.filter(e => e.badChar !== badChar);
+    // Remove errors where the bad char is gone, but re-check for other bad chars
+    importErrors = importErrors.filter(e => {
+        if (e.badChar === badChar) {
+            // This error's char was just replaced — but does the segment still have issues?
+            const remaining = e.segmentRef.text.match(/[^ -~\t\n]/g);
+            if (remaining && remaining.length > 0) {
+                e.badChar = remaining[0]; // update to next bad char
+                e.fullText = e.segmentRef.text;
+                return true;
+            }
+            return false;
+        }
+        return true;
+    });
     
     // Reset index (may have shifted)
     if (currentErrorIdx >= importErrors.length) currentErrorIdx = importErrors.length - 1;
@@ -512,6 +569,46 @@ replaceAllBtn.onclick = () => {
 function escapeRegex(str) {
     return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
+
+replaceWordBtn.onclick = () => {
+    const err = importErrors[currentErrorIdx];
+    const badWord = replaceWordOriginal.textContent;
+    const replacement = replaceWordInput.value;
+    
+    if (!replacement && !confirm(`Replace "${badWord}" with nothing (delete the word)?`)) return;
+    if (replacement && !confirm(`Replace all "${badWord}" with "${replacement}" across all chapters?`)) return;
+    
+    const regex = new RegExp(escapeRegex(badWord), 'g');
+    let replaceCount = 0;
+    stagedChapters.forEach(ch => {
+        ch.segments.forEach(seg => {
+            const matches = seg.text.match(regex);
+            if (matches) {
+                replaceCount += matches.length;
+                seg.text = seg.text.replace(regex, replacement);
+            }
+        });
+    });
+    
+    // Re-check: remove errors whose segment no longer contains ANY bad chars
+    importErrors = importErrors.filter(e => {
+        const remaining = e.segmentRef.text.match(/[^ -~\t\n]/g);
+        if (remaining && remaining.length > 0) {
+            e.badChar = remaining[0];
+            e.fullText = e.segmentRef.text;
+            return true;
+        }
+        return false;
+    });
+    
+    if (currentErrorIdx >= importErrors.length) currentErrorIdx = importErrors.length - 1;
+    if (currentErrorIdx < 0) currentErrorIdx = 0;
+    
+    statusEl.innerText = `Replaced ${replaceCount} instances of "${badWord}" → "${replacement}".`;
+    statusEl.style.borderColor = "#00ff41";
+    
+    showErrorWizard();
+};
 
 // Security: escape HTML to prevent XSS from Firestore data
 function escapeHtml(str) {
