@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>TypeThatBook Admin v2.4.1</title>
+    <title>TypeThatBook Admin v2.4.2</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
         body { background: #111; color: #eee; font-family: 'Courier New', monospace; padding: 20px; }
@@ -243,7 +243,19 @@
             </div>
             <div class="row">
                 <div class="col" style="flex:2;"><input id="replace-all-input" type="text" style="margin:0;" placeholder="Replacement text" /></div>
-                <div class="col"><button id="replace-all-btn" style="background:#0047AB; margin:0;">Replace All</button></div>
+                <div class="col"><button id="replace-all-btn" style="background:#0047AB; margin:0;">Replace All (char)</button></div>
+            </div>
+            
+            <div id="replace-word-row" class="hidden" style="margin-top:12px; padding-top:12px; border-top:1px dashed #333;">
+                <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+                    <span style="color:#ccc; white-space:nowrap;">Or replace word</span>
+                    <span id="replace-word-original" style="font-weight:bold; color:#ffaa00; border:1px solid #555; padding:2px 5px; font-family:'Courier New', monospace;"></span>
+                    <span style="color:#ccc;">(<span id="replace-word-count" style="color:#ffaa00;"></span> occurrences) with:</span>
+                </div>
+                <div class="row">
+                    <div class="col" style="flex:2;"><input id="replace-word-input" type="text" style="margin:0;" placeholder="Replacement word" /></div>
+                    <div class="col"><button id="replace-word-btn" style="background:#0047AB; margin:0;">Replace All (word)</button></div>
+                </div>
             </div>
         </div>
     </div>
