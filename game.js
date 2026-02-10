@@ -1,6 +1,6 @@
-// v2.3.0 - Goals, celebrations, book switch fix, debug logging
+// v2.4.0 - Session logging, start stats, goal celebrations in modals
 import { db, auth } from "./firebase-config.js";
-import { doc, getDoc, setDoc, getDocs, collection } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { doc, getDoc, setDoc, getDocs, collection, addDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { 
     onAuthStateChanged, 
     GoogleAuthProvider, 
@@ -8,7 +8,7 @@ import {
     signOut 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "2.3.0";
+const VERSION = "2.4.0";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000; 
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -651,6 +651,27 @@ async function saveProgress(force = false) {
     } catch (e) { console.warn("Save failed:", e); }
 }
 
+async function logSession(seconds, chars, mistakes, wpm, accuracy) {
+    if (!currentUser || currentUser.isAnonymous) return;
+    if (seconds < 5) return; // skip trivially short sessions
+    try {
+        await addDoc(collection(db, "typing_sessions"), {
+            uid: currentUser.uid,
+            email: currentUser.email || "",
+            displayName: currentUser.displayName || "Anonymous",
+            date: new Date().toISOString().split('T')[0],
+            timestamp: new Date(),
+            seconds: seconds,
+            chars: chars,
+            mistakes: mistakes,
+            wpm: wpm,
+            accuracy: accuracy,
+            bookId: currentBookId,
+            chapter: currentChapterNum
+        });
+    } catch (e) { console.warn("Session log failed:", e); }
+}
+
 function formatTime(seconds) {
     if (!seconds) return "0m 0s"; 
     const m = Math.floor(seconds / 60);
@@ -679,6 +700,9 @@ function pauseGameForBreak() {
     const sprintTotalEntries = charsTyped + sprintMistakes;
     const sprintAcc = (sprintTotalEntries > 0) ? Math.round((charsTyped / sprintTotalEntries) * 100) : 100;
 
+    // Log this session
+    logSession(sprintSeconds, charsTyped, sprintMistakes, sprintWPM, sprintAcc);
+
     const todayWPM = calculateAverageWPM(statsData.charsToday, statsData.secondsToday);
     const todayAcc = calculateAverageAcc(statsData.charsToday, statsData.mistakesToday);
     const weekWPM = calculateAverageWPM(statsData.charsWeek, statsData.secondsWeek);
@@ -689,7 +713,16 @@ function pauseGameForBreak() {
         today: `${formatTime(statsData.secondsToday)} (${todayWPM} WPM | ${todayAcc}%)`,
         week: `${formatTime(statsData.secondsWeek)} (${weekWPM} WPM | ${weekAcc}%)`
     };
-    showStatsModal("Sprint Complete", stats, "Continue", startGame);
+    
+    let title = "Sprint Complete";
+    if (dailyGoalCelebrated && goals.dailySeconds > 0 && statsData.secondsToday - sprintSeconds < goals.dailySeconds) {
+        title = "🎉 Daily Goal Reached!";
+    }
+    if (weeklyGoalCelebrated && goals.weeklySeconds > 0 && statsData.secondsWeek - sprintSeconds < goals.weeklySeconds) {
+        title = "🎆 Weekly Goal Reached!";
+    }
+    
+    showStatsModal(title, stats, "Continue", startGame);
 }
 
 function finishChapter() {
@@ -715,6 +748,9 @@ function finishChapter() {
     const sprintTotalEntries = charsTyped + sprintMistakes;
     const sprintAcc = (sprintTotalEntries > 0) ? Math.round((charsTyped / sprintTotalEntries) * 100) : 100;
 
+    // Log this session
+    logSession(sprintSeconds, charsTyped, sprintMistakes, sprintWPM, sprintAcc);
+
     const todayWPM = calculateAverageWPM(statsData.charsToday, statsData.secondsToday);
     const todayAcc = calculateAverageAcc(statsData.charsToday, statsData.mistakesToday);
     const weekWPM = calculateAverageWPM(statsData.charsWeek, statsData.secondsWeek);
@@ -726,7 +762,15 @@ function finishChapter() {
         week: `${formatTime(statsData.secondsWeek)} (${weekWPM} WPM | ${weekAcc}%)`
     };
     
-    showStatsModal(`Chapter ${currentChapterNum} Complete!`, stats, `Start Next`, async () => {
+    let title = `Chapter ${currentChapterNum} Complete!`;
+    if (dailyGoalCelebrated && goals.dailySeconds > 0 && statsData.secondsToday - sprintSeconds < goals.dailySeconds) {
+        title = `🎉 Chapter ${currentChapterNum} Complete + Daily Goal!`;
+    }
+    if (weeklyGoalCelebrated && goals.weeklySeconds > 0 && statsData.secondsWeek - sprintSeconds < goals.weeklySeconds) {
+        title = `🎆 Chapter ${currentChapterNum} Complete + Weekly Goal!`;
+    }
+    
+    showStatsModal(title, stats, `Start Next`, async () => {
         await saveProgress(true); 
         currentChapterNum = nextChapterId;
         savedCharIndex = 0; currentCharIndex = 0; lastSavedIndex = 0;
@@ -765,9 +809,24 @@ function showStartModal(btnText) {
     modalActionCallback = startGame;
     const modal = document.getElementById('modal');
     document.getElementById('modal-title').style.display = 'none'; 
-    
+
+    const todayWPM = calculateAverageWPM(statsData.charsToday, statsData.secondsToday);
+    const todayAcc = calculateAverageAcc(statsData.charsToday, statsData.mistakesToday);
+    const weekWPM = calculateAverageWPM(statsData.charsWeek, statsData.secondsWeek);
+    const weekAcc = calculateAverageAcc(statsData.charsWeek, statsData.mistakesWeek);
+
+    const hasStats = statsData.secondsToday > 0 || statsData.secondsWeek > 0;
+    const statsSection = hasStats ? `
+        <div class="stat-subtext" style="margin-bottom:10px;">
+            Today: <span class="highlight">${formatTime(statsData.secondsToday)} (${todayWPM} WPM | ${todayAcc}%)</span><br>
+            Week: <span class="highlight">${formatTime(statsData.secondsWeek)} (${weekWPM} WPM | ${weekAcc}%)</span>
+        </div>
+        ${getGoalProgressHTML()}
+    ` : (goals.dailySeconds > 0 || goals.weeklySeconds > 0) ? getGoalProgressHTML() : '';
+
     const html = `
         ${getHeaderHTML()}
+        ${statsSection}
         ${getDropdownHTML()}
         <p style="font-size:0.8rem; color:#777; margin-top: 15px;">
             Type the first character to start.<br>
@@ -1205,8 +1264,7 @@ function launchFireworks() {
 
     let frame = 0;
     function animate() {
-        ctx.fillStyle = 'rgba(0,0,0,0.15)';
-        ctx.fillRect(0, 0, W, H);
+        ctx.clearRect(0, 0, W, H);
 
         // Update shells
         shells.forEach(s => {
