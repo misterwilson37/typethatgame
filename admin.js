@@ -1,9 +1,9 @@
-// v2.1.0 - Security: Admin Email Whitelist
+// v2.4.3 - Chapter split tool
 import { db, auth } from "./firebase-config.js";
 import { doc, setDoc, getDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const ADMIN_VERSION = "2.4.2";
+const ADMIN_VERSION = "2.4.3";
 
 // Only these emails can access the admin panel
 const ADMIN_EMAILS = [
@@ -630,6 +630,7 @@ function renderChapterList() {
                 <div class="chap-meta">${chap.segments.length} segments <span class="chap-status"></span></div>
             </div>
             <div class="chap-actions">
+                <button class="split-btn" data-index="${index}" title="Split into multiple chapters">Split</button>
                 <button class="edit-btn" data-index="${index}">Edit</button>
                 <button class="danger-btn delete-btn" data-index="${index}">Del</button>
             </div>
@@ -647,6 +648,146 @@ function renderChapterList() {
     document.querySelectorAll('.edit-btn').forEach(btn => {
         btn.onclick = (e) => editChapter(parseInt(e.target.dataset.index));
     });
+    
+    document.querySelectorAll('.split-btn').forEach(btn => {
+        btn.onclick = (e) => openSplitUI(parseInt(e.target.dataset.index));
+    });
+}
+
+// --- SPLIT CHAPTER ---
+function detectHeadings(segments) {
+    const headingPattern = /^[\t ]*(chapter|part|book|section|prologue|epilogue|preface|introduction|conclusion|appendix)\b/i;
+    const romanPattern = /^[\t ]*(I{1,3}|IV|V|VI{0,3}|IX|X{1,3}|XI{0,3}|XIV|XV|XVI{0,3}|XIX|XX)[\.\s:—\-]/;
+    const numberPattern = /^[\t ]*\d{1,3}[\.\s:—\-]/;
+    
+    const found = [];
+    segments.forEach((seg, idx) => {
+        if (idx === 0) return; // can't split before first segment
+        const text = seg.text.replace(/^\t/, '').trim();
+        if (text.length === 0) return;
+        if (text.length > 80) return; // headings are short
+        
+        if (headingPattern.test(text) || romanPattern.test(text) || numberPattern.test(text)) {
+            found.push({ index: idx, text: text });
+        }
+    });
+    return found;
+}
+
+function openSplitUI(chapIndex) {
+    const chap = stagedChapters[chapIndex];
+    const headings = detectHeadings(chap.segments);
+    
+    // Build the split modal
+    const modal = document.getElementById('error-wizard-modal');
+    const content = modal.querySelector('.error-wizard-content');
+    
+    let headingsList = '';
+    if (headings.length > 0) {
+        headingsList = `
+            <div style="margin-bottom:15px;">
+                <div style="color:#00ff41; margin-bottom:8px;">Detected ${headings.length} heading(s) — click to toggle:</div>
+                ${headings.map(h => `
+                    <label style="display:block; padding:6px 8px; margin:2px 0; background:#1a1a1a; border:1px solid #333; border-radius:3px; cursor:pointer;">
+                        <input type="checkbox" class="split-point-cb" data-seg-index="${h.index}" checked style="margin-right:8px;">
+                        <span style="color:#ffaa00;">Seg ${h.index}:</span> <span style="color:#ccc;">${escapeHtml(h.text.substring(0, 60))}</span>
+                    </label>
+                `).join('')}
+            </div>
+        `;
+    } else {
+        headingsList = `<div style="color:#888; margin-bottom:15px;">No headings auto-detected.</div>`;
+    }
+    
+    content.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; border-bottom:1px solid #444; padding-bottom:10px;">
+            <h3 style="margin:0; color:#4B9CD3;">Split Chapter: ${escapeHtml(chap.title)}</h3>
+            <span style="color:#888;">${chap.segments.length} segments</span>
+        </div>
+        
+        ${headingsList}
+        
+        <div style="margin-bottom:15px;">
+            <label style="color:#ccc; display:block; margin-bottom:5px;">Or add manual split points (segment numbers, comma-separated):</label>
+            <input id="manual-split-input" type="text" style="width:100%; background:#111; color:white; border:1px solid #555; padding:10px; font-family:'Courier New', monospace;" 
+                   placeholder="e.g. 15, 30, 45" value="${headings.map(h => h.index).join(', ')}">
+        </div>
+        
+        <div style="margin-bottom:15px; max-height:200px; overflow-y:auto; background:#0a0a0a; border:1px solid #333; padding:8px; font-size:0.8em; font-family:'Courier New', monospace;">
+            ${chap.segments.map((seg, i) => {
+                const preview = seg.text.replace(/^\t/, '').trim().substring(0, 70);
+                const isHeading = headings.some(h => h.index === i);
+                return `<div style="padding:2px 4px; ${isHeading ? 'color:#ffaa00; font-weight:bold; background:#1a1500;' : 'color:#666;'} cursor:pointer;" 
+                         onclick="document.getElementById('manual-split-input').value += (document.getElementById('manual-split-input').value ? ', ' : '') + '${i}'"
+                         title="Click to add as split point">
+                    <span style="color:#555; min-width:30px; display:inline-block;">${i}</span> ${escapeHtml(preview)}${seg.text.length > 70 ? '...' : ''}
+                </div>`;
+            }).join('')}
+        </div>
+        
+        <div class="row">
+            <div class="col"><button id="split-execute-btn" style="background:#0047AB; width:100%; padding:12px;">Split Chapter</button></div>
+            <div class="col"><button id="split-cancel-btn" class="secondary-btn" style="width:100%; padding:12px;">Cancel</button></div>
+        </div>
+    `;
+    
+    modal.classList.remove('hidden');
+    
+    // Update manual input when checkboxes change
+    content.querySelectorAll('.split-point-cb').forEach(cb => {
+        cb.onchange = () => {
+            const checked = Array.from(content.querySelectorAll('.split-point-cb:checked'))
+                .map(c => c.dataset.segIndex).join(', ');
+            document.getElementById('manual-split-input').value = checked;
+        };
+    });
+    
+    document.getElementById('split-cancel-btn').onclick = () => {
+        modal.classList.add('hidden');
+    };
+    
+    document.getElementById('split-execute-btn').onclick = () => {
+        const input = document.getElementById('manual-split-input').value.trim();
+        if (!input) { alert('No split points specified.'); return; }
+        
+        const splitPoints = [...new Set(
+            input.split(/[,\s]+/)
+                 .map(s => parseInt(s.trim()))
+                 .filter(n => !isNaN(n) && n > 0 && n < chap.segments.length)
+        )].sort((a, b) => a - b);
+        
+        if (splitPoints.length === 0) { alert('No valid split points.'); return; }
+        
+        // Perform the split
+        const newChapters = [];
+        let prevIdx = 0;
+        
+        for (const splitAt of splitPoints) {
+            const slice = chap.segments.slice(prevIdx, splitAt);
+            if (slice.length > 0) {
+                const title = prevIdx === 0 ? chap.title : slice[0].text.replace(/^\t/, '').trim().substring(0, 60);
+                newChapters.push({ id: 0, title: title, segments: slice });
+            }
+            prevIdx = splitAt;
+        }
+        // Last chunk
+        const lastSlice = chap.segments.slice(prevIdx);
+        if (lastSlice.length > 0) {
+            const title = lastSlice[0].text.replace(/^\t/, '').trim().substring(0, 60);
+            newChapters.push({ id: 0, title: title, segments: lastSlice });
+        }
+        
+        // Replace the original chapter with the new ones
+        stagedChapters.splice(chapIndex, 1, ...newChapters);
+        
+        // Re-number all chapters
+        stagedChapters.forEach((ch, i) => { ch.id = i + 1; });
+        
+        modal.classList.add('hidden');
+        renderChapterList();
+        statusEl.innerText = `Split into ${newChapters.length} chapters. ${stagedChapters.length} total now.`;
+        statusEl.style.borderColor = "#00ff41";
+    };
 }
 
 function editChapter(index) {
