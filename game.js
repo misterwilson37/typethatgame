@@ -1,4 +1,4 @@
-// v2.4.5 - In-flow modal panel replaces keyboard
+// v2.4.6 - Caps Lock warning
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc, getDocs, collection, addDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import {
@@ -8,7 +8,7 @@ import {
     signOut
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "2.4.5";
+const VERSION = "2.4.6";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -448,6 +448,19 @@ function updateRunningAccuracy(isCorrect) {
 }
 
 document.addEventListener('keydown', (e) => {
+    // Caps Lock detection
+    if (e.getModifierState && e.key !== 'CapsLock') {
+        const capsOn = e.getModifierState('CapsLock');
+        document.getElementById('caps-warning').classList.toggle('hidden', !capsOn);
+    } else if (e.key === 'CapsLock') {
+        // CapsLock key itself — state flips AFTER the event in some browsers,
+        // so we toggle based on current state
+        const capsWarning = document.getElementById('caps-warning');
+        const wasOn = e.getModifierState('CapsLock');
+        // If it was on, pressing CapsLock turns it off, and vice versa
+        capsWarning.classList.toggle('hidden', wasOn);
+    }
+
     if (isModalOpen) {
         if (isInputBlocked) return;
 
