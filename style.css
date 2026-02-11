@@ -1,4 +1,4 @@
-/* v2.4.5 - In-flow modal panel */
+/* v2.4.6 - Caps Lock warning banner */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -136,6 +136,14 @@ body {
 .letter.space.done-dirty { background-color: var(--error-bg); }
 
 /* --- KEYBOARD --- */
+#caps-warning {
+    background: #D32F2F; color: white; text-align: center;
+    padding: 6px; font-weight: bold; font-size: 0.85rem;
+    letter-spacing: 1px; flex-shrink: 0;
+    animation: capsFlash 1.5s ease-in-out infinite;
+}
+@keyframes capsFlash { 0%,100% { opacity: 1; } 50% { opacity: 0.7; } }
+
 #virtual-keyboard {
     height: 260px; background: var(--accent-grey);
     display: flex; flex-direction: column; align-items: center; justify-content: center;
