@@ -3,7 +3,7 @@ import { db, auth } from "./firebase-config.js";
 import { doc, setDoc, getDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const ADMIN_VERSION = "2.4.4";
+const ADMIN_VERSION = "2.4.5";
 
 // Only these emails can access the admin panel
 const ADMIN_EMAILS = [
@@ -736,12 +736,12 @@ function openSplitUI(chapIndex) {
                    placeholder="e.g. 15, 30, 45" value="${headings.map(h => h.index).join(', ')}">
         </div>
         
-        <div style="margin-bottom:6px; display:flex; gap:8px; align-items:center;">
+        <div style="margin-bottom:6px; display:flex; gap:6px; align-items:center;">
             <input id="seg-search-input" type="text" placeholder="Search segments..." 
-                   style="flex:1; background:#111; color:white; border:1px solid #555; padding:8px 10px; font-family:'Courier New', monospace; font-size:0.85em;">
-            <span id="seg-search-count" style="color:#888; font-size:0.8em; white-space:nowrap;"></span>
-            <button id="seg-search-prev" style="background:#333; border:1px solid #555; color:#ccc; padding:4px 10px; cursor:pointer; font-size:0.85em;">▲</button>
-            <button id="seg-search-next" style="background:#333; border:1px solid #555; color:#ccc; padding:4px 10px; cursor:pointer; font-size:0.85em;">▼</button>
+                   style="flex:1; min-width:120px; background:#111; color:white; border:1px solid #555; padding:8px 10px; font-family:'Courier New', monospace; font-size:0.85em;">
+            <span id="seg-search-count" style="color:#888; font-size:0.75em; white-space:nowrap;"></span>
+            <button id="seg-search-prev" style="background:#333; border:1px solid #555; color:#ccc; padding:4px 8px; cursor:pointer; font-size:0.75em; flex-shrink:0;">▲</button>
+            <button id="seg-search-next" style="background:#333; border:1px solid #555; color:#ccc; padding:4px 8px; cursor:pointer; font-size:0.75em; flex-shrink:0;">▼</button>
         </div>
         
         <div id="seg-browser" style="margin-bottom:15px; max-height:200px; overflow-y:auto; background:#0a0a0a; border:1px solid #333; padding:8px; font-size:0.8em; font-family:'Courier New', monospace;">
