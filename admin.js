@@ -1,9 +1,9 @@
-// v2.4.3 - Chapter split tool
+// v2.4.4 - Chapter merge + split search
 import { db, auth } from "./firebase-config.js";
 import { doc, setDoc, getDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const ADMIN_VERSION = "2.4.3";
+const ADMIN_VERSION = "2.4.4";
 
 // Only these emails can access the admin panel
 const ADMIN_EMAILS = [
@@ -624,12 +624,14 @@ function renderChapterList() {
         const div = document.createElement('div');
         div.className = 'chapter-item';
         div.id = `ui-chap-${index}`;
+        const canMerge = index < stagedChapters.length - 1;
         div.innerHTML = `
             <div class="chap-info">
                 <div class="chap-title">ID: ${escapeHtml(chap.id)} | ${escapeHtml(chap.title)}</div>
                 <div class="chap-meta">${chap.segments.length} segments <span class="chap-status"></span></div>
             </div>
             <div class="chap-actions">
+                ${canMerge ? `<button class="merge-btn" data-index="${index}" title="Merge with next chapter">Merge ↓</button>` : ''}
                 <button class="split-btn" data-index="${index}" title="Split into multiple chapters">Split</button>
                 <button class="edit-btn" data-index="${index}">Edit</button>
                 <button class="danger-btn delete-btn" data-index="${index}">Del</button>
@@ -641,6 +643,7 @@ function renderChapterList() {
     document.querySelectorAll('.delete-btn').forEach(btn => {
         btn.onclick = (e) => {
             stagedChapters.splice(parseInt(e.target.dataset.index), 1);
+            stagedChapters.forEach((ch, i) => { ch.id = i + 1; });
             renderChapterList();
         };
     });
@@ -652,6 +655,26 @@ function renderChapterList() {
     document.querySelectorAll('.split-btn').forEach(btn => {
         btn.onclick = (e) => openSplitUI(parseInt(e.target.dataset.index));
     });
+    
+    document.querySelectorAll('.merge-btn').forEach(btn => {
+        btn.onclick = (e) => mergeWithNext(parseInt(e.target.dataset.index));
+    });
+}
+
+// --- MERGE CHAPTERS ---
+function mergeWithNext(index) {
+    if (index >= stagedChapters.length - 1) return;
+    const current = stagedChapters[index];
+    const next = stagedChapters[index + 1];
+    
+    if (!confirm(`Merge "${current.title}" (${current.segments.length} segs) with "${next.title}" (${next.segments.length} segs)?`)) return;
+    
+    current.segments = current.segments.concat(next.segments);
+    stagedChapters.splice(index + 1, 1);
+    stagedChapters.forEach((ch, i) => { ch.id = i + 1; });
+    renderChapterList();
+    statusEl.innerText = `Merged → "${current.title}" now has ${current.segments.length} segments. ${stagedChapters.length} chapters total.`;
+    statusEl.style.borderColor = "#00ff41";
 }
 
 // --- SPLIT CHAPTER ---
@@ -707,20 +730,27 @@ function openSplitUI(chapIndex) {
         
         ${headingsList}
         
-        <div style="margin-bottom:15px;">
-            <label style="color:#ccc; display:block; margin-bottom:5px;">Or add manual split points (segment numbers, comma-separated):</label>
+        <div style="margin-bottom:10px;">
+            <label style="color:#ccc; display:block; margin-bottom:5px;">Split points (segment numbers, comma-separated):</label>
             <input id="manual-split-input" type="text" style="width:100%; background:#111; color:white; border:1px solid #555; padding:10px; font-family:'Courier New', monospace;" 
                    placeholder="e.g. 15, 30, 45" value="${headings.map(h => h.index).join(', ')}">
         </div>
         
-        <div style="margin-bottom:15px; max-height:200px; overflow-y:auto; background:#0a0a0a; border:1px solid #333; padding:8px; font-size:0.8em; font-family:'Courier New', monospace;">
+        <div style="margin-bottom:6px; display:flex; gap:8px; align-items:center;">
+            <input id="seg-search-input" type="text" placeholder="Search segments..." 
+                   style="flex:1; background:#111; color:white; border:1px solid #555; padding:8px 10px; font-family:'Courier New', monospace; font-size:0.85em;">
+            <span id="seg-search-count" style="color:#888; font-size:0.8em; white-space:nowrap;"></span>
+            <button id="seg-search-prev" style="background:#333; border:1px solid #555; color:#ccc; padding:4px 10px; cursor:pointer; font-size:0.85em;">▲</button>
+            <button id="seg-search-next" style="background:#333; border:1px solid #555; color:#ccc; padding:4px 10px; cursor:pointer; font-size:0.85em;">▼</button>
+        </div>
+        
+        <div id="seg-browser" style="margin-bottom:15px; max-height:200px; overflow-y:auto; background:#0a0a0a; border:1px solid #333; padding:8px; font-size:0.8em; font-family:'Courier New', monospace;">
             ${chap.segments.map((seg, i) => {
-                const preview = seg.text.replace(/^\t/, '').trim().substring(0, 70);
+                const preview = seg.text.replace(/^\t/, '').trim().substring(0, 90);
                 const isHeading = headings.some(h => h.index === i);
-                return `<div style="padding:2px 4px; ${isHeading ? 'color:#ffaa00; font-weight:bold; background:#1a1500;' : 'color:#666;'} cursor:pointer;" 
-                         onclick="document.getElementById('manual-split-input').value += (document.getElementById('manual-split-input').value ? ', ' : '') + '${i}'"
+                return `<div class="seg-row" data-index="${i}" style="padding:2px 4px; ${isHeading ? 'color:#ffaa00; font-weight:bold; background:#1a1500;' : 'color:#666;'} cursor:pointer;" 
                          title="Click to add as split point">
-                    <span style="color:#555; min-width:30px; display:inline-block;">${i}</span> ${escapeHtml(preview)}${seg.text.length > 70 ? '...' : ''}
+                    <span style="color:#555; min-width:36px; display:inline-block;">${i}</span> <span class="seg-text">${escapeHtml(preview)}${seg.text.length > 90 ? '...' : ''}</span>
                 </div>`;
             }).join('')}
         </div>
@@ -732,6 +762,79 @@ function openSplitUI(chapIndex) {
     `;
     
     modal.classList.remove('hidden');
+    
+    // Click segment row to add as split point
+    content.querySelectorAll('.seg-row').forEach(row => {
+        row.onclick = () => {
+            const idx = row.dataset.index;
+            const input = document.getElementById('manual-split-input');
+            const existing = input.value.split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
+            if (!existing.includes(idx)) {
+                input.value = existing.length ? existing.join(', ') + ', ' + idx : idx;
+            }
+            row.style.borderLeft = '3px solid #4B9CD3';
+        };
+    });
+    
+    // Search within segments
+    const searchInput = document.getElementById('seg-search-input');
+    const searchCount = document.getElementById('seg-search-count');
+    const browser = document.getElementById('seg-browser');
+    let searchMatches = [];
+    let searchIdx = -1;
+    
+    function doSearch() {
+        const query = searchInput.value.trim().toLowerCase();
+        // Clear previous highlights
+        content.querySelectorAll('.seg-row').forEach(row => {
+            row.style.background = '';
+            const textEl = row.querySelector('.seg-text');
+            if (textEl) textEl.style.color = '';
+        });
+        searchMatches = [];
+        searchIdx = -1;
+        
+        if (!query) { searchCount.textContent = ''; return; }
+        
+        content.querySelectorAll('.seg-row').forEach(row => {
+            const text = row.querySelector('.seg-text')?.textContent.toLowerCase() || '';
+            if (text.includes(query)) {
+                searchMatches.push(row);
+                row.style.background = '#1a2a15';
+                row.querySelector('.seg-text').style.color = '#7aff7a';
+            }
+        });
+        
+        searchCount.textContent = searchMatches.length ? `${searchMatches.length} found` : 'no matches';
+        if (searchMatches.length > 0) jumpToMatch(0);
+    }
+    
+    function jumpToMatch(idx) {
+        // Remove current highlight
+        if (searchIdx >= 0 && searchMatches[searchIdx]) {
+            searchMatches[searchIdx].style.background = '#1a2a15';
+        }
+        searchIdx = idx;
+        const row = searchMatches[searchIdx];
+        if (!row) return;
+        row.style.background = '#2a4a1a';
+        row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        searchCount.textContent = `${searchIdx + 1} / ${searchMatches.length}`;
+    }
+    
+    searchInput.oninput = doSearch;
+    searchInput.onkeydown = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            if (searchMatches.length > 0) jumpToMatch((searchIdx + 1) % searchMatches.length);
+        }
+    };
+    document.getElementById('seg-search-next').onclick = () => {
+        if (searchMatches.length > 0) jumpToMatch((searchIdx + 1) % searchMatches.length);
+    };
+    document.getElementById('seg-search-prev').onclick = () => {
+        if (searchMatches.length > 0) jumpToMatch((searchIdx - 1 + searchMatches.length) % searchMatches.length);
+    };
     
     // Update manual input when checkboxes change
     content.querySelectorAll('.split-point-cb').forEach(cb => {
