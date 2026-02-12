@@ -1,9 +1,17 @@
-// v2.4.4 - Chapter merge + split search
-import { db, auth } from "./firebase-config.js";
+// v2.5.0 - Cover art, author, genre support
+import { db, auth, storage } from "./firebase-config.js";
 import { doc, setDoc, getDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+import { ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 
-const ADMIN_VERSION = "2.4.6";
+const ADMIN_VERSION = "2.5.0";
+
+const GENRES = [
+    "Adventure", "Classic Literature", "Fantasy", "Historical Fiction",
+    "Horror", "Humor", "Mystery", "Mythology", "Non-Fiction",
+    "Poetry", "Romance", "Science Fiction", "Short Stories",
+    "Thriller", "Western", "Young Adult"
+];
 
 // Only these emails can access the admin panel
 const ADMIN_EMAILS = [
@@ -101,8 +109,40 @@ let bookTitlesMap = {};
 let activeBookId = ""; 
 let importErrors = [];
 let currentErrorIdx = 0;
+let stagedCoverBlob = null;   // extracted or uploaded cover image
+let stagedCoverUrl = null;    // preview data URL
 
 if(footerEl) footerEl.innerText = `Admin JS: v${ADMIN_VERSION}`;
+
+// Populate genre dropdown
+const genreSelect = document.getElementById('active-book-genre');
+const customGenreInput = document.getElementById('custom-genre-input');
+if (genreSelect) {
+    GENRES.forEach(g => {
+        const opt = document.createElement('option');
+        opt.value = g; opt.text = g;
+        genreSelect.appendChild(opt);
+    });
+    genreSelect.onchange = () => {
+        if (genreSelect.value === '__custom__') {
+            customGenreInput.classList.remove('hidden');
+            customGenreInput.focus();
+        } else {
+            customGenreInput.classList.add('hidden');
+        }
+    };
+    customGenreInput.onblur = () => {
+        const custom = customGenreInput.value.trim();
+        if (custom && genreSelect.value === '__custom__') {
+            // Add as option and select it
+            const opt = document.createElement('option');
+            opt.value = custom; opt.text = custom;
+            genreSelect.insertBefore(opt, genreSelect.querySelector('option[value="__custom__"]'));
+            genreSelect.value = custom;
+            customGenreInput.classList.add('hidden');
+        }
+    };
+}
 
 // --- AUTH ---
 onAuthStateChanged(auth, async (user) => {
@@ -189,12 +229,26 @@ openBookBtn.onclick = async () => {
     statusEl.innerText = `Loading ${activeBookId}...`;
     chapterListEl.innerHTML = "Loading...";
     stagedChapters = [];
+    stagedCoverBlob = null; stagedCoverUrl = null;
     
     try {
         const metaSnap = await getDoc(doc(db, "books", activeBookId));
         if(metaSnap.exists()) {
             const meta = metaSnap.data();
             activeBookTitle.value = meta.title || activeBookId;
+            
+            // Load author, genre, cover
+            const authorInput = document.getElementById('active-book-author');
+            const genreSelect = document.getElementById('active-book-genre');
+            if (authorInput) authorInput.value = meta.author || "";
+            if (genreSelect) genreSelect.value = meta.genre || "";
+            if (meta.coverUrl) {
+                stagedCoverUrl = meta.coverUrl;
+                updateCoverPreview();
+            } else {
+                updateCoverPreview();
+            }
+            
             const chapters = meta.chapters || [];
             
             for (let i = 0; i < chapters.length; i++) {
@@ -274,9 +328,59 @@ async function parseEpubFile(file) {
         const basePath = opfPath.substring(0, opfPath.lastIndexOf('/') + 1);
 
         const idToHref = {};
+        const idToMediaType = {};
         Array.from(manifest.getElementsByTagName("item")).forEach(item => {
             idToHref[item.getAttribute("id")] = item.getAttribute("href");
+            idToMediaType[item.getAttribute("id")] = item.getAttribute("media-type") || "";
         });
+
+        // --- EXTRACT AUTHOR FROM OPF ---
+        let extractedAuthor = "";
+        const creators = opfDoc.getElementsByTagNameNS("http://purl.org/dc/elements/1.1/", "creator");
+        if (creators.length > 0) extractedAuthor = creators[0].textContent.trim();
+        const authorInput = document.getElementById('active-book-author');
+        if (authorInput && !authorInput.value.trim()) authorInput.value = extractedAuthor;
+
+        // --- EXTRACT COVER IMAGE FROM EPUB ---
+        stagedCoverBlob = null; stagedCoverUrl = null;
+        let coverHref = null;
+        
+        // Method 1: <meta name="cover" content="imageId"> in metadata
+        const metas = opfDoc.querySelectorAll('meta[name="cover"]');
+        if (metas.length > 0) {
+            const coverId = metas[0].getAttribute("content");
+            if (coverId && idToHref[coverId]) coverHref = idToHref[coverId];
+        }
+        // Method 2: <item properties="cover-image"> in manifest
+        if (!coverHref) {
+            const items = Array.from(manifest.getElementsByTagName("item"));
+            const coverItem = items.find(i => (i.getAttribute("properties") || "").includes("cover-image"));
+            if (coverItem) coverHref = coverItem.getAttribute("href");
+        }
+        // Method 3: manifest item with id containing "cover" and image media type
+        if (!coverHref) {
+            const items = Array.from(manifest.getElementsByTagName("item"));
+            const coverItem = items.find(i => {
+                const id = (i.getAttribute("id") || "").toLowerCase();
+                const mt = (i.getAttribute("media-type") || "");
+                return id.includes("cover") && mt.startsWith("image/");
+            });
+            if (coverItem) coverHref = coverItem.getAttribute("href");
+        }
+        
+        if (coverHref) {
+            try {
+                const coverPath = (basePath === "") ? coverHref : resolvePath(basePath + "dummy", coverHref);
+                const coverFile = zip.file(coverPath);
+                if (coverFile) {
+                    const blob = await coverFile.async("blob");
+                    stagedCoverBlob = blob;
+                    stagedCoverUrl = URL.createObjectURL(blob);
+                    updateCoverPreview();
+                    statusEl.innerText = "Cover image extracted from EPUB.";
+                }
+            } catch(e) { console.warn("Cover extraction failed:", e); }
+        }
 
         const spineItems = Array.from(spine.getElementsByTagName("itemref"));
         let counter = 1;
@@ -926,9 +1030,21 @@ saveTitleBtn.onclick = async () => {
     const newTitle = activeBookTitle.value.trim();
     if (!newTitle) return alert("Title required.");
     try {
-        await setDoc(doc(db, "books", activeBookId), { title: newTitle }, { merge: true });
+        const updates = { title: newTitle };
+        const author = document.getElementById('active-book-author').value.trim();
+        const genre = document.getElementById('active-book-genre').value;
+        if (author) updates.author = author;
+        if (genre) updates.genre = genre;
+        
+        // Upload cover if staged
+        if (stagedCoverBlob) {
+            const coverUrl = await uploadCover(activeBookId, stagedCoverBlob);
+            if (coverUrl) updates.coverUrl = coverUrl;
+        }
+        
+        await setDoc(doc(db, "books", activeBookId), updates, { merge: true });
         bookTitlesMap[activeBookId] = newTitle;
-        statusEl.innerText = "Title Updated.";
+        statusEl.innerText = "Metadata Updated.";
         statusEl.style.borderColor = "#00ff41";
     } catch(e) { alert(e.message); }
 };
@@ -966,11 +1082,25 @@ uploadAllBtn.onclick = async () => {
     }
 
     try {
-        await setDoc(doc(db, "books", activeBookId), {
+        const bookData = {
             title: activeBookTitle.value.trim() || activeBookId,
             totalChapters: stagedChapters.length,
             chapters: chapterMeta
-        }, { merge: true });
+        };
+        
+        const author = document.getElementById('active-book-author').value.trim();
+        const genre = document.getElementById('active-book-genre').value;
+        if (author) bookData.author = author;
+        if (genre) bookData.genre = genre;
+        
+        // Upload cover if staged
+        if (stagedCoverBlob) {
+            statusEl.innerText = "Uploading cover image...";
+            const coverUrl = await uploadCover(activeBookId, stagedCoverBlob);
+            if (coverUrl) bookData.coverUrl = coverUrl;
+        }
+        
+        await setDoc(doc(db, "books", activeBookId), bookData, { merge: true });
         
         statusEl.innerText = "Upload Complete!";
         statusEl.style.borderColor = "#00ff41";
@@ -1004,3 +1134,49 @@ function resolvePath(base, relative) {
     }
     return stack.join("/");
 }
+
+// --- COVER IMAGE ---
+async function uploadCover(bookId, blob) {
+    try {
+        const storageRef = ref(storage, `covers/${bookId}`);
+        await uploadBytes(storageRef, blob);
+        return await getDownloadURL(storageRef);
+    } catch(e) {
+        console.error("Cover upload failed:", e);
+        statusEl.innerText = "Cover upload failed: " + e.message;
+        return null;
+    }
+}
+
+function updateCoverPreview() {
+    const preview = document.getElementById('cover-preview');
+    const removeBtn = document.getElementById('cover-remove-btn');
+    if (stagedCoverUrl) {
+        preview.src = stagedCoverUrl;
+        preview.classList.remove('hidden');
+        removeBtn.classList.remove('hidden');
+    } else {
+        preview.src = "";
+        preview.classList.add('hidden');
+        removeBtn.classList.add('hidden');
+    }
+}
+
+// Manual cover upload
+document.getElementById('cover-upload')?.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { alert('Please select an image file.'); return; }
+    stagedCoverBlob = file;
+    stagedCoverUrl = URL.createObjectURL(file);
+    updateCoverPreview();
+    statusEl.innerText = "Cover image loaded from file.";
+});
+
+document.getElementById('cover-remove-btn')?.addEventListener('click', () => {
+    stagedCoverBlob = null;
+    if (stagedCoverUrl) URL.revokeObjectURL(stagedCoverUrl);
+    stagedCoverUrl = null;
+    updateCoverPreview();
+    document.getElementById('cover-upload').value = '';
+});
