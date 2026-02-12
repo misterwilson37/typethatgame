@@ -3,441 +3,344 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TypeThatBook — Type Your Way Through Literature</title>
-    <link href="https://fonts.googleapis.com/css2?family=Courier+Prime:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+    <title>TypeThatBook — Library 2.3.0</title>
+    <link href="https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&family=Bitter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
             --carolina-blue: #4B9CD3;
-            --carolina-dark: #2b7ca8;
-            --ink: #1a1a1a;
-            --paper: #f5f0e8;
-            --paper-dark: #e8e0d0;
-            --text: #333;
-            --text-light: #666;
-            --text-faint: #999;
+            --bg: #f5f0eb;
+            --card-bg: #fff;
+            --text: #1a1a1a;
+            --text-muted: #777;
+            --accent: #4B9CD3;
+            --shadow: rgba(0,0,0,0.08);
+            --shadow-hover: rgba(0,0,0,0.15);
         }
-
-        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: 'Courier Prime', 'Courier New', monospace;
-            background: var(--ink);
+            font-family: 'Bitter', Georgia, serif;
+            background: var(--bg);
             color: var(--text);
             min-height: 100vh;
-            display: flex;
-            flex-direction: column;
         }
 
         /* --- HEADER --- */
-        header {
-            background: #000;
-            border-bottom: 4px solid var(--carolina-blue);
-            padding: 0 24px;
-            height: 60px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            flex-shrink: 0;
-        }
-
-        .logo {
+        .site-header {
+            background: #1a1a1a;
             color: white;
-            font-weight: 700;
-            font-size: 1.1rem;
-            letter-spacing: 1px;
+            padding: 12px 24px;
+            display: flex; align-items: center; justify-content: space-between;
+            font-family: 'Courier Prime', monospace;
+            position: sticky; top: 0; z-index: 100;
         }
-        .logo span { color: var(--carolina-blue); }
-
-        .header-right {
-            display: flex;
-            align-items: center;
-            gap: 15px;
+        .site-title {
+            font-size: 1.1rem; font-weight: bold; letter-spacing: 1px;
+            color: var(--carolina-blue);
         }
-
+        .site-title span { color: #999; font-weight: 400; }
+        .header-links { display: flex; gap: 16px; align-items: center; font-size: 0.85rem; }
+        .header-links a { color: #999; text-decoration: none; }
+        .header-links a:hover { color: var(--carolina-blue); }
+        #auth-area { display: flex; align-items: center; gap: 10px; }
+        #user-name { color: #ccc; font-size: 0.85rem; }
         .auth-btn {
-            background: var(--carolina-blue);
-            color: white;
-            border: none;
-            padding: 7px 16px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-family: inherit;
-            font-weight: 700;
-            font-size: 13px;
-            transition: background 0.2s;
+            background: var(--carolina-blue); color: white; border: none;
+            padding: 6px 14px; border-radius: 3px; cursor: pointer;
+            font-family: inherit; font-size: 0.8rem;
         }
-        .auth-btn:hover { background: #4a90e2; }
-
-        .user-badge {
-            color: white;
-            font-size: 13px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .user-badge img {
-            width: 28px; height: 28px;
-            border-radius: 50%;
-            border: 2px solid var(--carolina-blue);
-        }
-        .sign-out-btn {
-            background: none; border: none;
-            color: #777; text-decoration: underline;
-            cursor: pointer; font-family: inherit; font-size: 11px;
-        }
-        .sign-out-btn:hover { color: white; }
-
-        .admin-link {
-            color: #555; font-size: 11px; text-decoration: none;
-        }
-        .admin-link:hover { color: var(--carolina-blue); }
+        .auth-btn.subtle { background: transparent; border: 1px solid #555; color: #aaa; }
+        .auth-btn.subtle:hover { border-color: #999; color: #fff; }
 
         /* --- HERO --- */
-        .hero {
-            background: linear-gradient(180deg, #111 0%, var(--ink) 100%);
-            text-align: center;
-            padding: 48px 24px 40px;
-            position: relative;
-        }
-        .hero::after {
-            content: '';
-            position: absolute;
-            bottom: 0; left: 50%;
-            transform: translateX(-50%);
-            width: 80px; height: 3px;
-            background: var(--carolina-blue);
-            border-radius: 2px;
-        }
+        .hero { text-align: center; padding: 40px 24px 20px; }
         .hero h1 {
-            color: white;
-            font-size: clamp(1.5rem, 4vw, 2.2rem);
-            font-weight: 700;
-            margin-bottom: 12px;
-            letter-spacing: 2px;
+            font-size: 2.2rem; font-weight: 700; margin-bottom: 6px;
+            letter-spacing: -0.5px;
         }
-        .hero h1 .blue { color: var(--carolina-blue); }
-        .hero p {
-            color: #888;
-            font-size: clamp(0.85rem, 2vw, 1rem);
-            max-width: 500px;
-            margin: 0 auto;
-            line-height: 1.6;
+        .hero p { color: var(--text-muted); font-size: 1rem; }
+
+        /* --- GENRE FILTER --- */
+        .filter-bar {
+            display: flex; justify-content: center; flex-wrap: wrap;
+            gap: 8px; padding: 0 24px 24px;
+            max-width: 900px; margin: 0 auto;
         }
-        .save-notice {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            margin-top: 16px;
-            padding: 8px 18px;
-            background: rgba(255, 255, 255, 0.07);
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            border-radius: 6px;
-            color: #ccc;
-            font-size: 0.8rem;
-            letter-spacing: 0.3px;
-            cursor: pointer;
-            transition: all 0.2s;
-            text-decoration: none;
+        .filter-pill {
+            background: white; border: 1px solid #ddd; padding: 6px 16px;
+            border-radius: 20px; cursor: pointer; font-size: 0.85rem;
+            font-family: 'Bitter', serif; transition: all 0.2s;
+            color: var(--text-muted);
         }
-        .save-notice:hover {
-            background: rgba(255, 255, 255, 0.12);
-            border-color: rgba(255, 255, 255, 0.3);
-            color: white;
-        }
-        .save-notice .g-logo {
-            width: 18px; height: 18px; flex-shrink: 0;
-        }
-        .save-notice.signed-in {
-            background: rgba(34, 197, 94, 0.1);
-            border-color: rgba(34, 197, 94, 0.3);
-            color: #22c55e;
-            cursor: default;
-            pointer-events: none;
-        }
-        .mobile-notice {
-            display: none;
-            margin-top: 10px;
-            padding: 6px 14px;
-            background: rgba(243, 156, 18, 0.1);
-            border: 1px solid rgba(243, 156, 18, 0.3);
-            border-radius: 4px;
-            color: #f39c12;
-            font-size: 0.72rem;
-        }
-        @media (max-width: 768px) and (hover: none) {
-            .mobile-notice { display: inline-block; }
+        .filter-pill:hover { border-color: var(--accent); color: var(--accent); }
+        .filter-pill.active {
+            background: var(--accent); color: white; border-color: var(--accent);
         }
 
         /* --- BOOK GRID --- */
-        .library {
-            flex: 1;
-            padding: 40px 24px 60px;
-            max-width: 960px;
-            margin: 0 auto;
-            width: 100%;
-        }
-        .section-label {
-            color: #555;
-            font-size: 0.7rem;
-            text-transform: uppercase;
-            letter-spacing: 3px;
-            margin-bottom: 20px;
-            text-align: center;
-        }
-        .book-grid {
+        .library-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 20px;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 24px;
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 0 24px 60px;
         }
+
+        /* --- BOOK CARD --- */
         .book-card {
-            background: var(--paper);
+            background: var(--card-bg);
             border-radius: 6px;
             overflow: hidden;
-            cursor: pointer;
+            box-shadow: 0 2px 8px var(--shadow);
             transition: transform 0.2s, box-shadow 0.2s;
-            position: relative;
-            border: 1px solid var(--paper-dark);
+            cursor: pointer;
+            text-decoration: none;
+            color: inherit;
+            display: flex; flex-direction: column;
         }
         .book-card:hover {
             transform: translateY(-4px);
-            box-shadow: 0 8px 30px rgba(75, 156, 211, 0.2), 0 2px 8px rgba(0,0,0,0.3);
+            box-shadow: 0 8px 24px var(--shadow-hover);
         }
-        .book-card:active { transform: translateY(-1px); }
-        .book-spine {
-            position: absolute; left: 0; top: 0; bottom: 0;
-            width: 6px; background: var(--carolina-blue);
+        .book-cover {
+            width: 100%; aspect-ratio: 2/3;
+            object-fit: cover; display: block;
+            background: #e0d8cf;
         }
-        .book-inner { padding: 24px 24px 20px 28px; }
+        .book-cover-placeholder {
+            width: 100%; aspect-ratio: 2/3;
+            background: linear-gradient(135deg, #c9bfb0 0%, #a89880 100%);
+            display: flex; align-items: center; justify-content: center;
+            padding: 20px;
+            font-family: 'Courier Prime', monospace;
+            font-size: 0.9rem; color: #fff;
+            text-align: center; line-height: 1.3;
+            font-weight: bold;
+        }
+        .book-info {
+            padding: 12px 14px 14px;
+            flex: 1; display: flex; flex-direction: column;
+        }
         .book-title {
-            font-size: 1.1rem; font-weight: 700;
-            color: var(--ink); margin-bottom: 4px; line-height: 1.3;
+            font-size: 0.9rem; font-weight: 700;
+            line-height: 1.25; margin-bottom: 4px;
         }
         .book-author {
-            font-size: 0.8rem; color: var(--text-light);
-            font-style: italic; margin-bottom: 16px;
+            font-size: 0.78rem; color: var(--text-muted);
+            margin-bottom: 6px;
         }
-        .book-meta {
-            display: flex; justify-content: space-between; align-items: center;
-            border-top: 1px solid var(--paper-dark);
-            padding-top: 12px; font-size: 0.75rem; color: var(--text-faint);
+        .book-genre-tag {
+            display: inline-block;
+            font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.5px;
+            color: var(--accent); font-weight: 600;
+            margin-bottom: 6px;
         }
-        .book-chapters { letter-spacing: 0.5px; }
-        .book-progress { display: flex; align-items: center; gap: 6px; }
-        .progress-bar {
-            width: 60px; height: 5px;
-            background: #ddd; border-radius: 3px; overflow: hidden;
+        .book-progress { margin-top: auto; padding-top: 8px; }
+        .progress-bar-bg {
+            height: 4px; background: #eee; border-radius: 2px; overflow: hidden;
         }
-        .progress-fill {
-            height: 100%; background: var(--carolina-blue);
-            border-radius: 3px; transition: width 0.3s;
+        .progress-bar-fill {
+            height: 100%; background: var(--accent); border-radius: 2px;
+            transition: width 0.4s;
         }
-        .start-label {
-            color: var(--carolina-blue);
-            font-weight: 700; font-size: 0.8rem; letter-spacing: 0.5px;
-        }
-
-        /* --- STATES --- */
-        .loading {
-            text-align: center; color: #555; padding: 60px 0; font-size: 0.9rem;
-        }
-        .loading::after {
-            content: ''; display: block;
-            width: 30px; height: 3px;
-            background: var(--carolina-blue);
-            margin: 16px auto 0;
-            animation: pulse 1.2s ease-in-out infinite;
-        }
-        @keyframes pulse {
-            0%, 100% { opacity: 0.3; width: 30px; }
-            50% { opacity: 1; width: 60px; }
-        }
-        .empty-state { text-align: center; color: #555; padding: 60px 0; }
-        .empty-state p { margin-bottom: 8px; }
-
-        footer {
-            text-align: center; padding: 16px;
-            color: #333; font-size: 0.7rem; letter-spacing: 0.5px;
-        }
-        footer a { color: #555; text-decoration: none; }
-        footer a:hover { color: var(--carolina-blue); }
-
-        @media (max-width: 600px) {
-            .book-grid { grid-template-columns: 1fr; }
-            .hero { padding: 32px 20px 28px; }
-            .library { padding: 28px 16px 40px; }
+        .progress-label {
+            font-size: 0.7rem; color: var(--text-muted); margin-top: 3px;
+            font-family: 'Courier Prime', monospace;
         }
 
-        .hidden { display: none !important; }
+        .empty-state {
+            grid-column: 1 / -1;
+            text-align: center; padding: 60px 20px;
+            color: var(--text-muted);
+        }
+        .loading-spinner {
+            grid-column: 1 / -1;
+            text-align: center; padding: 60px;
+            color: var(--text-muted); font-style: italic;
+        }
+        .site-footer {
+            text-align: center; padding: 20px;
+            font-size: 0.75rem; color: #aaa;
+            font-family: 'Courier Prime', monospace;
+        }
     </style>
 </head>
 <body>
 
-    <header>
-        <div class="logo">TYPE<span>THAT</span>BOOK</div>
-        <div class="header-right">
-            <a href="reports.html" class="admin-link hidden" id="reports-link">Reports</a>
-            <a href="admin.html" class="admin-link hidden" id="admin-link">Admin</a>
-            <div id="signed-out-ui">
-                <button class="auth-btn" id="login-btn">Sign In</button>
-            </div>
-            <div id="signed-in-ui" class="hidden">
-                <div class="user-badge">
-                    <img id="user-photo" src="" alt="" />
-                    <span id="user-name">Reader</span>
-                    <button class="sign-out-btn" id="logout-btn">(logout)</button>
-                </div>
+    <header class="site-header">
+        <div class="site-title">TypeThatBook <span>Library</span></div>
+        <div class="header-links">
+            <a href="reports.html">Reports</a>
+            <a href="admin.html">Admin</a>
+            <div id="auth-area">
+                <span id="user-name" style="display:none;"></span>
+                <button id="login-btn" class="auth-btn">Sign In</button>
+                <button id="logout-btn" class="auth-btn subtle" style="display:none;">Logout</button>
             </div>
         </div>
     </header>
 
     <div class="hero">
-        <h1>TYPE YOUR WAY THROUGH<br><span class="blue">LITERATURE</span></h1>
-        <p>Practice typing with real books from Project Gutenberg.<br>Pick a book below and start reading with your fingers.</p>
-        <div class="save-notice" id="save-notice" role="button" tabindex="0">
-            <svg class="g-logo" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-            Sign in with Google to save your progress
-        </div>
-        <div class="mobile-notice">
-            ⌨️ This app works best with a physical keyboard
-        </div>
+        <h1>Choose Your Book</h1>
+        <p>Pick a story and start typing</p>
     </div>
 
-    <main class="library">
-        <div class="section-label">Available Books</div>
-        <div id="book-grid" class="book-grid">
-            <div class="loading" id="loading-state">Loading library...</div>
-        </div>
-    </main>
+    <div class="filter-bar" id="filter-bar">
+        <button class="filter-pill active" data-genre="all">All</button>
+    </div>
 
-    <footer>TypeThatBook v2.1.0</footer>
+    <div class="library-grid" id="book-grid">
+        <div class="loading-spinner">Loading library...</div>
+    </div>
+
+    <footer class="site-footer">TypeThatBook — Library v1.0.0</footer>
 
     <script type="module">
         import { db, auth } from "./firebase-config.js";
         import { collection, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-        import {
-            onAuthStateChanged,
-            GoogleAuthProvider,
-            signInWithPopup,
-            signOut
-        } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-
-        const ADMIN_EMAILS = [
-            "jacob.wilson@sumnerk12.net",
-            "jacob.v.wilson@gmail.com",
-        ];
+        import { GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
         let currentUser = null;
+        let allBooks = [];
         let userProgress = {};
+        let activeGenre = "all";
+
+        // --- AUTH ---
+        const loginBtn = document.getElementById('login-btn');
+        const logoutBtn = document.getElementById('logout-btn');
+        const userNameEl = document.getElementById('user-name');
+
+        loginBtn.onclick = async () => {
+            try { await signInWithPopup(auth, new GoogleAuthProvider()); }
+            catch(e) { console.error(e); }
+        };
+        logoutBtn.onclick = async () => {
+            try { await signOut(auth); } catch(e) { console.error(e); }
+        };
 
         onAuthStateChanged(auth, async (user) => {
             currentUser = user;
-            updateAuthUI();
-            if (user && !user.isAnonymous) await loadUserProgress();
-            loadBooks();
-        });
-
-        document.getElementById('login-btn').addEventListener('click', doGoogleSignIn);
-        document.getElementById('save-notice').addEventListener('click', doGoogleSignIn);
-        document.getElementById('save-notice').addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); doGoogleSignIn(); }
-        });
-
-        async function doGoogleSignIn() {
-            try { await signInWithPopup(auth, new GoogleAuthProvider()); }
-            catch (e) { if (e.code !== 'auth/popup-closed-by-user') console.error(e); }
-        }
-
-        document.getElementById('logout-btn').addEventListener('click', async () => {
-            await signOut(auth);
-            currentUser = null;
-            userProgress = {};
-            updateAuthUI();
-            loadBooks();
-        });
-
-        function updateAuthUI() {
-            const signedIn = currentUser && !currentUser.isAnonymous;
-            document.getElementById('signed-out-ui').classList.toggle('hidden', signedIn);
-            document.getElementById('signed-in-ui').classList.toggle('hidden', !signedIn);
-            if (signedIn) {
-                document.getElementById('user-name').textContent = currentUser.displayName || 'Reader';
-                const photo = document.getElementById('user-photo');
-                if (currentUser.photoURL) { photo.src = currentUser.photoURL; photo.style.display = ''; }
-                else { photo.style.display = 'none'; }
-                document.getElementById('save-notice').innerHTML = '✓ Progress will be saved to your account';
-                document.getElementById('save-notice').classList.add('signed-in');
-                if (ADMIN_EMAILS.includes(currentUser.email)) {
-                    document.getElementById('admin-link').classList.remove('hidden');
-                    document.getElementById('reports-link').classList.remove('hidden');
-                }
+            if (user) {
+                userNameEl.textContent = user.displayName || user.email;
+                userNameEl.style.display = '';
+                loginBtn.style.display = 'none';
+                logoutBtn.style.display = '';
+                await loadUserProgress();
             } else {
-                document.getElementById('save-notice').innerHTML = '<svg class="g-logo" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg> Sign in with Google to save your progress';
-                document.getElementById('save-notice').classList.remove('signed-in');
-                document.getElementById('admin-link').classList.add('hidden');
-                document.getElementById('reports-link').classList.add('hidden');
+                userNameEl.style.display = 'none';
+                loginBtn.style.display = '';
+                logoutBtn.style.display = 'none';
+                userProgress = {};
+            }
+            renderBooks();
+        });
+
+        // --- LOAD BOOKS ---
+        async function loadBooks() {
+            try {
+                const snap = await getDocs(collection(db, "books"));
+                allBooks = [];
+                snap.forEach(d => {
+                    const data = d.data();
+                    allBooks.push({
+                        id: d.id,
+                        title: data.title || d.id,
+                        author: data.author || "",
+                        genre: data.genre || "",
+                        coverUrl: data.coverUrl || "",
+                        totalChapters: data.totalChapters || (data.chapters ? data.chapters.length : 0),
+                        chapters: data.chapters || []
+                    });
+                });
+                allBooks.sort((a, b) => a.title.localeCompare(b.title));
+                buildGenreFilters();
+                renderBooks();
+            } catch(e) {
+                document.getElementById('book-grid').innerHTML =
+                    '<div class="empty-state">Error loading library. Please refresh.</div>';
+                console.error(e);
             }
         }
 
+        // --- LOAD USER PROGRESS ---
         async function loadUserProgress() {
-            if (!currentUser || currentUser.isAnonymous) return;
+            if (!currentUser) return;
+            userProgress = {};
             try {
                 const snap = await getDocs(collection(db, "users", currentUser.uid, "progress"));
                 snap.forEach(d => { userProgress[d.id] = d.data(); });
-            } catch (e) { console.warn("Progress load error:", e); }
+            } catch(e) { console.warn("Could not load progress:", e); }
         }
 
-        async function loadBooks() {
-            const grid = document.getElementById('book-grid');
-            try {
-                const snap = await getDocs(collection(db, "books"));
-                const books = [];
-                snap.forEach(d => { books.push({ id: d.id, ...d.data() }); });
+        // --- GENRE FILTERS ---
+        function buildGenreFilters() {
+            const genres = [...new Set(allBooks.map(b => b.genre).filter(Boolean))].sort();
+            const bar = document.getElementById('filter-bar');
+            bar.innerHTML = '<button class="filter-pill active" data-genre="all">All</button>';
+            genres.forEach(g => {
+                const btn = document.createElement('button');
+                btn.className = 'filter-pill';
+                btn.dataset.genre = g;
+                btn.textContent = g;
+                bar.appendChild(btn);
+            });
+            bar.addEventListener('click', (e) => {
+                const pill = e.target.closest('.filter-pill');
+                if (!pill) return;
+                activeGenre = pill.dataset.genre;
+                bar.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
+                pill.classList.add('active');
+                renderBooks();
+            });
+        }
 
-                if (books.length === 0) {
-                    grid.innerHTML = '<div class="empty-state"><p>No books yet.</p><p>Use the <a href="admin.html" style="color:var(--carolina-blue);">Admin Panel</a> to import an EPUB.</p></div>';
-                    return;
+        // --- RENDER ---
+        function renderBooks() {
+            const grid = document.getElementById('book-grid');
+            const filtered = activeGenre === "all"
+                ? allBooks
+                : allBooks.filter(b => b.genre === activeGenre);
+
+            if (filtered.length === 0) {
+                grid.innerHTML = '<div class="empty-state">No books found.</div>';
+                return;
+            }
+
+            grid.innerHTML = filtered.map(book => {
+                const progress = userProgress[book.id];
+                let progressHTML = '';
+                if (progress && book.totalChapters > 0) {
+                    const chapNum = parseInt(String(progress.chapter || "1").replace("chapter_", ""));
+                    const pct = Math.min(100, Math.round((chapNum / book.totalChapters) * 100));
+                    progressHTML = `
+                        <div class="book-progress">
+                            <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
+                            <div class="progress-label">Ch. ${chapNum} / ${book.totalChapters}</div>
+                        </div>`;
                 }
 
-                books.sort((a, b) => (a.title || a.id).localeCompare(b.title || b.id));
+                const coverHTML = book.coverUrl
+                    ? `<img class="book-cover" src="${escapeAttr(book.coverUrl)}" alt="${escapeAttr(book.title)} cover" loading="lazy">`
+                    : `<div class="book-cover-placeholder">${escapeHtml(book.title)}</div>`;
 
-                grid.innerHTML = books.map(book => {
-                    const title = escapeHtml(book.title || book.id.replace(/_/g, ' '));
-                    const chapCount = book.chapters ? book.chapters.length : '?';
-                    let displayTitle = title, author = '';
-                    const byMatch = title.match(/^(.+?)\s+by\s+(.+)$/i);
-                    if (byMatch) { displayTitle = byMatch[1].trim(); author = byMatch[2].trim(); }
-
-                    const prog = userProgress[book.id];
-                    let progressHtml = '<span class="start-label">START →</span>';
-                    if (prog && prog.chapter) {
-                        const pct = chapCount !== '?' ? Math.round((prog.chapter / chapCount) * 100) : 0;
-                        progressHtml = `<div class="book-progress"><span>Ch. ${escapeHtml(String(prog.chapter))}</span><div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div></div>`;
-                    }
-
-                    return `
-                        <div class="book-card" onclick="location.href='game.html?book=${encodeURIComponent(book.id)}'">
-                            <div class="book-spine"></div>
-                            <div class="book-inner">
-                                <div class="book-title">${displayTitle}</div>
-                                ${author ? `<div class="book-author">by ${author}</div>` : '<div class="book-author">&nbsp;</div>'}
-                                <div class="book-meta">
-                                    <span class="book-chapters">${chapCount} chapter${chapCount !== 1 ? 's' : ''}</span>
-                                    ${progressHtml}
-                                </div>
-                            </div>
-                        </div>`;
-                }).join('');
-            } catch (e) {
-                console.error("Library load error:", e);
-                grid.innerHTML = `<div class="empty-state"><p>Error loading books.</p><p style="font-size:0.8rem; color:#555;">${escapeHtml(e.message)}</p></div>`;
-            }
+                return `
+                    <a class="book-card" href="game.html?book=${encodeURIComponent(book.id)}">
+                        ${coverHTML}
+                        <div class="book-info">
+                            ${book.genre ? `<span class="book-genre-tag">${escapeHtml(book.genre)}</span>` : ''}
+                            <div class="book-title">${escapeHtml(book.title)}</div>
+                            ${book.author ? `<div class="book-author">${escapeHtml(book.author)}</div>` : ''}
+                            ${progressHTML}
+                        </div>
+                    </a>`;
+            }).join('');
         }
 
-        function escapeHtml(str) {
-            const d = document.createElement('div');
-            d.appendChild(document.createTextNode(str));
-            return d.innerHTML;
-        }
+        function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+        function escapeAttr(s) { return s.replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+
+        // --- INIT ---
+        loadBooks();
     </script>
 </body>
 </html>
