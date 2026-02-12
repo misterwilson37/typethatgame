@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>TypeThatBook Admin v2.4.4</title>
+    <title>TypeThatBook Admin v2.5.0</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
         body { background: #111; color: #eee; font-family: 'Courier New', monospace; padding: 20px; }
@@ -141,8 +141,32 @@
                         <label>Book Display Title</label>
                         <input type="text" id="active-book-title">
                     </div>
+                    <div class="col">
+                        <label>Author</label>
+                        <input type="text" id="active-book-author" placeholder="e.g. Mark Twain">
+                    </div>
                     <div class="col" style="display:flex; align-items:flex-end;">
-                        <button id="save-title-btn" class="secondary-btn" style="background:#224422; border-color:#336633;">Save Title Only</button>
+                        <button id="save-title-btn" class="secondary-btn" style="background:#224422; border-color:#336633;">Save Metadata</button>
+                    </div>
+                </div>
+                
+                <div class="row" style="border-bottom: 1px solid #333; margin-bottom: 20px; padding-bottom: 15px;">
+                    <div class="col">
+                        <label>Genre</label>
+                        <select id="active-book-genre" style="width:100%;">
+                            <option value="">— Select Genre —</option>
+                            <option value="__custom__">✏️ Custom...</option>
+                        </select>
+                        <input type="text" id="custom-genre-input" class="hidden" placeholder="Type custom genre..." style="margin-top:5px;">
+                    </div>
+                    <div class="col">
+                        <label>Cover Image</label>
+                        <input type="file" id="cover-upload" accept="image/*">
+                        <div style="font-size:0.75em; color:#888; margin-top:3px;">Auto-extracted from EPUB if available</div>
+                    </div>
+                    <div class="col" style="text-align:center;">
+                        <img id="cover-preview" class="hidden" style="max-height:100px; max-width:80px; border:1px solid #444; border-radius:3px;">
+                        <button id="cover-remove-btn" class="hidden danger-btn" style="font-size:0.7em; padding:3px 8px; margin-top:4px;">Remove</button>
                     </div>
                 </div>
 
