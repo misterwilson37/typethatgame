@@ -880,7 +880,6 @@ function showStartModal(btnText) {
     ` : (goals.dailySeconds > 0 || goals.weeklySeconds > 0) ? getGoalProgressHTML() : '';
 
     document.getElementById('modal-body').innerHTML = `
-        ${getHeaderHTML()}
         ${statsSection}
         <div class="start-controls">
             ${getDropdownHTML()}
@@ -899,7 +898,6 @@ function showStatsModal(title, stats, btnText, callback) {
     setModalTitle('');
 
     document.getElementById('modal-body').innerHTML = `
-        ${getHeaderHTML()}
         <div class="stats-title">${title}</div>
         <div class="stats-inline">
             <span class="si-val">${stats.wpm} <small>WPM</small></span>
