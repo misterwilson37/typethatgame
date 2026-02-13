@@ -1,4 +1,4 @@
-/* v2.4.7 - Book info bar */
+/* v2.4.7.1 - Book info bar */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -204,18 +204,18 @@ body {
 @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
 
 /* --- Compact modal content classes --- */
-.modal-header-compact { font-size: 0.8rem; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+.modal-header-compact { display: none; } /* legacy - info now in book-info-bar */
 .mh-book { } .mh-sep { margin: 0 4px; } .mh-chap { color: #555; font-weight: bold; }
 
-.stats-title { font-size: 1.1em; font-weight: bold; color: var(--carolina-blue); margin: 4px 0; }
+.stats-title { font-size: 1.2em; font-weight: bold; color: var(--carolina-blue); margin: 6px 0; }
 
-.stats-inline { display: flex; justify-content: center; align-items: baseline; gap: 6px; margin: 8px 0; font-size: 1.3em; font-weight: bold; }
+.stats-inline { display: flex; justify-content: center; align-items: baseline; gap: 10px; margin: 10px 0; font-size: 1.6em; font-weight: bold; }
 .si-val small { font-size: 0.6em; font-weight: normal; color: #777; }
 .si-dot { color: #ccc; font-weight: normal; }
 
-.cumulative-row { display: flex; justify-content: center; gap: 30px; font-size: 0.85em; color: #666; margin: 4px 0; }
+.cumulative-row { display: flex; justify-content: center; gap: 30px; font-size: 0.95em; color: #666; margin: 6px 0; }
 
-.goal-progress-row { display: flex; justify-content: center; gap: 20px; margin: 6px 0; font-size: 0.75rem; }
+.goal-progress-row { display: flex; justify-content: center; gap: 20px; margin: 8px 0; font-size: 0.8rem; }
 .goal-item { display: flex; align-items: center; gap: 6px; }
 .goal-label { white-space: nowrap; }
 .goal-bar { width: 60px; height: 6px; background: #e0e0e0; border-radius: 3px; }
