@@ -1,4 +1,4 @@
-/* v2.4.6 - Caps Lock warning banner */
+/* v2.4.7 - Book info bar */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -143,6 +143,24 @@ body {
     animation: capsFlash 1.5s ease-in-out infinite;
 }
 @keyframes capsFlash { 0%,100% { opacity: 1; } 50% { opacity: 0.7; } }
+
+/* --- BOOK INFO BAR --- */
+#book-info-bar {
+    flex-shrink: 0;
+    padding: 4px 16px;
+    background: #f5f5f5;
+    border-top: 1px solid #e0e0e0;
+    font-size: 0.78rem;
+    color: #888;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+#book-info-bar:empty { display: none; }
+#book-info-bar .bib-title { color: #555; font-weight: bold; }
+#book-info-bar .bib-sep { color: #ccc; margin: 0 6px; }
+#book-info-bar .bib-chap { color: #888; }
 
 #virtual-keyboard {
     height: 260px; background: var(--accent-grey);
