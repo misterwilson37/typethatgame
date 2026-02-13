@@ -8,7 +8,7 @@ import {
     signOut
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "2.4.6";
+const VERSION = "2.4.7";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -255,6 +255,7 @@ async function loadChapter(chapterNum) {
             bookData = docSnap.data();
             currentChapterNum = chapterNum;
             setupGame();
+            getHeaderHTML(); // update book info bar
         } else {
             if(chapterNum !== 1 && chapterNum !== "1") {
                 alert(`Chapter ${chapterNum} not found. Returning to start.`);
@@ -848,7 +849,15 @@ function getHeaderHTML() {
         }
     }
 
+    updateBookInfoBar(bookTitle, displayChapTitle);
     return `<div class="modal-header-compact"><span class="mh-book">${bookTitle}</span> <span class="mh-sep">—</span> <span class="mh-chap">${displayChapTitle}</span></div>`;
+}
+
+function updateBookInfoBar(bookTitle, chapTitle) {
+    const bar = document.getElementById('book-info-bar');
+    if (!bar) return;
+    if (!bookTitle) { bar.innerHTML = ''; return; }
+    bar.innerHTML = `<span class="bib-title">${bookTitle}</span><span class="bib-sep">—</span><span class="bib-chap">${chapTitle || ''}</span>`;
 }
 
 function showStartModal(btnText) {
