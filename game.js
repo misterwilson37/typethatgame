@@ -1,6 +1,6 @@
 // v2.4.6 - Caps Lock warning
 import { db, auth } from "./firebase-config.js";
-import { doc, getDoc, setDoc, getDocs, collection, addDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { doc, getDoc, setDoc, getDocs, collection, addDoc, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import {
     onAuthStateChanged,
     GoogleAuthProvider,
@@ -8,7 +8,7 @@ import {
     signOut
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "2.6.0";
+const VERSION = "2.6.1";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -89,6 +89,11 @@ let completedChapters = new Set();
 let anonCharsTyped = 0;
 let anonMistakes = 0;
 
+// Leaderboard
+let userInitials = '';
+let leaderboardCache = {}; // { category: [entries], ... }
+let leaderboardCacheTime = 0;
+
 // DOM
 const textStream = document.getElementById('text-stream');
 const keyboardDiv = document.getElementById('virtual-keyboard');
@@ -98,6 +103,7 @@ const wpmDisplay = document.getElementById('wpm-display');
 const streakDisplay = document.getElementById('streak-display');
 const loginBtn = document.getElementById('login-btn');
 const logoutBtn = document.getElementById('logout-btn');
+const trophyBtn = document.getElementById('trophy-btn');
 const userInfo = document.getElementById('user-info');
 const userNameDisplay = document.getElementById('user-name');
 
@@ -134,6 +140,7 @@ async function init() {
 
     createKeyboard();
     setupAuthListeners();
+    trophyBtn.onclick = () => openLeaderboard();
 
     onAuthStateChanged(auth, async (user) => {
         if (user) {
@@ -149,13 +156,16 @@ async function init() {
                 await loadUserProgress();
                 await loadUserStats();
                 await loadGoals();
+                await loadInitials();
             } catch(e) { console.error("Init Error:", e); }
+            trophyBtn.classList.remove('hidden');
         } else {
             // No anonymous sign-in — just load the book as read-only
             currentUser = null;
             updateAuthUI(false);
             const ggBtn = document.getElementById('genie-btn');
             if (ggBtn) ggBtn.classList.add('hidden');
+            trophyBtn.classList.add('hidden');
             try {
                 await loadBookMetadata();
                 loadChapter(1);
@@ -897,6 +907,9 @@ function pauseGameForBreak() {
     // Record sprint in history
     sprintHistory.push({ wpm: sprintWPM, acc: sprintAcc, time: sprintSeconds });
 
+    // Update leaderboard
+    updateLeaderboard();
+
     // Check if anon user should be prompted to log in
     if (checkAnonLoginPrompt()) {
         showAnonLoginPrompt();
@@ -987,6 +1000,7 @@ function finishChapter() {
     // Mark chapter as completed
     completedChapters.add(String(currentChapterNum));
     saveCompletedChapters();
+    updateLeaderboard();
     if (dailyGoalCelebrated && goals.dailySeconds > 0 && statsData.secondsToday - sprintSeconds < goals.dailySeconds) {
         title = `🎉 Chapter ${currentChapterNum} Complete + Daily Goal!`;
     }
@@ -1209,6 +1223,8 @@ function showAnonLoginPrompt() {
 
                 // Load goals since auth handler was skipped
                 await loadGoals();
+                await loadInitials();
+                trophyBtn.classList.remove('hidden');
 
                 // Save current progress position
                 await saveProgress(true);
@@ -1450,6 +1466,14 @@ async function openMenuModal() {
                     </select>
                 </div>
             </div>
+            ${currentUser && !currentUser.isAnonymous ? `
+            <div class="menu-row">
+                <div class="menu-label-cell">Initials</div>
+                <div class="menu-value-cell">
+                    <input id="initials-input" type="text" maxlength="3" value="${escapeHtml(userInitials)}" 
+                           style="width:60px; background:#222; color:#FFD700; border:1px solid #444; padding:8px 10px; font-family:inherit; font-size:1.1rem; border-radius:4px; text-align:center; text-transform:uppercase; letter-spacing:3px;">
+                </div>
+            </div>` : ''}
         </div>
     `;
 
@@ -1462,6 +1486,18 @@ async function openMenuModal() {
         sessionLimit = (sessionValueStr === 'infinity') ? 'infinity' : parseInt(sessionValueStr);
         localStorage.setItem('ttb_sessionLength', sessionValueStr);
     };
+
+    const initialsInput = document.getElementById('initials-input');
+    if (initialsInput) {
+        initialsInput.onblur = async () => {
+            const val = initialsInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '').substring(0, 3);
+            if (val && val !== userInitials) {
+                userInitials = val;
+                initialsInput.value = val;
+                await saveInitials(val);
+            }
+        };
+    }
 
     document.getElementById('book-select').onchange = async (e) => {
         const newBookId = e.target.value;
@@ -2147,6 +2183,214 @@ function openGameGenie() {
         jumpToSentence(s, nearest);
         openGameGenie();
     };
+}
+
+// === LEADERBOARD SYSTEM ===
+
+async function loadInitials() {
+    if (!currentUser || currentUser.isAnonymous) return;
+    try {
+        const snap = await getDoc(doc(db, "users", currentUser.uid, "profile", "info"));
+        if (snap.exists() && snap.data().initials) {
+            userInitials = snap.data().initials;
+        } else {
+            // No initials yet — prompt
+            showInitialsPrompt();
+        }
+    } catch(e) { console.warn("Load initials failed:", e); }
+}
+
+async function saveInitials(initials) {
+    if (!currentUser || currentUser.isAnonymous) return;
+    try {
+        await setDoc(doc(db, "users", currentUser.uid, "profile", "info"), { initials }, { merge: true });
+    } catch(e) { console.warn("Save initials failed:", e); }
+}
+
+function showInitialsPrompt() {
+    isModalOpen = true; isInputBlocked = true;
+    modalActionCallback = null;
+    setModalTitle('');
+    resetModalFooter();
+
+    document.getElementById('modal-body').innerHTML = `
+        <div style="text-align:center;">
+            <div class="stats-title">🏆 Enter Your Initials</div>
+            <div style="font-size:0.9em; color:#555; margin: 6px 0 12px;">
+                These appear on the leaderboard. Three characters max!
+            </div>
+            <div style="display:flex; justify-content:center; gap:8px;" id="initials-boxes">
+                <input class="initials-box" maxlength="1" data-idx="0" autocomplete="off" autocapitalize="characters">
+                <input class="initials-box" maxlength="1" data-idx="1" autocomplete="off" autocapitalize="characters">
+                <input class="initials-box" maxlength="1" data-idx="2" autocomplete="off" autocapitalize="characters">
+            </div>
+        </div>
+    `;
+
+    const btn = document.getElementById('action-btn');
+    btn.innerText = 'Save'; btn.disabled = false; btn.style.opacity = '1'; btn.style.display = 'inline-block';
+    btn.onclick = async () => {
+        const boxes = document.querySelectorAll('.initials-box');
+        const val = Array.from(boxes).map(b => b.value).join('').toUpperCase().replace(/[^A-Z0-9]/g, '');
+        if (val.length === 0) return;
+        userInitials = val.substring(0, 3);
+        await saveInitials(userInitials);
+        closeModal();
+        showStartModal("Start");
+    };
+    showModalPanel();
+
+    // Wire up auto-advance
+    setTimeout(() => {
+        const boxes = document.querySelectorAll('.initials-box');
+        boxes.forEach((box, i) => {
+            box.oninput = () => {
+                box.value = box.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                if (box.value && i < 2) boxes[i + 1].focus();
+            };
+            box.onkeydown = (e) => {
+                if (e.key === 'Backspace' && !box.value && i > 0) {
+                    boxes[i - 1].focus();
+                    boxes[i - 1].value = '';
+                } else if (e.key === 'Enter') {
+                    btn.click();
+                }
+            };
+        });
+        boxes[0].focus();
+        isInputBlocked = false;
+    }, 100);
+}
+
+async function updateLeaderboard() {
+    if (!currentUser || currentUser.isAnonymous || !userInitials) return;
+    try {
+        const today = new Date().toISOString().split('T')[0];
+        const weekStart = getWeekStart(new Date());
+        
+        // Read existing leaderboard entry
+        const lbRef = doc(db, "leaderboard", currentUser.uid);
+        const lbSnap = await getDoc(lbRef);
+        const existing = lbSnap.exists() ? lbSnap.data() : {};
+        
+        // Reset daily/weekly if dates don't match
+        const existingBestWPM = existing.bestWPM || 0;
+        const existingBestAcc = existing.bestAccuracy || 0;
+        const existingBestStreak = existing.bestStreak || 0;
+        const existingChapters = existing.chaptersCompleted || 0;
+        const existingTimeWeek = (existing.weekStart === weekStart) ? (existing.totalSecondsWeek || 0) : 0;
+        
+        // Compute current bests
+        const lastSprintWPM = sprintHistory.length > 0 ? sprintHistory[sprintHistory.length - 1].wpm : 0;
+        const lastSprintAcc = sprintHistory.length > 0 ? sprintHistory[sprintHistory.length - 1].acc : 0;
+        
+        const entry = {
+            initials: userInitials,
+            displayName: currentUser.displayName || '',
+            bestWPM: Math.max(existingBestWPM, lastSprintWPM),
+            bestAccuracy: Math.max(existingBestAcc, lastSprintAcc),
+            bestStreak: Math.max(existingBestStreak, bestStreak),
+            chaptersCompleted: Math.max(existingChapters, completedChapters.size),
+            totalSecondsWeek: existingTimeWeek + sprintSeconds,
+            weekStart: weekStart,
+            lastUpdated: new Date()
+        };
+        
+        await setDoc(lbRef, entry, { merge: true });
+    } catch(e) { console.warn("Leaderboard update failed:", e); }
+}
+
+const LB_CATEGORIES = [
+    { key: 'bestWPM', label: '⚡ Speed', unit: 'WPM' },
+    { key: 'bestAccuracy', label: '🎯 Accuracy', unit: '%' },
+    { key: 'bestStreak', label: '🔥 Streak', unit: '' },
+    { key: 'chaptersCompleted', label: '📚 Chapters', unit: '' },
+    { key: 'totalSecondsWeek', label: '⏱️ Weekly', unit: '', format: 'time' }
+];
+
+async function fetchLeaderboard() {
+    // Cache for 30 seconds
+    if (Date.now() - leaderboardCacheTime < 30000 && Object.keys(leaderboardCache).length > 0) {
+        return leaderboardCache;
+    }
+    try {
+        const snap = await getDocs(collection(db, "leaderboard"));
+        const entries = [];
+        snap.forEach(d => {
+            const data = d.data();
+            data.uid = d.id;
+            // Reset weekly if stale
+            const weekStart = getWeekStart(new Date());
+            if (data.weekStart !== weekStart) data.totalSecondsWeek = 0;
+            entries.push(data);
+        });
+        
+        const result = {};
+        for (const cat of LB_CATEGORIES) {
+            const sorted = [...entries]
+                .filter(e => (e[cat.key] || 0) > 0)
+                .sort((a, b) => (b[cat.key] || 0) - (a[cat.key] || 0))
+                .slice(0, 10);
+            result[cat.key] = sorted;
+        }
+        leaderboardCache = result;
+        leaderboardCacheTime = Date.now();
+        return result;
+    } catch(e) { console.warn("Fetch leaderboard failed:", e); return {}; }
+}
+
+async function openLeaderboard(activeTab) {
+    if (isGameActive) { isGameActive = false; clearInterval(timerInterval); }
+    isModalOpen = true; isInputBlocked = false;
+    modalGeneration++;
+    setModalTitle('🏆 Leaderboard');
+    resetModalFooter();
+    
+    document.getElementById('modal-body').innerHTML = `<div style="text-align:center; color:#888; padding:20px;">Loading...</div>`;
+    showModalPanel();
+    
+    const btn = document.getElementById('action-btn');
+    btn.innerText = 'Close'; btn.disabled = false; btn.style.opacity = '1'; btn.style.display = 'inline-block';
+    btn.onclick = () => { closeModal(); showStartModal("Resume"); };
+    modalActionCallback = () => { closeModal(); showStartModal("Resume"); };
+    
+    const data = await fetchLeaderboard();
+    const activeCat = activeTab || LB_CATEGORIES[0].key;
+    
+    // Build tabs
+    const tabs = LB_CATEGORIES.map(cat => {
+        const active = cat.key === activeCat ? 'lb-tab-active' : '';
+        return `<button class="lb-tab ${active}" data-cat="${cat.key}">${cat.label}</button>`;
+    }).join('');
+    
+    // Build active list
+    const entries = data[activeCat] || [];
+    let listHTML = '';
+    if (entries.length === 0) {
+        listHTML = '<div style="color:#999; padding:12px;">No entries yet. Keep typing!</div>';
+    } else {
+        const cat = LB_CATEGORIES.find(c => c.key === activeCat);
+        listHTML = entries.map((entry, i) => {
+            const isMe = currentUser && entry.uid === currentUser.uid;
+            const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `<span style="color:#999; width:1.5em; display:inline-block; text-align:right;">${i + 1}</span>`;
+            let val = entry[activeCat] || 0;
+            if (cat.format === 'time') val = formatTime(val);
+            else val = val + (cat.unit || '');
+            return `<div class="lb-entry ${isMe ? 'lb-me' : ''}">${medal} <span class="lb-initials">${escapeHtml(entry.initials || '???')}</span> <span class="lb-val">${val}</span></div>`;
+        }).join('');
+    }
+    
+    document.getElementById('modal-body').innerHTML = `
+        <div class="lb-container">
+            <div class="lb-tabs">${tabs}</div>
+            <div class="lb-list">${listHTML}</div>
+        </div>
+    `;
+    
+    // Wire tab clicks
+    document.querySelectorAll('.lb-tab').forEach(tab => {
+        tab.onclick = () => openLeaderboard(tab.dataset.cat);
+    });
 }
 
 window.onload = init;
