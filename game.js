@@ -8,7 +8,7 @@ import {
     signOut
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "2.5.0";
+const VERSION = "2.5.1";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -1057,7 +1057,8 @@ function checkAnonLoginPrompt() {
 }
 
 function showAnonLoginPrompt() {
-    isModalOpen = true; isInputBlocked = false;
+    isModalOpen = true; isInputBlocked = true;
+    modalActionCallback = null;
     setModalTitle('');
     resetModalFooter();
 
@@ -1071,18 +1072,19 @@ function showAnonLoginPrompt() {
     `;
 
     const btn = document.getElementById('action-btn');
-    btn.innerText = 'Sign In'; btn.disabled = false; btn.style.opacity = '1'; btn.style.display = 'inline-block';
-    btn.onclick = async () => {
+    btn.innerText = 'Wait...'; btn.disabled = true; btn.style.opacity = '0.5'; btn.style.display = 'inline-block';
+    const signInAction = async () => {
         try { await signInWithPopup(auth, new GoogleAuthProvider()); }
         catch (e) { /* user cancelled, just continue */ }
         closeModal();
         showStartModal("Continue");
     };
+    btn.onclick = signInAction;
 
-    // Add a skip link below
+    // Add a skip link below (initially hidden)
     const footer = document.getElementById('modal-footer');
     const skip = document.createElement('div');
-    skip.innerHTML = `<a href="#" id="anon-skip" style="color:#999; font-size:0.8rem; margin-top:6px; display:inline-block;">No thanks, keep typing</a>`;
+    skip.innerHTML = `<a href="#" id="anon-skip" style="color:#999; font-size:0.8rem; margin-top:6px; display:none;">No thanks, keep typing</a>`;
     footer.appendChild(skip);
     document.getElementById('anon-skip').onclick = (e) => {
         e.preventDefault();
@@ -1091,6 +1093,19 @@ function showAnonLoginPrompt() {
     };
 
     showModalPanel();
+
+    // 3-second cooldown before allowing dismissal
+    const gen = ++modalGeneration;
+    setTimeout(() => {
+        if (modalGeneration !== gen) return;
+        isInputBlocked = false;
+        const b = document.getElementById('action-btn');
+        if (b) { b.innerText = 'Sign In'; b.disabled = false; b.style.opacity = '1'; }
+        const skipEl = document.getElementById('anon-skip');
+        if (skipEl) skipEl.style.display = 'inline-block';
+        // Set modalActionCallback so smart-start typing skips to continue
+        modalActionCallback = () => { closeModal(); showStartModal("Continue"); };
+    }, SPRINT_COOLDOWN_MS * 2);
 }
 
 function getGoalProgressHTML() {
