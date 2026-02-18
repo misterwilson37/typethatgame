@@ -8,7 +8,7 @@ import {
     signOut
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "2.6.1";
+const VERSION = "2.6.2";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -1223,12 +1223,18 @@ function showAnonLoginPrompt() {
 
                 // Load goals since auth handler was skipped
                 await loadGoals();
-                await loadInitials();
+                const initialsPromptShown = await loadInitials();
                 trophyBtn.classList.remove('hidden');
 
                 // Save current progress position
                 await saveProgress(true);
             } catch(e) { console.warn("Retroactive save failed:", e); }
+
+            // If initials prompt is showing, let it handle the flow
+            if (!userInitials) {
+                anonLoginInProgress = false;
+                return;
+            }
 
             // Check if they have saved progress further than where they are now
             try {
@@ -1438,42 +1444,34 @@ async function openMenuModal() {
         });
     } catch(e) { console.warn(e); }
 
+    const initialsHTML = (currentUser && !currentUser.isAnonymous) ? `
+        <div class="menu-col menu-col-initials">
+            <div class="menu-label">Initials</div>
+            <input id="initials-input" type="text" maxlength="3" value="${escapeHtml(userInitials)}" 
+                   class="initials-box-settings">
+        </div>` : '';
+
     document.getElementById('modal-body').innerHTML = `
-        <div class="menu-table">
-            <div class="menu-row">
-                <div class="menu-label-cell">Book</div>
-                <div class="menu-value-cell"><select id="book-select" class="modal-select">${bookOptions}</select></div>
-            </div>
-            <div class="menu-row">
-                <div class="menu-label-cell">Chapter</div>
-                <div class="menu-value-cell">
-                    <div style="display:flex; gap:8px;">
-                        <select id="chapter-nav-select" class="modal-select" style="margin:0; flex-grow:1;">${chapterOptions}</select>
-                        <button id="go-btn" class="modal-btn" style="width:auto; padding:0 16px; font-size:14px;">Go</button>
-                    </div>
+        <div class="menu-3col">
+            <div class="menu-col">
+                <div class="menu-label">Book</div>
+                <select id="book-select" class="modal-select">${bookOptions}</select>
+                <div class="menu-label" style="margin-top:8px;">Chapter</div>
+                <div style="display:flex; gap:6px;">
+                    <select id="chapter-nav-select" class="modal-select" style="margin:0; flex-grow:1;">${chapterOptions}</select>
+                    <button id="go-btn" class="modal-btn" style="width:auto; padding:0 12px; font-size:13px;">Go</button>
                 </div>
             </div>
-            <div class="menu-row">
-                <div class="menu-label-cell">Sprint</div>
-                <div class="menu-value-cell"><select id="sprint-select" class="modal-select">${getSessionOptionsHTML()}</select></div>
+            <div class="menu-col">
+                <div class="menu-label">Sprint</div>
+                <select id="sprint-select" class="modal-select">${getSessionOptionsHTML()}</select>
+                <div class="menu-label" style="margin-top:8px;">Keyboard</div>
+                <select id="layout-select" class="modal-select">
+                    <option value="qwerty" ${currentLayout === 'qwerty' ? 'selected' : ''}>QWERTY</option>
+                    <option value="dvorak" ${currentLayout === 'dvorak' ? 'selected' : ''}>Dvorak</option>
+                </select>
             </div>
-            <div class="menu-row">
-                <div class="menu-label-cell">Keyboard</div>
-                <div class="menu-value-cell">
-                    <select id="layout-select" class="modal-select">
-                        <option value="qwerty" ${currentLayout === 'qwerty' ? 'selected' : ''}>QWERTY</option>
-                        <option value="dvorak" ${currentLayout === 'dvorak' ? 'selected' : ''}>Dvorak</option>
-                    </select>
-                </div>
-            </div>
-            ${currentUser && !currentUser.isAnonymous ? `
-            <div class="menu-row">
-                <div class="menu-label-cell">Initials</div>
-                <div class="menu-value-cell">
-                    <input id="initials-input" type="text" maxlength="3" value="${escapeHtml(userInitials)}" 
-                           style="width:60px; background:#222; color:#FFD700; border:1px solid #444; padding:8px 10px; font-family:inherit; font-size:1.1rem; border-radius:4px; text-align:center; text-transform:uppercase; letter-spacing:3px;">
-                </div>
-            </div>` : ''}
+            ${initialsHTML}
         </div>
     `;
 
@@ -2188,16 +2186,18 @@ function openGameGenie() {
 // === LEADERBOARD SYSTEM ===
 
 async function loadInitials() {
-    if (!currentUser || currentUser.isAnonymous) return;
+    if (!currentUser || currentUser.isAnonymous) return false;
     try {
         const snap = await getDoc(doc(db, "users", currentUser.uid, "profile", "info"));
         if (snap.exists() && snap.data().initials) {
             userInitials = snap.data().initials;
+            return false;
         } else {
             // No initials yet — prompt
             showInitialsPrompt();
+            return true;
         }
-    } catch(e) { console.warn("Load initials failed:", e); }
+    } catch(e) { console.warn("Load initials failed:", e); return false; }
 }
 
 async function saveInitials(initials) {
@@ -2236,6 +2236,31 @@ function showInitialsPrompt() {
         userInitials = val.substring(0, 3);
         await saveInitials(userInitials);
         closeModal();
+
+        // After first-time initials, check if user has saved progress further ahead
+        if (currentUser && !currentUser.isAnonymous) {
+            try {
+                const progRef = doc(db, "users", currentUser.uid, "progress", currentBookId);
+                const progSnap = await getDoc(progRef);
+                if (progSnap.exists()) {
+                    const data = progSnap.data();
+                    const savedChap = data.chapter;
+                    const savedIdx = data.charIndex || 0;
+                    if (data.completedChapters && Array.isArray(data.completedChapters)) {
+                        completedChapters = new Set(data.completedChapters.map(String));
+                    }
+                    const savedChapNum = parseInt(savedChap) || 0;
+                    const currentChapNum = parseInt(currentChapterNum) || 0;
+                    const isFurther = savedChapNum > currentChapNum ||
+                                     (savedChapNum === currentChapNum && savedIdx > currentCharIndex);
+                    if (isFurther) {
+                        showJumpToProgressPrompt(savedChap, savedIdx);
+                        return;
+                    }
+                }
+            } catch(e) { /* proceed normally */ }
+        }
+
         showStartModal("Start");
     };
     showModalPanel();
