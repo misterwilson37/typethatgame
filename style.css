@@ -1,4 +1,4 @@
-/* v2.4.7.1 - Book info bar */
+/* v2.4.10 - Game Genie admin tool */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -265,6 +265,40 @@ footer { position: fixed; bottom: 5px; right: 10px; font-size: 0.7em; color: #66
 
 #menu-btn { position: absolute; top: 20px; right: 20px; background: transparent; border: none; color: #555; font-size: 1.5rem; cursor: pointer; z-index: 1000; padding: 10px; }
 #menu-btn:hover { color: #00ff41; }
+
+/* --- GAME GENIE (admin only) --- */
+#genie-btn {
+    position: absolute; top: 16px; right: 60px;
+    background: #1a0a00; border: 2px solid #ff6600;
+    color: #ff6600; cursor: pointer; z-index: 1000;
+    padding: 4px 8px; border-radius: 4px;
+    font-family: 'Courier Prime', monospace;
+    font-size: 0.85rem; font-weight: bold; letter-spacing: 2px;
+    text-shadow: 0 0 6px #ff4400, 0 0 12px #ff2200;
+    box-shadow: 0 0 8px rgba(255,102,0,0.3), inset 0 0 8px rgba(255,68,0,0.1);
+    image-rendering: pixelated;
+    animation: genieGlow 2s ease-in-out infinite;
+}
+#genie-btn:hover {
+    background: #2a0a00;
+    border-color: #ff8800;
+    text-shadow: 0 0 10px #ff6600, 0 0 20px #ff4400, 0 0 30px #ff2200;
+    box-shadow: 0 0 16px rgba(255,102,0,0.5), inset 0 0 12px rgba(255,68,0,0.2);
+}
+.gg-fire {
+    display: inline-block;
+    animation: ggFlicker 0.3s steps(2) infinite;
+}
+.gg-fire2 { animation-delay: 0.15s; }
+@keyframes genieGlow {
+    0%, 100% { border-color: #ff6600; }
+    50% { border-color: #ff3300; }
+}
+@keyframes ggFlicker {
+    0% { transform: translateY(0); }
+    50% { transform: translateY(-1px); }
+    100% { transform: translateY(0); }
+}
 
 .menu-section { margin-bottom: 25px; text-align: left; border-bottom: 1px solid #333; padding-bottom: 20px; }
 .menu-section:last-child { border-bottom: none; }
