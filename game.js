@@ -8,7 +8,7 @@ import {
     signOut
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "2.4.13";
+const VERSION = "2.4.14";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -503,6 +503,10 @@ document.addEventListener('keydown', (e) => {
         }
 
         // --- SMART START LOGIC ---
+        // Skip if user is typing in an input/select (e.g. Game Genie fields)
+        const activeTag = e.target && e.target.tagName;
+        if (activeTag === 'INPUT' || activeTag === 'SELECT' || activeTag === 'TEXTAREA') return;
+
         let shouldStart = false;
         let shouldSkip = false;
 
@@ -1568,7 +1572,7 @@ function openGameGenie() {
     const segCount = bookData ? bookData.segments.length : 0;
     const isInfinite = sessionValueStr === 'infinity';
     
-    isModalOpen = true; isInputBlocked = true;
+    isModalOpen = true; isInputBlocked = false;
     modalGeneration++;
     setModalTitle('🔥 GAME GENIE 🔥');
     
@@ -1597,10 +1601,6 @@ function openGameGenie() {
                 <button id="gg-reset-ch" style="${ggBtn}" title="Reset to start of chapter">⟲ Reset</button>
             </div>
             
-            <div style="display:flex; justify-content:center; margin-bottom:8px;">
-                <button id="gg-infinite" style="${isInfinite ? 'background:#ff6600; color:#fff;' : 'background:#333; color:#ff6600;'} border:2px solid #ff6600; padding:6px 16px; cursor:pointer; font-family:inherit; border-radius:4px; font-size:1.1em; font-weight:bold; letter-spacing:1px;" title="Toggle infinite session (no sprint timer)">${isInfinite ? '∞ INFINITE ON' : '∞ Infinite Mode'}</button>
-            </div>
-            
             <div style="display:flex; justify-content:space-between; margin-bottom:2px; font-size:0.85em; color:#888;">
                 <span>Char ${currentCharIndex.toLocaleString()} / ${fullText.length.toLocaleString()} · ${wordCount.toLocaleString()} words · ${segCount} segs · ~${estMinutes}min</span>
                 <span>${pct}%</span>
@@ -1610,7 +1610,8 @@ function openGameGenie() {
                 <div id="gg-slider-thumb" style="position:absolute; top:-2px; left:${pct}%; width:16px; height:16px; background:#ff6600; border:2px solid #fff; border-radius:50%; transform:translateX(-50%); cursor:grab; box-shadow:0 0 6px rgba(255,102,0,0.5);"></div>
             </div>
             
-            <div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
+            <div style="display:flex; align-items:center; gap:4px; margin-bottom:6px;">
+                <button id="gg-start" style="${ggBtn}">Start</button>
                 <button id="gg-back10" style="${ggBtn}">-10</button>
                 <button id="gg-back1" style="${ggBtn}">-1</button>
                 <div style="flex:1; text-align:center; font-weight:bold;">
@@ -1618,6 +1619,7 @@ function openGameGenie() {
                 </div>
                 <button id="gg-fwd1" style="${ggBtn}">+1</button>
                 <button id="gg-fwd10" style="${ggBtn}">+10</button>
+                <button id="gg-end" style="${ggBtn}">End</button>
             </div>
             
             <div style="display:flex; justify-content:center; gap:6px; align-items:center; margin-bottom:6px;">
@@ -1628,26 +1630,34 @@ function openGameGenie() {
                 ${hasWarped ? `<button id="gg-return-btn" style="background:#224422; color:#88ff88; border:1px solid #44aa44; padding:4px 8px; cursor:pointer; font-family:inherit; border-radius:3px; font-size:0.75em;" title="Return to sentence ${realSent + 1}">↩ Return</button>` : ''}
             </div>
             
-            <div id="gg-preview" style="font-size:0.8em; color:#888; background:#f5f5f5; padding:4px 6px; border-radius:3px; max-height:32px; overflow:hidden; line-height:1.3;">
+            <div id="gg-preview" style="font-size:0.8em; color:#888; background:#f5f5f5; padding:4px 6px; border-radius:3px; max-height:32px; overflow:hidden; line-height:1.3; margin-bottom:6px;">
                 ${escapeHtml(fullText.substring(sentences[currentSent].start, sentences[currentSent].start + 120))}${sentences[currentSent].end - sentences[currentSent].start > 120 ? '...' : ''}
+            </div>
+            
+            <div style="display:flex; justify-content:center;">
+                <button id="gg-infinite" style="${isInfinite ? 'background:#ff6600; color:#fff;' : 'background:#333; color:#ff6600;'} border:1px solid #ff6600; padding:4px 12px; cursor:pointer; font-family:inherit; border-radius:3px; font-size:0.85em; font-weight:bold;" title="Toggle infinite session (no sprint timer)">${isInfinite ? '∞ INFINITE ON' : '∞ Infinite Mode'}</button>
             </div>
         </div>
     `;
     
     const btn = document.getElementById('action-btn');
     btn.innerText = 'Close'; btn.disabled = false; btn.style.opacity = '1'; btn.style.display = 'inline-block';
-    btn.onclick = () => { ggRealCharIndex = -1; closeModal(); showStartModal("Resume"); };
-    modalActionCallback = null;
+    const ggClose = () => { ggRealCharIndex = -1; closeModal(); startGame(); };
+    btn.onclick = ggClose;
+    // Allow smart-start typing to close GG and begin typing
+    modalActionCallback = ggClose;
     showModalPanel();
     
     // Wire up
     const s = sentences;
     const cur = currentSent;
     
+    document.getElementById('gg-start').onclick = () => { jumpToSentence(s, 0); openGameGenie(); };
     document.getElementById('gg-back10').onclick = () => { jumpToSentence(s, cur - 10); openGameGenie(); };
     document.getElementById('gg-back1').onclick = () => { jumpToSentence(s, cur - 1); openGameGenie(); };
     document.getElementById('gg-fwd1').onclick = () => { jumpToSentence(s, cur + 1); openGameGenie(); };
     document.getElementById('gg-fwd10').onclick = () => { jumpToSentence(s, cur + 10); openGameGenie(); };
+    document.getElementById('gg-end').onclick = () => { jumpToSentence(s, s.length - 1); openGameGenie(); };
     
     // Chapter jump
     document.getElementById('gg-chapter-go').onclick = async () => {
