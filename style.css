@@ -1,4 +1,4 @@
-/* v2.6.0 - Streak counter, missed chars, sprint history, chapter markers, enhanced anon prompt */
+/* v2.6.1 - Leaderboards, initials, trophy button */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -349,3 +349,36 @@ button.secondary-btn:hover { border-color: #888; color: #fff; }
     padding: 0 4px;
     border-radius: 2px;
 }
+
+/* Initials boxes */
+.initials-box {
+    width: 44px; height: 52px;
+    background: #111; color: #FFD700;
+    border: 2px solid #444; border-radius: 4px;
+    font-family: 'Courier Prime', monospace;
+    font-size: 1.6rem; font-weight: bold;
+    text-align: center; text-transform: uppercase;
+    outline: none; caret-color: #FFD700;
+}
+.initials-box:focus { border-color: #FFD700; box-shadow: 0 0 8px rgba(255,215,0,0.3); }
+
+/* Leaderboard */
+.lb-container { display: flex; flex-direction: column; height: 100%; }
+.lb-tabs { display: flex; gap: 4px; justify-content: center; margin-bottom: 6px; flex-wrap: wrap; }
+.lb-tab {
+    background: #f0f0f0; border: 1px solid #ddd; border-radius: 3px;
+    padding: 3px 8px; cursor: pointer; font-family: inherit; font-size: 0.7rem;
+    color: #666; transition: all 0.15s;
+}
+.lb-tab:hover { background: #e0e0e0; }
+.lb-tab-active { background: var(--carolina-blue); color: white; border-color: var(--carolina-blue); }
+.lb-list { flex: 1; overflow-y: auto; min-height: 0; }
+.lb-entry {
+    display: flex; align-items: center; gap: 8px;
+    padding: 4px 12px; font-size: 0.85em;
+    border-bottom: 1px solid #f0f0f0;
+}
+.lb-entry:last-child { border-bottom: none; }
+.lb-me { background: #fffce8; font-weight: bold; }
+.lb-initials { font-weight: bold; color: var(--black); min-width: 3em; letter-spacing: 2px; }
+.lb-val { margin-left: auto; color: var(--carolina-blue); font-weight: bold; }
