@@ -8,7 +8,7 @@ import {
     signOut
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "2.5.1";
+const VERSION = "2.6.0";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -65,10 +65,29 @@ let bookSwitchPending = false;
 let anonSprintCount = 0;
 let anonTotalSeconds = 0;
 let anonPromptShown = false;
+let anonLoginInProgress = false; // prevent auth handler from reloading during anon prompt
 let modalActionCallback = null;
 let lastInputTime = 0; let timeAccumulator = 0;
 let wpmHistory = []; let accuracyHistory = [];
 let currentLetterStatus = 'clean';
+
+// Streak tracking
+let currentStreak = 0;
+let bestStreak = 0;
+let streakMilestone = 0; // last celebrated milestone
+
+// Most-missed characters (session-wide)
+let missedCharsMap = {};
+
+// Sprint history (session-wide)
+let sprintHistory = [];
+
+// Completed chapters
+let completedChapters = new Set();
+
+// Anonymous session tracking for retroactive save
+let anonCharsTyped = 0;
+let anonMistakes = 0;
 
 // DOM
 const textStream = document.getElementById('text-stream');
@@ -76,6 +95,7 @@ const keyboardDiv = document.getElementById('virtual-keyboard');
 const timerDisplay = document.getElementById('timer-display');
 const accDisplay = document.getElementById('acc-display');
 const wpmDisplay = document.getElementById('wpm-display');
+const streakDisplay = document.getElementById('streak-display');
 const loginBtn = document.getElementById('login-btn');
 const logoutBtn = document.getElementById('logout-btn');
 const userInfo = document.getElementById('user-info');
@@ -122,6 +142,8 @@ async function init() {
             // Show Game Genie for admins
             const ggBtn = document.getElementById('genie-btn');
             if (ggBtn) ggBtn.classList.toggle('hidden', !ADMIN_EMAILS.includes(user.email));
+            // Skip full reload if login came from anon prompt (we handle it ourselves)
+            if (anonLoginInProgress) return;
             try {
                 await loadBookMetadata();
                 await loadUserProgress();
@@ -263,6 +285,9 @@ async function loadUserProgress() {
             const data = docSnap.data();
             if (data.chapter !== undefined && data.chapter !== null) currentChapterNum = data.chapter;
             if (data.charIndex !== undefined) savedCharIndex = data.charIndex;
+            if (data.completedChapters && Array.isArray(data.completedChapters)) {
+                completedChapters = new Set(data.completedChapters.map(String));
+            }
         }
         lastSavedIndex = savedCharIndex;
         loadChapter(currentChapterNum);
@@ -377,6 +402,8 @@ function startGame() {
     sprintSeconds = 0; sprintMistakes = 0; sprintCharStart = currentCharIndex;
     activeSeconds = 0; timeAccumulator = 0; lastInputTime = Date.now();
     consecutiveMistakes = 0; backspaceOrigin = -1;
+    currentStreak = 0; streakMilestone = 0;
+    updateStreak(false); // reset display
     wpmHistory = []; accuracyHistory = [];
 
     highlightCurrentChar(); centerView(); closeModal();
@@ -476,6 +503,30 @@ function updateRunningAccuracy(isCorrect) {
     const correctCount = accuracyHistory.filter(val => val === 1).length;
     const total = accuracyHistory.length;
     if (total > 0) accDisplay.innerText = Math.round((correctCount / total) * 100) + "%";
+}
+
+function updateStreak(correct) {
+    if (correct) {
+        currentStreak++;
+        if (currentStreak > bestStreak) bestStreak = currentStreak;
+        // Check milestones: 25, 50, 100, 200, 500
+        const milestones = [25, 50, 100, 200, 500];
+        for (const m of milestones) {
+            if (currentStreak === m && m > streakMilestone) {
+                streakMilestone = m;
+                streakDisplay.classList.add('streak-pop');
+                setTimeout(() => streakDisplay.classList.remove('streak-pop'), 300);
+                break;
+            }
+        }
+    } else {
+        currentStreak = 0;
+    }
+    // Update display
+    streakDisplay.textContent = `🔥 ${currentStreak}`;
+    streakDisplay.className = currentStreak >= 100 ? 'streak-fire' :
+                              currentStreak >= 50  ? 'streak-hot' :
+                              currentStreak >= 25  ? 'streak-warm' : 'streak-cold';
 }
 
 document.addEventListener('keydown', (e) => {
@@ -599,6 +650,7 @@ function handleTyping(key) {
 
     if (inputChar === targetChar) {
         statsData.charsToday++; statsData.charsWeek++;
+        anonCharsTyped++;
         consecutiveMistakes = 0;
 
         currentEl.classList.remove('active'); currentEl.classList.remove('error-state');
@@ -621,7 +673,7 @@ function handleTyping(key) {
             if (['.', '!', '?'].includes(prevChar)) saveProgress();
         }
 
-        updateRunningWPM(); updateRunningAccuracy(true);
+        updateRunningWPM(); updateRunningAccuracy(true); updateStreak(true);
 
         if (currentCharIndex >= fullText.length) { finishChapter(); return; }
 
@@ -638,12 +690,17 @@ function handleTyping(key) {
     } else {
         mistakes++; sprintMistakes++;
         consecutiveMistakes++;
+        anonMistakes++;
 
         statsData.mistakesToday++; statsData.mistakesWeek++;
         if (currentLetterStatus === 'clean') currentLetterStatus = 'error';
         const errEl = document.getElementById(`char-${currentCharIndex}`);
         if(errEl) errEl.classList.add('error-state');
-        flashKey(key); updateRunningAccuracy(false);
+        flashKey(key); updateRunningAccuracy(false); updateStreak(false);
+
+        // Track missed characters
+        const missKey = targetChar === ' ' ? 'Space' : targetChar === '\n' ? 'Enter' : targetChar;
+        missedCharsMap[missKey] = (missedCharsMap[missKey] || 0) + 1;
 
         if (consecutiveMistakes >= SPAM_THRESHOLD) {
             triggerHardStop(targetChar, false);
@@ -772,6 +829,15 @@ async function saveProgress(force = false) {
     } catch (e) { console.warn("Save failed:", e); }
 }
 
+async function saveCompletedChapters() {
+    if (!currentUser || currentUser.isAnonymous) return;
+    try {
+        await setDoc(doc(db, "users", currentUser.uid, "progress", currentBookId), {
+            completedChapters: Array.from(completedChapters)
+        }, { merge: true });
+    } catch(e) { console.warn("Save completed chapters failed:", e); }
+}
+
 async function logSession(seconds, chars, mistakes, wpm, accuracy) {
     if (!currentUser || currentUser.isAnonymous) return;
     if (seconds < 5) return; // skip trivially short sessions
@@ -828,6 +894,9 @@ function pauseGameForBreak() {
     anonSprintCount++;
     anonTotalSeconds += sprintSeconds;
 
+    // Record sprint in history
+    sprintHistory.push({ wpm: sprintWPM, acc: sprintAcc, time: sprintSeconds });
+
     // Check if anon user should be prompted to log in
     if (checkAnonLoginPrompt()) {
         showAnonLoginPrompt();
@@ -854,6 +923,24 @@ function pauseGameForBreak() {
     }
 
     showStatsModal(title, stats, "Continue", startGame);
+}
+
+function getMissedCharsHTML() {
+    const entries = Object.entries(missedCharsMap).sort((a,b) => b[1] - a[1]).slice(0, 5);
+    if (entries.length === 0) return '';
+    const pills = entries.map(([ch, count]) => 
+        `<span style="display:inline-block; background:#fff0f0; border:1px solid #ffcccc; border-radius:3px; padding:1px 6px; margin:0 2px; font-weight:bold; color:#D32F2F;">${ch} <small style="color:#999;">×${count}</small></span>`
+    ).join('');
+    return `<div style="font-size:0.8em; color:#888; margin:4px 0;">Watch out for: ${pills}</div>`;
+}
+
+function getSprintHistoryHTML() {
+    if (sprintHistory.length <= 1) return '';
+    const rows = sprintHistory.map((s, i) => {
+        const label = i === sprintHistory.length - 1 ? '<b>→</b>' : `${i + 1}`;
+        return `<span style="color:#999;">${label}</span> ${s.wpm}<small>wpm</small> ${s.acc}<small>%</small>`;
+    }).join(' · ');
+    return `<div style="font-size:0.75em; color:#777; margin:4px 0; line-height:1.6;">Sprints: ${rows}</div>`;
 }
 
 function finishChapter() {
@@ -896,6 +983,10 @@ function finishChapter() {
     };
 
     let title = `📖 Chapter ${currentChapterNum} Complete!`;
+
+    // Mark chapter as completed
+    completedChapters.add(String(currentChapterNum));
+    saveCompletedChapters();
     if (dailyGoalCelebrated && goals.dailySeconds > 0 && statsData.secondsToday - sprintSeconds < goals.dailySeconds) {
         title = `🎉 Chapter ${currentChapterNum} Complete + Daily Goal!`;
     }
@@ -999,12 +1090,15 @@ function showStatsModal(title, stats, btnText, callback, hint, instant) {
             <span class="si-val">${stats.acc}% <small>Acc</small></span>
             <span class="si-dot">·</span>
             <span class="si-val">${formatTime(stats.time)}</span>
+            ${bestStreak > 0 ? `<span class="si-dot">·</span><span class="si-val">🔥${bestStreak}</span>` : ''}
         </div>
         <div class="cumulative-row">
             <span>Today: ${stats.today}</span>
             <span>Week: ${stats.week}</span>
         </div>
         ${getGoalProgressHTML()}
+        ${getSprintHistoryHTML()}
+        ${getMissedCharsHTML()}
         ${hint ? `<div class="start-hint" id="modal-hint" style="display:none;">${hint}</div>` : ''}
     `;
 
@@ -1074,8 +1168,80 @@ function showAnonLoginPrompt() {
     const btn = document.getElementById('action-btn');
     btn.innerText = 'Wait...'; btn.disabled = true; btn.style.opacity = '0.5'; btn.style.display = 'inline-block';
     const signInAction = async () => {
-        try { await signInWithPopup(auth, new GoogleAuthProvider()); }
-        catch (e) { /* user cancelled, just continue */ }
+        try {
+            anonLoginInProgress = true;
+            await signInWithPopup(auth, new GoogleAuthProvider());
+        } catch (e) {
+            anonLoginInProgress = false;
+            // User cancelled login — just continue
+            closeModal();
+            showStartModal("Continue");
+            return;
+        }
+
+        // Login succeeded — retroactively save anonymous session time
+        if (currentUser && !currentUser.isAnonymous) {
+            try {
+                // Apply anonymous typing stats to their account
+                const today = new Date();
+                const dateStr = today.toISOString().split('T')[0];
+                const weekStart = getWeekStart(today);
+
+                // Load existing stats first
+                const statsRef = doc(db, "users", currentUser.uid, "stats", "time_tracking");
+                const statsSnap = await getDoc(statsRef);
+                if (statsSnap.exists()) {
+                    const data = statsSnap.data();
+                    if (data.lastDate === dateStr) {
+                        statsData.secondsToday = (data.secondsToday || 0) + statsData.secondsToday;
+                        statsData.charsToday = (data.charsToday || 0) + statsData.charsToday;
+                        statsData.mistakesToday = (data.mistakesToday || 0) + statsData.mistakesToday;
+                    }
+                    if (data.weekStart === weekStart) {
+                        statsData.secondsWeek = (data.secondsWeek || 0) + statsData.secondsWeek;
+                        statsData.charsWeek = (data.charsWeek || 0) + statsData.charsWeek;
+                        statsData.mistakesWeek = (data.mistakesWeek || 0) + statsData.mistakesWeek;
+                    }
+                }
+                statsData.lastDate = dateStr;
+                statsData.weekStart = weekStart;
+                await setDoc(statsRef, statsData, { merge: true });
+
+                // Load goals since auth handler was skipped
+                await loadGoals();
+
+                // Save current progress position
+                await saveProgress(true);
+            } catch(e) { console.warn("Retroactive save failed:", e); }
+
+            // Check if they have saved progress further than where they are now
+            try {
+                const progRef = doc(db, "users", currentUser.uid, "progress", currentBookId);
+                const progSnap = await getDoc(progRef);
+                if (progSnap.exists()) {
+                    const data = progSnap.data();
+                    const savedChap = data.chapter;
+                    const savedIdx = data.charIndex || 0;
+                    if (data.completedChapters && Array.isArray(data.completedChapters)) {
+                        completedChapters = new Set(data.completedChapters.map(String));
+                    }
+
+                    // Determine if saved position is further
+                    const savedChapNum = parseInt(savedChap) || 0;
+                    const currentChapNum = parseInt(currentChapterNum) || 0;
+                    const isFurther = savedChapNum > currentChapNum || 
+                                     (savedChapNum === currentChapNum && savedIdx > currentCharIndex);
+                    
+                    if (isFurther) {
+                        anonLoginInProgress = false;
+                        showJumpToProgressPrompt(savedChap, savedIdx);
+                        return;
+                    }
+                }
+            } catch(e) { console.warn("Progress check failed:", e); }
+        }
+
+        anonLoginInProgress = false;
         closeModal();
         showStartModal("Continue");
     };
@@ -1106,6 +1272,55 @@ function showAnonLoginPrompt() {
         // Set modalActionCallback so smart-start typing skips to continue
         modalActionCallback = () => { closeModal(); showStartModal("Continue"); };
     }, SPRINT_COOLDOWN_MS * 2);
+}
+
+function showJumpToProgressPrompt(savedChap, savedIdx) {
+    isModalOpen = true; isInputBlocked = false;
+    setModalTitle('');
+    resetModalFooter();
+
+    // Find chapter title
+    let chapLabel = `Chapter ${savedChap}`;
+    if (bookMetadata && bookMetadata.chapters) {
+        const chap = bookMetadata.chapters.find(c => c.id === "chapter_" + savedChap);
+        if (chap && chap.title && chap.title != savedChap) {
+            if (chap.title.toLowerCase().startsWith('chapter')) chapLabel = chap.title;
+            else chapLabel = `Ch. ${savedChap}: ${chap.title}`;
+        }
+    }
+
+    document.getElementById('modal-body').innerHTML = `
+        <div style="text-align:center;">
+            <div class="stats-title">Welcome back! 📚</div>
+            <div style="font-size:0.95em; color:#555; margin: 8px 0;">
+                You were previously on <b>${escapeHtml(chapLabel)}</b>. Would you like to pick up where you left off?
+            </div>
+        </div>
+    `;
+
+    const btn = document.getElementById('action-btn');
+    btn.innerText = `Jump to ${escapeHtml(chapLabel)}`; btn.disabled = false; btn.style.opacity = '1'; btn.style.display = 'inline-block';
+    btn.onclick = async () => {
+        currentChapterNum = savedChap;
+        savedCharIndex = savedIdx;
+        lastSavedIndex = savedIdx;
+        closeModal();
+        await loadChapter(savedChap);
+    };
+
+    // Add stay option
+    const footer = document.getElementById('modal-footer');
+    const stay = document.createElement('div');
+    stay.innerHTML = `<a href="#" id="stay-here" style="color:#999; font-size:0.8rem; margin-top:6px; display:inline-block;">Stay here and keep typing</a>`;
+    footer.appendChild(stay);
+    document.getElementById('stay-here').onclick = (e) => {
+        e.preventDefault();
+        closeModal();
+        showStartModal("Continue");
+    };
+
+    modalActionCallback = () => { closeModal(); showStartModal("Continue"); };
+    showModalPanel();
 }
 
 function getGoalProgressHTML() {
@@ -1184,11 +1399,12 @@ async function openMenuModal() {
         bookMetadata.chapters.forEach((chap) => {
             const num = chap.id.replace("chapter_", "");
             let sel = (num == currentChapterNum) ? "selected" : "";
+            const done = completedChapters.has(String(num)) ? "✓ " : "";
 
-            let label = `Ch. ${escapeHtml(num)}`;
+            let label = `${done}Ch. ${escapeHtml(num)}`;
             if(chap.title && chap.title != num) {
-                if(chap.title.toLowerCase().startsWith('chapter')) label = escapeHtml(chap.title);
-                else label = `Ch. ${escapeHtml(num)}: ${escapeHtml(chap.title)}`;
+                if(chap.title.toLowerCase().startsWith('chapter')) label = `${done}${escapeHtml(chap.title)}`;
+                else label = `${done}Ch. ${escapeHtml(num)}: ${escapeHtml(chap.title)}`;
             }
             chapterOptions += `<option value="${escapeHtml(num)}" ${sel}>${label}</option>`;
         });
