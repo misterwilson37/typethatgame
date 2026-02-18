@@ -8,7 +8,7 @@ import {
     signOut
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "2.4.7";
+const VERSION = "2.4.10";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -36,6 +36,7 @@ let currentCharIndex = 0;
 let savedCharIndex = 0;
 let lastSavedIndex = 0;
 let currentChapterNum = 1;
+let autoStartNext = false; // skip start modal when advancing chapters
 
 // Stats
 let sessionLimit = 30;
@@ -93,6 +94,17 @@ async function init() {
         document.body.appendChild(btn);
     }
 
+    // Game Genie button (admin only, hidden until auth confirms)
+    if (!document.getElementById('genie-btn')) {
+        const gg = document.createElement('button');
+        gg.id = 'genie-btn';
+        gg.className = 'hidden';
+        gg.innerHTML = '<span class="gg-fire">G</span><span class="gg-fire gg-fire2">G</span>';
+        gg.title = 'Game Genie';
+        gg.onclick = openGameGenie;
+        document.body.appendChild(gg);
+    }
+
     createKeyboard();
     setupAuthListeners();
 
@@ -100,6 +112,9 @@ async function init() {
         if (user) {
             currentUser = user;
             updateAuthUI(true);
+            // Show Game Genie for admins
+            const ggBtn = document.getElementById('genie-btn');
+            if (ggBtn) ggBtn.classList.toggle('hidden', !ADMIN_EMAILS.includes(user.email));
             try {
                 await loadBookMetadata();
                 await loadUserProgress();
@@ -110,6 +125,8 @@ async function init() {
             // No anonymous sign-in — just load the book as read-only
             currentUser = null;
             updateAuthUI(false);
+            const ggBtn = document.getElementById('genie-btn');
+            if (ggBtn) ggBtn.classList.add('hidden');
             try {
                 await loadBookMetadata();
                 loadChapter(1);
@@ -299,7 +316,12 @@ function setupGame() {
     let btnLabel = "Resume";
     if (savedCharIndex === 0) btnLabel = "Start Reading";
 
-    if (!isGameActive) showStartModal(btnLabel);
+    if (autoStartNext) {
+        autoStartNext = false;
+        startGame();
+    } else if (!isGameActive) {
+        showStartModal(btnLabel);
+    }
 }
 
 function renderText() {
@@ -574,7 +596,9 @@ function handleTyping(key) {
         if (currentCharIndex >= fullText.length) { finishChapter(); return; }
 
         if (isOvertime) {
-            if (['.', '!', '?', '\n'].includes(targetChar)) {
+            // Don't stop near end of chapter — let them finish it
+            const remaining = fullText.length - currentCharIndex;
+            if (remaining > 200 && ['.', '!', '?', '\n'].includes(targetChar)) {
                 const nextChar = fullText[currentCharIndex];
                 if (nextChar !== '"' && nextChar !== "'") { triggerStop(); return; }
             }
@@ -777,11 +801,13 @@ function finishChapter() {
     isGameActive = false; clearInterval(timerInterval);
 
     let nextChapterId = null;
+    let nextChapterTitle = "";
     if (bookMetadata && bookMetadata.chapters) {
         const currentIdx = bookMetadata.chapters.findIndex(c => c.id == "chapter_" + currentChapterNum);
         if (currentIdx !== -1 && currentIdx + 1 < bookMetadata.chapters.length) {
             const nextChap = bookMetadata.chapters[currentIdx + 1];
             nextChapterId = nextChap.id.replace("chapter_", "");
+            nextChapterTitle = nextChap.title || "";
         }
     }
 
@@ -810,7 +836,7 @@ function finishChapter() {
         week: `${formatTime(statsData.secondsWeek)} (${weekWPM} WPM | ${weekAcc}%)`
     };
 
-    let title = `Chapter ${currentChapterNum} Complete!`;
+    let title = `📖 Chapter ${currentChapterNum} Complete!`;
     if (dailyGoalCelebrated && goals.dailySeconds > 0 && statsData.secondsToday - sprintSeconds < goals.dailySeconds) {
         title = `🎉 Chapter ${currentChapterNum} Complete + Daily Goal!`;
     }
@@ -818,7 +844,14 @@ function finishChapter() {
         title = `🎆 Chapter ${currentChapterNum} Complete + Weekly Goal!`;
     }
 
-    showStatsModal(title, stats, `Start Next`, async () => {
+    // Format the next chapter label for the button
+    let nextLabel = `Ch. ${nextChapterId}`;
+    if (nextChapterTitle && nextChapterTitle != nextChapterId) {
+        if (nextChapterTitle.toLowerCase().startsWith('chapter')) nextLabel = nextChapterTitle;
+        else nextLabel = `Ch. ${nextChapterId}: ${nextChapterTitle}`;
+    }
+
+    showStatsModal(title, stats, `Next → ${nextLabel}`, async () => {
         await saveProgress(true);
         currentChapterNum = nextChapterId;
         savedCharIndex = 0; currentCharIndex = 0; lastSavedIndex = 0;
@@ -827,6 +860,7 @@ function finishChapter() {
                 chapter: currentChapterNum, charIndex: 0
             }, { merge: true });
         }
+        autoStartNext = true;
         loadChapter(nextChapterId);
     });
 }
@@ -1423,6 +1457,161 @@ function showGoalToast(message, color) {
         toast.style.animation = 'toastOut 0.5s ease-in forwards';
         setTimeout(() => toast.remove(), 500);
     }, 3000);
+}
+
+// --- GAME GENIE (Admin Debug Tool) ---
+function getSentenceMap() {
+    const sentences = [];
+    let sentStart = 0;
+    for (let i = 0; i < fullText.length; i++) {
+        const ch = fullText[i];
+        if (ch === '.' || ch === '!' || ch === '?') {
+            // Check if next char is space, newline, quote, or end
+            const next = fullText[i + 1];
+            if (!next || next === ' ' || next === '\n' || next === '"' || next === "'") {
+                // Find the real end (include closing quote if present)
+                let end = i + 1;
+                if (next === '"' || next === "'") end = i + 2;
+                sentences.push({ start: sentStart, end: Math.min(end, fullText.length) });
+                // Skip whitespace to find next sentence start
+                let j = end;
+                while (j < fullText.length && (fullText[j] === ' ' || fullText[j] === '\n' || fullText[j] === '\t')) j++;
+                sentStart = j;
+            }
+        } else if (ch === '\n' && i > sentStart) {
+            // Paragraph break = sentence boundary
+            sentences.push({ start: sentStart, end: i });
+            let j = i + 1;
+            while (j < fullText.length && (fullText[j] === ' ' || fullText[j] === '\n' || fullText[j] === '\t')) j++;
+            sentStart = j;
+        }
+    }
+    // Catch trailing text
+    if (sentStart < fullText.length) {
+        sentences.push({ start: sentStart, end: fullText.length });
+    }
+    return sentences;
+}
+
+function getCurrentSentence(sentences) {
+    for (let i = 0; i < sentences.length; i++) {
+        if (currentCharIndex < sentences[i].end) return i;
+    }
+    return sentences.length - 1;
+}
+
+function jumpToSentence(sentences, idx) {
+    idx = Math.max(0, Math.min(idx, sentences.length - 1));
+    const target = sentences[idx].start;
+    
+    // Reset game state
+    if (isGameActive) { isGameActive = false; clearInterval(timerInterval); }
+    
+    currentCharIndex = target;
+    savedCharIndex = target;
+    sprintCharStart = target;
+    sprintSeconds = 0; sprintMistakes = 0;
+    
+    // Re-render and mark everything before current as done
+    renderText();
+    for (let i = 0; i < currentCharIndex; i++) {
+        const el = document.getElementById(`char-${i}`);
+        if (el) {
+            el.classList.remove('active');
+            if (!el.classList.contains('space') && !el.classList.contains('enter') && !el.classList.contains('tab')) {
+                el.classList.add('done-perfect');
+            }
+        }
+    }
+    highlightCurrentChar();
+    centerView();
+    saveProgress();
+    
+    // Show start modal for this position
+    showStartModal("Resume");
+}
+
+function openGameGenie() {
+    if (!currentUser || !ADMIN_EMAILS.includes(currentUser.email)) return;
+    if (isGameActive) { isGameActive = false; clearInterval(timerInterval); }
+    
+    const sentences = getSentenceMap();
+    const currentSent = getCurrentSentence(sentences);
+    const pct = fullText.length > 0 ? Math.round((currentCharIndex / fullText.length) * 100) : 0;
+    
+    isModalOpen = true; isInputBlocked = true;
+    modalGeneration++;
+    setModalTitle('🔥 GAME GENIE 🔥');
+    
+    document.getElementById('modal-body').innerHTML = `
+        <div style="font-family: 'Courier Prime', monospace; text-align: left; padding: 0 10px;">
+            <div style="display:flex; justify-content:space-between; margin-bottom:8px; font-size:0.8em; color:#888;">
+                <span>Char ${currentCharIndex.toLocaleString()} / ${fullText.length.toLocaleString()}</span>
+                <span>${pct}%</span>
+            </div>
+            <div style="height:8px; background:#eee; border-radius:4px; overflow:hidden; margin-bottom:12px;">
+                <div style="height:100%; width:${pct}%; background: linear-gradient(90deg, #ff6600, #ff0000, #ff6600); border-radius:4px; transition:width 0.3s;"></div>
+            </div>
+            
+            <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+                <button id="gg-back10" style="background:#333; color:#ff6600; border:1px solid #ff6600; padding:6px 10px; cursor:pointer; font-family:inherit; border-radius:3px;">-10</button>
+                <button id="gg-back1" style="background:#333; color:#ff6600; border:1px solid #ff6600; padding:6px 10px; cursor:pointer; font-family:inherit; border-radius:3px;">-1</button>
+                <div style="flex:1; text-align:center; font-weight:bold; font-size:1.1em;">
+                    Sentence <span style="color:#ff6600;">${currentSent + 1}</span> / ${sentences.length}
+                </div>
+                <button id="gg-fwd1" style="background:#333; color:#ff6600; border:1px solid #ff6600; padding:6px 10px; cursor:pointer; font-family:inherit; border-radius:3px;">+1</button>
+                <button id="gg-fwd10" style="background:#333; color:#ff6600; border:1px solid #ff6600; padding:6px 10px; cursor:pointer; font-family:inherit; border-radius:3px;">+10</button>
+            </div>
+            
+            <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
+                <label style="font-size:0.85em; white-space:nowrap;">Jump to #</label>
+                <input id="gg-jump-input" type="number" min="1" max="${sentences.length}" value="${currentSent + 1}" 
+                       style="flex:1; background:#f8f8f8; border:1px solid #ccc; padding:6px 8px; font-family:inherit; font-size:0.9em; border-radius:3px;">
+                <button id="gg-jump-btn" style="background:#ff6600; color:#fff; border:none; padding:6px 14px; cursor:pointer; font-family:inherit; font-weight:bold; border-radius:3px;">WARP</button>
+            </div>
+            
+            <div id="gg-preview" style="font-size:0.75em; color:#888; background:#f5f5f5; padding:6px 8px; border-radius:3px; max-height:48px; overflow:hidden; line-height:1.3;">
+                ${escapeHtml(fullText.substring(sentences[currentSent].start, sentences[currentSent].start + 120))}${sentences[currentSent].end - sentences[currentSent].start > 120 ? '...' : ''}
+            </div>
+        </div>
+    `;
+    
+    const btn = document.getElementById('action-btn');
+    btn.innerText = 'Close'; btn.disabled = false; btn.style.opacity = '1'; btn.style.display = 'inline-block';
+    btn.onclick = () => { closeModal(); showStartModal("Resume"); };
+    modalActionCallback = null;
+    showModalPanel();
+    
+    // Wire up buttons
+    const rewire = () => {
+        const s = getSentenceMap();
+        const cur = getCurrentSentence(s);
+        
+        document.getElementById('gg-back10').onclick = () => { jumpToSentence(s, cur - 10); openGameGenie(); };
+        document.getElementById('gg-back1').onclick = () => { jumpToSentence(s, cur - 1); openGameGenie(); };
+        document.getElementById('gg-fwd1').onclick = () => { jumpToSentence(s, cur + 1); openGameGenie(); };
+        document.getElementById('gg-fwd10').onclick = () => { jumpToSentence(s, cur + 10); openGameGenie(); };
+        document.getElementById('gg-jump-btn').onclick = () => {
+            const target = parseInt(document.getElementById('gg-jump-input').value) - 1;
+            if (!isNaN(target)) { jumpToSentence(s, target); openGameGenie(); }
+        };
+        document.getElementById('gg-jump-input').oninput = () => {
+            const target = parseInt(document.getElementById('gg-jump-input').value) - 1;
+            if (!isNaN(target) && target >= 0 && target < s.length) {
+                const preview = document.getElementById('gg-preview');
+                if (preview) {
+                    preview.textContent = fullText.substring(s[target].start, s[target].start + 120) + (s[target].end - s[target].start > 120 ? '...' : '');
+                }
+            }
+        };
+        document.getElementById('gg-jump-input').onkeydown = (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                document.getElementById('gg-jump-btn').click();
+            }
+        };
+    };
+    rewire();
 }
 
 window.onload = init;
