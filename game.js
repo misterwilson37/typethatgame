@@ -8,7 +8,7 @@ import {
     signOut
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "2.4.11";
+const VERSION = "2.4.12";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -872,7 +872,7 @@ function finishChapter() {
         }
         autoStartNext = true;
         loadChapter(nextChapterId);
-    }, 'Press Enter to continue');
+    }, 'Press Enter to continue', true);
 }
 
 function getHeaderHTML() {
@@ -936,7 +936,7 @@ function showStartModal(btnText) {
     showModalPanel();
 }
 
-function showStatsModal(title, stats, btnText, callback, hint) {
+function showStatsModal(title, stats, btnText, callback, hint, instant) {
     isModalOpen = true; isInputBlocked = true;
     modalActionCallback = () => { closeModal(); if(callback) callback(); };
     setModalTitle('');
@@ -959,19 +959,26 @@ function showStatsModal(title, stats, btnText, callback, hint) {
     `;
 
     const btn = document.getElementById('action-btn');
-    btn.innerText = "Wait..."; btn.onclick = modalActionCallback; btn.disabled = true; btn.style.opacity = '0.5'; btn.style.display = 'inline-block';
-    showModalPanel();
-    const gen = ++modalGeneration;
-    setTimeout(() => {
-        if (modalGeneration !== gen) return; // modal was replaced
+    if (instant) {
+        btn.innerText = btnText; btn.onclick = modalActionCallback; btn.disabled = false; btn.style.opacity = '1'; btn.style.display = 'inline-block';
         isInputBlocked = false;
-        if(document.getElementById('action-btn')) {
-            const b = document.getElementById('action-btn');
-            b.style.opacity = '1'; b.innerText = btnText; b.disabled = false;
-        }
         const hintEl = document.getElementById('modal-hint');
         if (hintEl) hintEl.style.display = '';
-    }, SPRINT_COOLDOWN_MS);
+    } else {
+        btn.innerText = "Wait..."; btn.onclick = modalActionCallback; btn.disabled = true; btn.style.opacity = '0.5'; btn.style.display = 'inline-block';
+        const gen = ++modalGeneration;
+        setTimeout(() => {
+            if (modalGeneration !== gen) return;
+            isInputBlocked = false;
+            if(document.getElementById('action-btn')) {
+                const b = document.getElementById('action-btn');
+                b.style.opacity = '1'; b.innerText = btnText; b.disabled = false;
+            }
+            const hintEl = document.getElementById('modal-hint');
+            if (hintEl) hintEl.style.display = '';
+        }, SPRINT_COOLDOWN_MS);
+    }
+    showModalPanel();
 }
 
 
@@ -1556,45 +1563,69 @@ function openGameGenie() {
     const pct = fullText.length > 0 ? Math.round((currentCharIndex / fullText.length) * 100) : 0;
     const realSent = (() => { for (let i = 0; i < sentences.length; i++) { if (ggRealCharIndex < sentences[i].end) return i; } return sentences.length - 1; })();
     const hasWarped = ggRealCharIndex !== currentCharIndex;
+    const wordCount = fullText.split(/\s+/).filter(Boolean).length;
+    const estMinutes = Math.round(wordCount / 40); // ~40 WPM typing speed estimate
+    const segCount = bookData ? bookData.segments.length : 0;
+    const isInfinite = sessionValueStr === 'infinity';
     
     isModalOpen = true; isInputBlocked = true;
     modalGeneration++;
     setModalTitle('🔥 GAME GENIE 🔥');
     
-    const ggBtnStyle = 'background:#333; color:#ff6600; border:1px solid #ff6600; padding:6px 10px; cursor:pointer; font-family:inherit; border-radius:3px; font-size:0.85em;';
+    const ggBtn = 'background:#333; color:#ff6600; border:1px solid #ff6600; padding:4px 8px; cursor:pointer; font-family:inherit; border-radius:3px; font-size:0.8em;';
+    
+    // Build chapter options
+    let chapOpts = '';
+    if (bookMetadata && bookMetadata.chapters) {
+        bookMetadata.chapters.forEach(chap => {
+            const num = chap.id.replace('chapter_', '');
+            const sel = (num == currentChapterNum) ? 'selected' : '';
+            let label = `Ch. ${num}`;
+            if (chap.title && chap.title != num) {
+                if (chap.title.toLowerCase().startsWith('chapter')) label = chap.title;
+                else label = `Ch. ${num}: ${chap.title}`;
+            }
+            chapOpts += `<option value="${num}" ${sel}>${escapeHtml(label)}</option>`;
+        });
+    }
     
     document.getElementById('modal-body').innerHTML = `
-        <div style="font-family: 'Courier Prime', monospace; text-align: left; padding: 0 10px;">
-            <div style="display:flex; justify-content:space-between; margin-bottom:4px; font-size:0.75em; color:#888;">
-                <span>Char ${currentCharIndex.toLocaleString()} / ${fullText.length.toLocaleString()}</span>
+        <div style="font-family: 'Courier Prime', monospace; text-align: left; padding: 0 8px; font-size: 0.8em;">
+            <div style="display:flex; gap:6px; align-items:center; margin-bottom:6px;">
+                <select id="gg-chapter-select" style="flex:1; background:#f8f8f8; border:1px solid #ccc; padding:3px 4px; font-family:inherit; font-size:0.9em; border-radius:3px;">${chapOpts}</select>
+                <button id="gg-chapter-go" style="${ggBtn}">Jump Ch.</button>
+                <button id="gg-reset-ch" style="${ggBtn}" title="Reset to start of chapter">⟲ Reset</button>
+                <button id="gg-infinite" style="${isInfinite ? 'background:#ff6600; color:#fff;' : 'background:#333; color:#ff6600;'} border:1px solid #ff6600; padding:4px 8px; cursor:pointer; font-family:inherit; border-radius:3px; font-size:0.8em;" title="Toggle infinite session (no sprint timer)">∞</button>
+            </div>
+            
+            <div style="display:flex; justify-content:space-between; margin-bottom:2px; font-size:0.85em; color:#888;">
+                <span>Char ${currentCharIndex.toLocaleString()} / ${fullText.length.toLocaleString()} · ${wordCount.toLocaleString()} words · ${segCount} segs · ~${estMinutes}min</span>
                 <span>${pct}%</span>
             </div>
-            <div id="gg-slider-track" style="height:12px; background:#eee; border-radius:6px; overflow:visible; margin-bottom:10px; cursor:pointer; position:relative;">
+            <div id="gg-slider-track" style="height:12px; background:#eee; border-radius:6px; overflow:visible; margin-bottom:6px; cursor:pointer; position:relative;">
                 <div id="gg-slider-fill" style="height:100%; width:${pct}%; background: linear-gradient(90deg, #ff6600, #ff0000, #ff6600); border-radius:6px; pointer-events:none;"></div>
                 <div id="gg-slider-thumb" style="position:absolute; top:-2px; left:${pct}%; width:16px; height:16px; background:#ff6600; border:2px solid #fff; border-radius:50%; transform:translateX(-50%); cursor:grab; box-shadow:0 0 6px rgba(255,102,0,0.5);"></div>
             </div>
             
-            <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
-                <button id="gg-back10" style="${ggBtnStyle}">-10</button>
-                <button id="gg-back1" style="${ggBtnStyle}">-1</button>
-                <div style="flex:1; text-align:center; font-weight:bold; font-size:1em;">
+            <div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
+                <button id="gg-back10" style="${ggBtn}">-10</button>
+                <button id="gg-back1" style="${ggBtn}">-1</button>
+                <div style="flex:1; text-align:center; font-weight:bold;">
                     Sent <span style="color:#ff6600;">${currentSent + 1}</span> / ${sentences.length}
                 </div>
-                <button id="gg-fwd1" style="${ggBtnStyle}">+1</button>
-                <button id="gg-fwd10" style="${ggBtnStyle}">+10</button>
+                <button id="gg-fwd1" style="${ggBtn}">+1</button>
+                <button id="gg-fwd10" style="${ggBtn}">+10</button>
             </div>
             
-            <div style="display:flex; justify-content:center; margin-bottom:8px;">
-                <div style="display:flex; gap:6px; align-items:center;">
-                    <label style="font-size:0.8em; white-space:nowrap;">Warp to #</label>
-                    <input id="gg-jump-input" type="number" min="1" max="${sentences.length}" value="${currentSent + 1}" 
-                           style="width:70px; background:#f8f8f8; border:1px solid #ccc; padding:5px 6px; font-family:inherit; font-size:0.85em; border-radius:3px; text-align:center;">
-                    <button id="gg-jump-btn" style="background:#ff6600; color:#fff; border:none; padding:5px 12px; cursor:pointer; font-family:inherit; font-weight:bold; border-radius:3px; font-size:0.85em;">WARP</button>
-                    ${hasWarped ? `<button id="gg-return-btn" style="background:#224422; color:#88ff88; border:1px solid #44aa44; padding:5px 10px; cursor:pointer; font-family:inherit; border-radius:3px; font-size:0.75em;" title="Return to sentence ${realSent + 1}">↩ Return</button>` : ''}
-                </div>
+            <div style="display:flex; justify-content:center; gap:6px; align-items:center; margin-bottom:6px;">
+                <label style="font-size:0.85em;">Warp #</label>
+                <input id="gg-jump-input" type="number" min="1" max="${sentences.length}" value="${currentSent + 1}" 
+                       style="width:60px; background:#f8f8f8; border:1px solid #ccc; padding:3px 4px; font-family:inherit; font-size:0.85em; border-radius:3px; text-align:center;">
+                <button id="gg-jump-btn" style="background:#ff6600; color:#fff; border:none; padding:4px 10px; cursor:pointer; font-family:inherit; font-weight:bold; border-radius:3px; font-size:0.85em;">WARP</button>
+                ${hasWarped ? `<button id="gg-return-btn" style="background:#224422; color:#88ff88; border:1px solid #44aa44; padding:4px 8px; cursor:pointer; font-family:inherit; border-radius:3px; font-size:0.75em;" title="Return to sentence ${realSent + 1}">↩ Return</button>` : ''}
             </div>
             
-            <div id="gg-preview" style="font-size:0.7em; color:#888; background:#f5f5f5; padding:5px 8px; border-radius:3px; max-height:40px; overflow:hidden; line-height:1.3;">
+            <div id="gg-preview" style="font-size:0.8em; color:#888; background:#f5f5f5; padding:4px 6px; border-radius:3px; max-height:32px; overflow:hidden; line-height:1.3;">
                 ${escapeHtml(fullText.substring(sentences[currentSent].start, sentences[currentSent].start + 120))}${sentences[currentSent].end - sentences[currentSent].start > 120 ? '...' : ''}
             </div>
         </div>
@@ -1606,7 +1637,7 @@ function openGameGenie() {
     modalActionCallback = null;
     showModalPanel();
     
-    // Wire up buttons
+    // Wire up
     const s = sentences;
     const cur = currentSent;
     
@@ -1615,6 +1646,41 @@ function openGameGenie() {
     document.getElementById('gg-fwd1').onclick = () => { jumpToSentence(s, cur + 1); openGameGenie(); };
     document.getElementById('gg-fwd10').onclick = () => { jumpToSentence(s, cur + 10); openGameGenie(); };
     
+    // Chapter jump
+    document.getElementById('gg-chapter-go').onclick = async () => {
+        const targetChap = document.getElementById('gg-chapter-select').value;
+        if (targetChap == currentChapterNum) return; // same chapter, do nothing
+        ggRealCharIndex = -1;
+        currentChapterNum = targetChap;
+        savedCharIndex = 0; currentCharIndex = 0; lastSavedIndex = 0;
+        if (currentUser && !currentUser.isAnonymous) {
+            await setDoc(doc(db, "users", currentUser.uid, "progress", currentBookId), {
+                chapter: currentChapterNum, charIndex: 0
+            }, { merge: true });
+        }
+        closeModal();
+        await loadChapter(targetChap);
+        openGameGenie();
+    };
+    
+    // Reset chapter
+    document.getElementById('gg-reset-ch').onclick = () => {
+        ggRealCharIndex = -1;
+        jumpToSentence(s, 0);
+        openGameGenie();
+    };
+    
+    // Infinite mode toggle
+    document.getElementById('gg-infinite').onclick = () => {
+        if (sessionValueStr === 'infinity') {
+            sessionValueStr = '30'; sessionLimit = 30;
+        } else {
+            sessionValueStr = 'infinity'; sessionLimit = 'infinity';
+        }
+        openGameGenie(); // refresh UI
+    };
+    
+    // Return button
     if (document.getElementById('gg-return-btn')) {
         document.getElementById('gg-return-btn').onclick = () => {
             const realIdx = ggRealCharIndex;
@@ -1632,6 +1698,7 @@ function openGameGenie() {
         };
     }
     
+    // Warp input
     document.getElementById('gg-jump-btn').onclick = () => {
         const target = parseInt(document.getElementById('gg-jump-input').value) - 1;
         if (!isNaN(target)) { jumpToSentence(s, target); openGameGenie(); }
@@ -1658,13 +1725,11 @@ function openGameGenie() {
         const rect = track.getBoundingClientRect();
         const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
         const targetChar = Math.round(ratio * fullText.length);
-        // Find nearest sentence start
         let nearest = 0;
         for (let i = 0; i < s.length; i++) {
             if (s[i].start <= targetChar) nearest = i;
             else break;
         }
-        // Update thumb position live
         const newPct = Math.round((s[nearest].start / fullText.length) * 100);
         thumb.style.left = newPct + '%';
         fill.style.width = newPct + '%';
@@ -1677,7 +1742,6 @@ function openGameGenie() {
     const onMove = (clientX) => {
         if (!dragging) return;
         dragTarget = sliderJump(clientX);
-        // Update preview and sentence counter
         const preview = document.getElementById('gg-preview');
         if (preview) preview.textContent = fullText.substring(s[dragTarget].start, s[dragTarget].start + 120) + (s[dragTarget].end - s[dragTarget].start > 120 ? '...' : '');
     };
