@@ -1,4 +1,4 @@
-/* v2.4.13 - GG positioning and layout fixes */
+/* v2.4.14 - GG smart-start typing, START/END, layout fixes */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -268,7 +268,7 @@ footer { position: fixed; bottom: 5px; right: 10px; font-size: 0.7em; color: #66
 
 /* --- GAME GENIE (admin only) --- */
 #genie-btn {
-    position: fixed; bottom: 8px; right: 8px;
+    position: fixed; bottom: 8px; left: 8px;
     background: #1a0a00; border: 1.5px solid #ff6600;
     color: #ff6600; cursor: pointer; z-index: 1000;
     padding: 3px 6px; border-radius: 3px;
