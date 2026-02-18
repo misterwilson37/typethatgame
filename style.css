@@ -1,4 +1,4 @@
-/* v2.6.1 - Leaderboards, initials, trophy button */
+/* v2.6.2 - Initials flow fix, 3-column settings layout */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -237,6 +237,21 @@ body {
 .menu-label-cell { display: table-cell; text-align: right; vertical-align: middle; padding-right: 12px; color: #888; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; white-space: nowrap; }
 .menu-value-cell { display: table-cell; vertical-align: middle; }
 .menu-value-cell select.modal-select { margin: 0; width: 100%; min-width: 0; }
+
+.menu-3col { display: flex; gap: 16px; text-align: left; align-items: flex-start; }
+.menu-col { flex: 1; min-width: 0; }
+.menu-col select.modal-select { margin: 4px 0 0 0; width: 100%; min-width: 0; }
+.menu-col .menu-label { margin-bottom: 0; }
+.menu-col-initials { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.initials-box-settings {
+    width: 72px; background: #222; color: #FFD700;
+    border: 2px solid #444; padding: 10px 8px;
+    font-family: 'Courier Prime', monospace;
+    font-size: 1.3rem; font-weight: bold; border-radius: 4px;
+    text-align: center; text-transform: uppercase; letter-spacing: 4px;
+    margin-top: 4px; outline: none;
+}
+.initials-box-settings:focus { border-color: #FFD700; box-shadow: 0 0 8px rgba(255,215,0,0.3); }
 
 /* Legacy grid kept for backward compat */
 .menu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 20px; text-align: left; }
