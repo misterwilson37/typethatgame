@@ -1,4 +1,4 @@
-/* v2.4.12 - GG chapter jump, infinite mode, no cooldown on chapter end */
+/* v2.4.13 - GG positioning and layout fixes */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -268,10 +268,10 @@ footer { position: fixed; bottom: 5px; right: 10px; font-size: 0.7em; color: #66
 
 /* --- GAME GENIE (admin only) --- */
 #genie-btn {
-    position: absolute; top: 22px; right: 52px;
+    position: fixed; bottom: 8px; right: 8px;
     background: #1a0a00; border: 1.5px solid #ff6600;
     color: #ff6600; cursor: pointer; z-index: 1000;
-    padding: 2px 5px; border-radius: 3px;
+    padding: 3px 6px; border-radius: 3px;
     font-family: 'Courier Prime', monospace;
     font-size: 0.6rem; font-weight: bold; letter-spacing: 1px;
     text-shadow: 0 0 4px #ff4400, 0 0 8px #ff2200;
