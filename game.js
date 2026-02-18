@@ -8,7 +8,7 @@ import {
     signOut
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "2.4.10";
+const VERSION = "2.4.11";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -37,6 +37,7 @@ let savedCharIndex = 0;
 let lastSavedIndex = 0;
 let currentChapterNum = 1;
 let autoStartNext = false; // skip start modal when advancing chapters
+let ggRealCharIndex = -1;  // real position before Game Genie warps
 
 // Stats
 let sessionLimit = 30;
@@ -99,7 +100,7 @@ async function init() {
         const gg = document.createElement('button');
         gg.id = 'genie-btn';
         gg.className = 'hidden';
-        gg.innerHTML = '<span class="gg-fire">G</span><span class="gg-fire gg-fire2">G</span>';
+        gg.innerHTML = '<span class="gg-flame">🔥</span><span class="gg-fire">G</span><span class="gg-fire gg-fire2">G</span><span class="gg-flame">🔥</span>';
         gg.title = 'Game Genie';
         gg.onclick = openGameGenie;
         document.body.appendChild(gg);
@@ -507,6 +508,15 @@ document.addEventListener('keydown', (e) => {
 
         const targetChar = fullText[currentCharIndex];
 
+        // End of chapter — Enter triggers the modal action (next chapter)
+        if (currentCharIndex >= fullText.length && e.key === 'Enter' && modalActionCallback) {
+            e.preventDefault();
+            const cb = modalActionCallback;
+            modalActionCallback = null;
+            cb();
+            return;
+        }
+
         if (e.key === targetChar) shouldStart = true;
         if (targetChar === '\n' && e.key === 'Enter') shouldStart = true;
         if (targetChar === '\t' && e.key === 'Tab') shouldStart = true;
@@ -862,7 +872,7 @@ function finishChapter() {
         }
         autoStartNext = true;
         loadChapter(nextChapterId);
-    });
+    }, 'Press Enter to continue');
 }
 
 function getHeaderHTML() {
@@ -926,7 +936,7 @@ function showStartModal(btnText) {
     showModalPanel();
 }
 
-function showStatsModal(title, stats, btnText, callback) {
+function showStatsModal(title, stats, btnText, callback, hint) {
     isModalOpen = true; isInputBlocked = true;
     modalActionCallback = () => { closeModal(); if(callback) callback(); };
     setModalTitle('');
@@ -945,6 +955,7 @@ function showStatsModal(title, stats, btnText, callback) {
             <span>Week: ${stats.week}</span>
         </div>
         ${getGoalProgressHTML()}
+        ${hint ? `<div class="start-hint" id="modal-hint" style="display:none;">${hint}</div>` : ''}
     `;
 
     const btn = document.getElementById('action-btn');
@@ -958,6 +969,8 @@ function showStatsModal(title, stats, btnText, callback) {
             const b = document.getElementById('action-btn');
             b.style.opacity = '1'; b.innerText = btnText; b.disabled = false;
         }
+        const hintEl = document.getElementById('modal-hint');
+        if (hintEl) hintEl.style.display = '';
     }, SPRINT_COOLDOWN_MS);
 }
 
@@ -1535,42 +1548,53 @@ function openGameGenie() {
     if (!currentUser || !ADMIN_EMAILS.includes(currentUser.email)) return;
     if (isGameActive) { isGameActive = false; clearInterval(timerInterval); }
     
+    // Save real position on first open (before any warps)
+    if (ggRealCharIndex < 0) ggRealCharIndex = currentCharIndex;
+    
     const sentences = getSentenceMap();
     const currentSent = getCurrentSentence(sentences);
     const pct = fullText.length > 0 ? Math.round((currentCharIndex / fullText.length) * 100) : 0;
+    const realSent = (() => { for (let i = 0; i < sentences.length; i++) { if (ggRealCharIndex < sentences[i].end) return i; } return sentences.length - 1; })();
+    const hasWarped = ggRealCharIndex !== currentCharIndex;
     
     isModalOpen = true; isInputBlocked = true;
     modalGeneration++;
     setModalTitle('🔥 GAME GENIE 🔥');
     
+    const ggBtnStyle = 'background:#333; color:#ff6600; border:1px solid #ff6600; padding:6px 10px; cursor:pointer; font-family:inherit; border-radius:3px; font-size:0.85em;';
+    
     document.getElementById('modal-body').innerHTML = `
         <div style="font-family: 'Courier Prime', monospace; text-align: left; padding: 0 10px;">
-            <div style="display:flex; justify-content:space-between; margin-bottom:8px; font-size:0.8em; color:#888;">
+            <div style="display:flex; justify-content:space-between; margin-bottom:4px; font-size:0.75em; color:#888;">
                 <span>Char ${currentCharIndex.toLocaleString()} / ${fullText.length.toLocaleString()}</span>
                 <span>${pct}%</span>
             </div>
-            <div style="height:8px; background:#eee; border-radius:4px; overflow:hidden; margin-bottom:12px;">
-                <div style="height:100%; width:${pct}%; background: linear-gradient(90deg, #ff6600, #ff0000, #ff6600); border-radius:4px; transition:width 0.3s;"></div>
+            <div id="gg-slider-track" style="height:12px; background:#eee; border-radius:6px; overflow:visible; margin-bottom:10px; cursor:pointer; position:relative;">
+                <div id="gg-slider-fill" style="height:100%; width:${pct}%; background: linear-gradient(90deg, #ff6600, #ff0000, #ff6600); border-radius:6px; pointer-events:none;"></div>
+                <div id="gg-slider-thumb" style="position:absolute; top:-2px; left:${pct}%; width:16px; height:16px; background:#ff6600; border:2px solid #fff; border-radius:50%; transform:translateX(-50%); cursor:grab; box-shadow:0 0 6px rgba(255,102,0,0.5);"></div>
             </div>
             
-            <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
-                <button id="gg-back10" style="background:#333; color:#ff6600; border:1px solid #ff6600; padding:6px 10px; cursor:pointer; font-family:inherit; border-radius:3px;">-10</button>
-                <button id="gg-back1" style="background:#333; color:#ff6600; border:1px solid #ff6600; padding:6px 10px; cursor:pointer; font-family:inherit; border-radius:3px;">-1</button>
-                <div style="flex:1; text-align:center; font-weight:bold; font-size:1.1em;">
-                    Sentence <span style="color:#ff6600;">${currentSent + 1}</span> / ${sentences.length}
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+                <button id="gg-back10" style="${ggBtnStyle}">-10</button>
+                <button id="gg-back1" style="${ggBtnStyle}">-1</button>
+                <div style="flex:1; text-align:center; font-weight:bold; font-size:1em;">
+                    Sent <span style="color:#ff6600;">${currentSent + 1}</span> / ${sentences.length}
                 </div>
-                <button id="gg-fwd1" style="background:#333; color:#ff6600; border:1px solid #ff6600; padding:6px 10px; cursor:pointer; font-family:inherit; border-radius:3px;">+1</button>
-                <button id="gg-fwd10" style="background:#333; color:#ff6600; border:1px solid #ff6600; padding:6px 10px; cursor:pointer; font-family:inherit; border-radius:3px;">+10</button>
+                <button id="gg-fwd1" style="${ggBtnStyle}">+1</button>
+                <button id="gg-fwd10" style="${ggBtnStyle}">+10</button>
             </div>
             
-            <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
-                <label style="font-size:0.85em; white-space:nowrap;">Jump to #</label>
-                <input id="gg-jump-input" type="number" min="1" max="${sentences.length}" value="${currentSent + 1}" 
-                       style="flex:1; background:#f8f8f8; border:1px solid #ccc; padding:6px 8px; font-family:inherit; font-size:0.9em; border-radius:3px;">
-                <button id="gg-jump-btn" style="background:#ff6600; color:#fff; border:none; padding:6px 14px; cursor:pointer; font-family:inherit; font-weight:bold; border-radius:3px;">WARP</button>
+            <div style="display:flex; justify-content:center; margin-bottom:8px;">
+                <div style="display:flex; gap:6px; align-items:center;">
+                    <label style="font-size:0.8em; white-space:nowrap;">Warp to #</label>
+                    <input id="gg-jump-input" type="number" min="1" max="${sentences.length}" value="${currentSent + 1}" 
+                           style="width:70px; background:#f8f8f8; border:1px solid #ccc; padding:5px 6px; font-family:inherit; font-size:0.85em; border-radius:3px; text-align:center;">
+                    <button id="gg-jump-btn" style="background:#ff6600; color:#fff; border:none; padding:5px 12px; cursor:pointer; font-family:inherit; font-weight:bold; border-radius:3px; font-size:0.85em;">WARP</button>
+                    ${hasWarped ? `<button id="gg-return-btn" style="background:#224422; color:#88ff88; border:1px solid #44aa44; padding:5px 10px; cursor:pointer; font-family:inherit; border-radius:3px; font-size:0.75em;" title="Return to sentence ${realSent + 1}">↩ Return</button>` : ''}
+                </div>
             </div>
             
-            <div id="gg-preview" style="font-size:0.75em; color:#888; background:#f5f5f5; padding:6px 8px; border-radius:3px; max-height:48px; overflow:hidden; line-height:1.3;">
+            <div id="gg-preview" style="font-size:0.7em; color:#888; background:#f5f5f5; padding:5px 8px; border-radius:3px; max-height:40px; overflow:hidden; line-height:1.3;">
                 ${escapeHtml(fullText.substring(sentences[currentSent].start, sentences[currentSent].start + 120))}${sentences[currentSent].end - sentences[currentSent].start > 120 ? '...' : ''}
             </div>
         </div>
@@ -1578,40 +1602,118 @@ function openGameGenie() {
     
     const btn = document.getElementById('action-btn');
     btn.innerText = 'Close'; btn.disabled = false; btn.style.opacity = '1'; btn.style.display = 'inline-block';
-    btn.onclick = () => { closeModal(); showStartModal("Resume"); };
+    btn.onclick = () => { ggRealCharIndex = -1; closeModal(); showStartModal("Resume"); };
     modalActionCallback = null;
     showModalPanel();
     
     // Wire up buttons
-    const rewire = () => {
-        const s = getSentenceMap();
-        const cur = getCurrentSentence(s);
-        
-        document.getElementById('gg-back10').onclick = () => { jumpToSentence(s, cur - 10); openGameGenie(); };
-        document.getElementById('gg-back1').onclick = () => { jumpToSentence(s, cur - 1); openGameGenie(); };
-        document.getElementById('gg-fwd1').onclick = () => { jumpToSentence(s, cur + 1); openGameGenie(); };
-        document.getElementById('gg-fwd10').onclick = () => { jumpToSentence(s, cur + 10); openGameGenie(); };
-        document.getElementById('gg-jump-btn').onclick = () => {
-            const target = parseInt(document.getElementById('gg-jump-input').value) - 1;
-            if (!isNaN(target)) { jumpToSentence(s, target); openGameGenie(); }
-        };
-        document.getElementById('gg-jump-input').oninput = () => {
-            const target = parseInt(document.getElementById('gg-jump-input').value) - 1;
-            if (!isNaN(target) && target >= 0 && target < s.length) {
-                const preview = document.getElementById('gg-preview');
-                if (preview) {
-                    preview.textContent = fullText.substring(s[target].start, s[target].start + 120) + (s[target].end - s[target].start > 120 ? '...' : '');
-                }
+    const s = sentences;
+    const cur = currentSent;
+    
+    document.getElementById('gg-back10').onclick = () => { jumpToSentence(s, cur - 10); openGameGenie(); };
+    document.getElementById('gg-back1').onclick = () => { jumpToSentence(s, cur - 1); openGameGenie(); };
+    document.getElementById('gg-fwd1').onclick = () => { jumpToSentence(s, cur + 1); openGameGenie(); };
+    document.getElementById('gg-fwd10').onclick = () => { jumpToSentence(s, cur + 10); openGameGenie(); };
+    
+    if (document.getElementById('gg-return-btn')) {
+        document.getElementById('gg-return-btn').onclick = () => {
+            const realIdx = ggRealCharIndex;
+            ggRealCharIndex = -1;
+            currentCharIndex = realIdx;
+            savedCharIndex = realIdx;
+            sprintCharStart = realIdx;
+            renderText();
+            for (let i = 0; i < currentCharIndex; i++) {
+                const el = document.getElementById(`char-${i}`);
+                if (el) { el.classList.remove('active'); if (!el.classList.contains('space') && !el.classList.contains('enter') && !el.classList.contains('tab')) el.classList.add('done-perfect'); }
             }
+            highlightCurrentChar(); centerView(); saveProgress();
+            openGameGenie();
         };
-        document.getElementById('gg-jump-input').onkeydown = (e) => {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                document.getElementById('gg-jump-btn').click();
-            }
-        };
+    }
+    
+    document.getElementById('gg-jump-btn').onclick = () => {
+        const target = parseInt(document.getElementById('gg-jump-input').value) - 1;
+        if (!isNaN(target)) { jumpToSentence(s, target); openGameGenie(); }
     };
-    rewire();
+    document.getElementById('gg-jump-input').oninput = () => {
+        const target = parseInt(document.getElementById('gg-jump-input').value) - 1;
+        if (!isNaN(target) && target >= 0 && target < s.length) {
+            const preview = document.getElementById('gg-preview');
+            if (preview) {
+                preview.textContent = fullText.substring(s[target].start, s[target].start + 120) + (s[target].end - s[target].start > 120 ? '...' : '');
+            }
+        }
+    };
+    document.getElementById('gg-jump-input').onkeydown = (ev) => {
+        if (ev.key === 'Enter') { ev.preventDefault(); document.getElementById('gg-jump-btn').click(); }
+    };
+    
+    // Draggable slider
+    const track = document.getElementById('gg-slider-track');
+    const thumb = document.getElementById('gg-slider-thumb');
+    const fill = document.getElementById('gg-slider-fill');
+    
+    function sliderJump(clientX) {
+        const rect = track.getBoundingClientRect();
+        const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+        const targetChar = Math.round(ratio * fullText.length);
+        // Find nearest sentence start
+        let nearest = 0;
+        for (let i = 0; i < s.length; i++) {
+            if (s[i].start <= targetChar) nearest = i;
+            else break;
+        }
+        // Update thumb position live
+        const newPct = Math.round((s[nearest].start / fullText.length) * 100);
+        thumb.style.left = newPct + '%';
+        fill.style.width = newPct + '%';
+        return nearest;
+    }
+    
+    let dragging = false;
+    let dragTarget = 0;
+    
+    const onMove = (clientX) => {
+        if (!dragging) return;
+        dragTarget = sliderJump(clientX);
+        // Update preview and sentence counter
+        const preview = document.getElementById('gg-preview');
+        if (preview) preview.textContent = fullText.substring(s[dragTarget].start, s[dragTarget].start + 120) + (s[dragTarget].end - s[dragTarget].start > 120 ? '...' : '');
+    };
+    
+    const onUp = () => {
+        if (!dragging) return;
+        dragging = false;
+        thumb.style.cursor = 'grab';
+        document.removeEventListener('mousemove', mouseMove);
+        document.removeEventListener('mouseup', onUp);
+        document.removeEventListener('touchmove', touchMove);
+        document.removeEventListener('touchend', onUp);
+        jumpToSentence(s, dragTarget);
+        openGameGenie();
+    };
+    
+    const mouseMove = (ev) => onMove(ev.clientX);
+    const touchMove = (ev) => { ev.preventDefault(); onMove(ev.touches[0].clientX); };
+    
+    const startDrag = (clientX) => {
+        dragging = true;
+        thumb.style.cursor = 'grabbing';
+        document.addEventListener('mousemove', mouseMove);
+        document.addEventListener('mouseup', onUp);
+        document.addEventListener('touchmove', touchMove, { passive: false });
+        document.addEventListener('touchend', onUp);
+        onMove(clientX);
+    };
+    
+    thumb.onmousedown = (ev) => { ev.preventDefault(); startDrag(ev.clientX); };
+    thumb.ontouchstart = (ev) => { ev.preventDefault(); startDrag(ev.touches[0].clientX); };
+    track.onclick = (ev) => {
+        const nearest = sliderJump(ev.clientX);
+        jumpToSentence(s, nearest);
+        openGameGenie();
+    };
 }
 
 window.onload = init;
