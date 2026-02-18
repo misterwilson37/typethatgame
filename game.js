@@ -8,7 +8,7 @@ import {
     signOut
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "2.4.12";
+const VERSION = "2.4.13";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -1590,12 +1590,15 @@ function openGameGenie() {
     }
     
     document.getElementById('modal-body').innerHTML = `
-        <div style="font-family: 'Courier Prime', monospace; text-align: left; padding: 0 8px; font-size: 0.8em;">
+        <div style="font-family: 'Courier Prime', monospace; text-align: left; width: 50%; margin: 0 auto; font-size: 0.8em;">
             <div style="display:flex; gap:6px; align-items:center; margin-bottom:6px;">
                 <select id="gg-chapter-select" style="flex:1; background:#f8f8f8; border:1px solid #ccc; padding:3px 4px; font-family:inherit; font-size:0.9em; border-radius:3px;">${chapOpts}</select>
                 <button id="gg-chapter-go" style="${ggBtn}">Jump Ch.</button>
                 <button id="gg-reset-ch" style="${ggBtn}" title="Reset to start of chapter">⟲ Reset</button>
-                <button id="gg-infinite" style="${isInfinite ? 'background:#ff6600; color:#fff;' : 'background:#333; color:#ff6600;'} border:1px solid #ff6600; padding:4px 8px; cursor:pointer; font-family:inherit; border-radius:3px; font-size:0.8em;" title="Toggle infinite session (no sprint timer)">∞</button>
+            </div>
+            
+            <div style="display:flex; justify-content:center; margin-bottom:8px;">
+                <button id="gg-infinite" style="${isInfinite ? 'background:#ff6600; color:#fff;' : 'background:#333; color:#ff6600;'} border:2px solid #ff6600; padding:6px 16px; cursor:pointer; font-family:inherit; border-radius:4px; font-size:1.1em; font-weight:bold; letter-spacing:1px;" title="Toggle infinite session (no sprint timer)">${isInfinite ? '∞ INFINITE ON' : '∞ Infinite Mode'}</button>
             </div>
             
             <div style="display:flex; justify-content:space-between; margin-bottom:2px; font-size:0.85em; color:#888;">
@@ -1611,7 +1614,7 @@ function openGameGenie() {
                 <button id="gg-back10" style="${ggBtn}">-10</button>
                 <button id="gg-back1" style="${ggBtn}">-1</button>
                 <div style="flex:1; text-align:center; font-weight:bold;">
-                    Sent <span style="color:#ff6600;">${currentSent + 1}</span> / ${sentences.length}
+                    Sentence <span style="color:#ff6600;">${currentSent + 1}</span> / ${sentences.length}
                 </div>
                 <button id="gg-fwd1" style="${ggBtn}">+1</button>
                 <button id="gg-fwd10" style="${ggBtn}">+10</button>
