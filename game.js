@@ -8,7 +8,7 @@ import {
     signOut
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "2.4.14";
+const VERSION = "2.5.0";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -42,6 +42,8 @@ let ggRealCharIndex = -1;  // real position before Game Genie warps
 // Stats
 let sessionLimit = 30;
 let sessionValueStr = "30";
+const savedSession = localStorage.getItem('ttb_sessionLength');
+if (savedSession) { sessionValueStr = savedSession; sessionLimit = (savedSession === 'infinity') ? 'infinity' : parseInt(savedSession); }
 let statsData = { secondsToday:0, secondsWeek:0, charsToday:0, charsWeek:0, mistakesToday:0, mistakesWeek:0, lastDate:"", weekStart:0 };
 
 // Goals
@@ -58,7 +60,11 @@ let isGameActive = false; let isOvertime = false;
 let isModalOpen = false; let isInputBlocked = false;
 let modalGeneration = 0;
 let isHardStop = false;
+let backspaceOrigin = -1; // tracks where we were when backspacing started
 let bookSwitchPending = false;
+let anonSprintCount = 0;
+let anonTotalSeconds = 0;
+let anonPromptShown = false;
 let modalActionCallback = null;
 let lastInputTime = 0; let timeAccumulator = 0;
 let wpmHistory = []; let accuracyHistory = [];
@@ -365,11 +371,12 @@ function startGame() {
     if (select) {
         sessionValueStr = select.value;
         sessionLimit = (sessionValueStr === 'infinity') ? 'infinity' : parseInt(sessionValueStr);
+        localStorage.setItem('ttb_sessionLength', sessionValueStr);
     }
 
     sprintSeconds = 0; sprintMistakes = 0; sprintCharStart = currentCharIndex;
     activeSeconds = 0; timeAccumulator = 0; lastInputTime = Date.now();
-    consecutiveMistakes = 0;
+    consecutiveMistakes = 0; backspaceOrigin = -1;
     wpmHistory = []; accuracyHistory = [];
 
     highlightCurrentChar(); centerView(); closeModal();
@@ -571,11 +578,13 @@ function handleTyping(key) {
         if (currentLetterStatus === 'error') {
             // First backspace: clear the error on current char
             currentLetterStatus = 'fixed';
+            if (backspaceOrigin < 0) backspaceOrigin = currentCharIndex;
             currentEl.classList.remove('error-state');
         } else if (currentCharIndex > sprintCharStart) {
             // Additional backspaces: move back to previous char
+            if (backspaceOrigin < 0) backspaceOrigin = currentCharIndex;
             currentCharIndex--;
-            currentLetterStatus = 'fixed'; // will show as fixed when retyped
+            currentLetterStatus = 'fixed';
             const prevEl = document.getElementById(`char-${currentCharIndex}`);
             if (prevEl) {
                 prevEl.classList.remove('done-perfect', 'done-fixed', 'done-dirty');
@@ -597,7 +606,14 @@ function handleTyping(key) {
         else if (currentLetterStatus === 'fixed') currentEl.classList.add('done-fixed');
         else currentEl.classList.add('done-dirty');
 
-        currentCharIndex++; currentLetterStatus = 'clean';
+        currentCharIndex++;
+        // Keep 'fixed' status until we pass the backspace origin point
+        if (backspaceOrigin >= 0 && currentCharIndex <= backspaceOrigin) {
+            currentLetterStatus = 'fixed';
+        } else {
+            backspaceOrigin = -1;
+            currentLetterStatus = 'clean';
+        }
 
         if (['.', '!', '?', '\n'].includes(targetChar)) saveProgress();
         else if (['"', "'"].includes(targetChar) && currentCharIndex >= 2) {
@@ -643,6 +659,7 @@ function triggerHardStop(targetChar, isAfk) {
     isGameActive = false;
     clearInterval(timerInterval);
     isHardStop = true;
+    resetModalFooter();
 
     let friendlyKey = targetChar;
     if (targetChar === ' ') friendlyKey = 'Space';
@@ -658,12 +675,30 @@ function triggerHardStop(targetChar, isAfk) {
 
     let msg = isAfk ? "You've been away for a while." : "Too many errors!";
 
+    let statsHtml = '';
+    if (isAfk) {
+        const todayWPM = calculateAverageWPM(statsData.charsToday, statsData.secondsToday);
+        const todayAcc = calculateAverageAcc(statsData.charsToday, statsData.mistakesToday);
+        const weekWPM = calculateAverageWPM(statsData.charsWeek, statsData.secondsWeek);
+        const weekAcc = calculateAverageAcc(statsData.charsWeek, statsData.mistakesWeek);
+        if (statsData.secondsToday > 0 || statsData.secondsWeek > 0) {
+            statsHtml = `
+                <div class="cumulative-row" style="margin-top:10px;">
+                    <span>Today: ${formatTime(statsData.secondsToday)} (${todayWPM} WPM | ${todayAcc}%)</span>
+                    <span>Week: ${formatTime(statsData.secondsWeek)} (${weekWPM} WPM | ${weekAcc}%)</span>
+                </div>
+                ${getGoalProgressHTML()}
+            `;
+        }
+    }
+
     document.getElementById('modal-body').innerHTML = `
         <div style="font-size: 1.1em;">
             ${msg}<br>
             Please type <b style="color: #D32F2F; font-size: 1.5em; border: 1px solid #ccc; padding: 2px 8px; border-radius: 4px;">${friendlyKey}</b> to resume.
             ${hintHtml}
         </div>
+        ${statsHtml}
     `;
     const btn = document.getElementById('action-btn');
     btn.style.display = 'none';
@@ -789,6 +824,16 @@ function pauseGameForBreak() {
     // Log this session
     logSession(sprintSeconds, charsTyped, sprintMistakes, sprintWPM, sprintAcc);
 
+    // Track anonymous usage
+    anonSprintCount++;
+    anonTotalSeconds += sprintSeconds;
+
+    // Check if anon user should be prompted to log in
+    if (checkAnonLoginPrompt()) {
+        showAnonLoginPrompt();
+        return;
+    }
+
     const todayWPM = calculateAverageWPM(statsData.charsToday, statsData.secondsToday);
     const todayAcc = calculateAverageAcc(statsData.charsToday, statsData.mistakesToday);
     const weekWPM = calculateAverageWPM(statsData.charsWeek, statsData.secondsWeek);
@@ -912,6 +957,7 @@ function showStartModal(btnText) {
     isModalOpen = true; isInputBlocked = false;
     modalActionCallback = startGame;
     setModalTitle('');
+    resetModalFooter();
 
     const todayWPM = calculateAverageWPM(statsData.charsToday, statsData.secondsToday);
     const todayAcc = calculateAverageAcc(statsData.charsToday, statsData.mistakesToday);
@@ -962,6 +1008,20 @@ function showStatsModal(title, stats, btnText, callback, hint, instant) {
         ${hint ? `<div class="start-hint" id="modal-hint" style="display:none;">${hint}</div>` : ''}
     `;
 
+    // Add sprint length dropdown to footer alongside button
+    document.getElementById('modal-footer').innerHTML = `
+        <div class="modal-footer-row">
+            <select id="sprint-select" class="modal-select modal-select-sm">${getSessionOptionsHTML()}</select>
+            <button id="action-btn" class="modal-btn">Action</button>
+        </div>
+    `;
+    // Save sprint changes immediately so smart-start (which closes modal first) sees them
+    document.getElementById('sprint-select').onchange = (e) => {
+        sessionValueStr = e.target.value;
+        sessionLimit = (sessionValueStr === 'infinity') ? 'infinity' : parseInt(sessionValueStr);
+        localStorage.setItem('ttb_sessionLength', sessionValueStr);
+    };
+
     const btn = document.getElementById('action-btn');
     if (instant) {
         btn.innerText = btnText; btn.onclick = modalActionCallback; btn.disabled = false; btn.style.opacity = '1'; btn.style.display = 'inline-block';
@@ -985,6 +1045,53 @@ function showStatsModal(title, stats, btnText, callback, hint, instant) {
     showModalPanel();
 }
 
+
+function checkAnonLoginPrompt() {
+    if (anonPromptShown) return false;
+    if (currentUser) return false; // already logged in
+    if (anonSprintCount >= 2 || anonTotalSeconds >= 150) {
+        anonPromptShown = true;
+        return true;
+    }
+    return false;
+}
+
+function showAnonLoginPrompt() {
+    isModalOpen = true; isInputBlocked = false;
+    setModalTitle('');
+    resetModalFooter();
+
+    document.getElementById('modal-body').innerHTML = `
+        <div style="text-align:center;">
+            <div class="stats-title">Nice work! 👏</div>
+            <div style="font-size:0.95em; color:#555; margin: 8px 0;">
+                You're making real progress! Sign in to save your work so you can pick up right where you left off next time.
+            </div>
+        </div>
+    `;
+
+    const btn = document.getElementById('action-btn');
+    btn.innerText = 'Sign In'; btn.disabled = false; btn.style.opacity = '1'; btn.style.display = 'inline-block';
+    btn.onclick = async () => {
+        try { await signInWithPopup(auth, new GoogleAuthProvider()); }
+        catch (e) { /* user cancelled, just continue */ }
+        closeModal();
+        showStartModal("Continue");
+    };
+
+    // Add a skip link below
+    const footer = document.getElementById('modal-footer');
+    const skip = document.createElement('div');
+    skip.innerHTML = `<a href="#" id="anon-skip" style="color:#999; font-size:0.8rem; margin-top:6px; display:inline-block;">No thanks, keep typing</a>`;
+    footer.appendChild(skip);
+    document.getElementById('anon-skip').onclick = (e) => {
+        e.preventDefault();
+        closeModal();
+        showStartModal("Continue");
+    };
+
+    showModalPanel();
+}
 
 function getGoalProgressHTML() {
     if (goals.dailySeconds <= 0 && goals.weeklySeconds <= 0) return '';
@@ -1028,7 +1135,12 @@ function closeModal() {
     isModalOpen = false; isInputBlocked = false; 
     document.getElementById('modal').classList.add('hidden');
     document.getElementById('virtual-keyboard').classList.remove('hidden');
+    resetModalFooter();
     const keyboard = document.getElementById('virtual-keyboard'); if(keyboard) keyboard.focus();
+}
+
+function resetModalFooter() {
+    document.getElementById('modal-footer').innerHTML = `<button id="action-btn" class="modal-btn">Action</button>`;
 }
 
 function showModalPanel() {
@@ -1048,6 +1160,7 @@ async function openMenuModal() {
     isModalOpen = true; isInputBlocked = false;
     modalGeneration++;
     modalActionCallback = () => { closeModal(); startGame(); };
+    resetModalFooter();
 
     setModalTitle('Settings');
 
@@ -1079,34 +1192,44 @@ async function openMenuModal() {
     } catch(e) { console.warn(e); }
 
     document.getElementById('modal-body').innerHTML = `
-        <div class="menu-grid">
-            <div class="menu-section">
-                <div class="menu-label">Book</div>
-                <select id="book-select" class="modal-select">${bookOptions}</select>
+        <div class="menu-table">
+            <div class="menu-row">
+                <div class="menu-label-cell">Book</div>
+                <div class="menu-value-cell"><select id="book-select" class="modal-select">${bookOptions}</select></div>
             </div>
-            <div class="menu-section">
-                <div class="menu-label">Chapter</div>
-                <div style="display:flex; gap:8px;">
-                    <select id="chapter-nav-select" class="modal-select" style="margin:0; flex-grow:1;">${chapterOptions}</select>
-                    <button id="go-btn" class="modal-btn" style="width:auto; padding:0 16px; font-size:14px;">Go</button>
+            <div class="menu-row">
+                <div class="menu-label-cell">Chapter</div>
+                <div class="menu-value-cell">
+                    <div style="display:flex; gap:8px;">
+                        <select id="chapter-nav-select" class="modal-select" style="margin:0; flex-grow:1;">${chapterOptions}</select>
+                        <button id="go-btn" class="modal-btn" style="width:auto; padding:0 16px; font-size:14px;">Go</button>
+                    </div>
                 </div>
             </div>
-            <div class="menu-section">
-                <div class="menu-label">Session Length</div>
-                <select id="sprint-select" class="modal-select">${getSessionOptionsHTML()}</select>
+            <div class="menu-row">
+                <div class="menu-label-cell">Sprint</div>
+                <div class="menu-value-cell"><select id="sprint-select" class="modal-select">${getSessionOptionsHTML()}</select></div>
             </div>
-            <div class="menu-section">
-                <div class="menu-label">Keyboard</div>
-                <select id="layout-select" class="modal-select">
-                    <option value="qwerty" ${currentLayout === 'qwerty' ? 'selected' : ''}>QWERTY</option>
-                    <option value="dvorak" ${currentLayout === 'dvorak' ? 'selected' : ''}>Dvorak</option>
-                </select>
+            <div class="menu-row">
+                <div class="menu-label-cell">Keyboard</div>
+                <div class="menu-value-cell">
+                    <select id="layout-select" class="modal-select">
+                        <option value="qwerty" ${currentLayout === 'qwerty' ? 'selected' : ''}>QWERTY</option>
+                        <option value="dvorak" ${currentLayout === 'dvorak' ? 'selected' : ''}>Dvorak</option>
+                    </select>
+                </div>
             </div>
         </div>
     `;
 
     document.getElementById('layout-select').onchange = (e) => {
         setKeyboardLayout(e.target.value);
+    };
+
+    document.getElementById('sprint-select').onchange = (e) => {
+        sessionValueStr = e.target.value;
+        sessionLimit = (sessionValueStr === 'infinity') ? 'infinity' : parseInt(sessionValueStr);
+        localStorage.setItem('ttb_sessionLength', sessionValueStr);
     };
 
     document.getElementById('book-select').onchange = async (e) => {
@@ -1640,6 +1763,7 @@ function openGameGenie() {
         </div>
     `;
     
+    resetModalFooter();
     const btn = document.getElementById('action-btn');
     btn.innerText = 'Close'; btn.disabled = false; btn.style.opacity = '1'; btn.style.display = 'inline-block';
     const ggClose = () => { ggRealCharIndex = -1; closeModal(); startGame(); };
@@ -1690,6 +1814,7 @@ function openGameGenie() {
         } else {
             sessionValueStr = 'infinity'; sessionLimit = 'infinity';
         }
+        localStorage.setItem('ttb_sessionLength', sessionValueStr);
         openGameGenie(); // refresh UI
     };
     
