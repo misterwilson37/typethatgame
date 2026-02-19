@@ -9,7 +9,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
-const VERSION = "2.7.0";
+const VERSION = "2.7.1";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -2775,7 +2775,7 @@ function exitPracticeMode() {
     isPracticeMode = false;
     bookData = practiceRealBookData;
     currentChapterNum = practiceRealChapterNum;
-    savedCharIndex = practiceRealSavedCharIndex;
+    savedCharIndex = practiceRealCharIndex;       // restore to where user actually was
     currentCharIndex = practiceRealCharIndex;
     lastSavedIndex = practiceRealLastSavedIndex;
     furthestChapter = practiceRealFurthestChapter;
