@@ -8,7 +8,7 @@ import {
     signOut
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "2.6.5";
+const VERSION = "2.6.6";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -1004,15 +1004,16 @@ function getMissedCharsHTML() {
 
 function getPlacementsHTML(placements) {
     if (!placements || placements.length === 0) return '';
-    const trophies = placements.map(p => {
+    const rows = placements.map(p => {
         let trophy, color;
         if (p.rank === 1) { trophy = '🥇'; color = '#FFD700'; }
         else if (p.rank === 2) { trophy = '🥈'; color = '#C0C0C0'; }
         else if (p.rank === 3) { trophy = '🥉'; color = '#CD7F32'; }
         else { trophy = '🏆'; color = '#4B9CD3'; }
-        return `<span style="display:inline-block; color:${color}; margin:0 3px;" title="#${p.rank} in ${p.category.label}">${trophy}<small style="font-size:0.7em;">${p.category.label.split(' ')[1]}</small></span>`;
+        const catName = p.category.label.split(' ').slice(1).join(' ') || p.category.label;
+        return `<div class="trophy-row"><span class="trophy-icon">${trophy}</span><span class="trophy-label" style="color:${color};">#${p.rank} ${catName}</span></div>`;
     }).join('');
-    return `<div style="text-align:center; margin:4px 0; font-size:0.95em;">Leaderboard: ${trophies}</div>`;
+    return `<div class="trophy-panel"><div class="trophy-header">🏆</div>${rows}</div>`;
 }
 
 function getSprintHistoryHTML() {
@@ -1194,25 +1195,32 @@ function showStatsModal(title, stats, btnText, callback, hint, instant) {
     modalActionCallback = () => { closeModal(); if(callback) callback(); };
     setModalTitle('');
 
+    const trophyHTML = getPlacementsHTML(stats.placements);
+    const hasTrophies = trophyHTML.length > 0;
+
     document.getElementById('modal-body').innerHTML = `
-        <div class="stats-title">${title}</div>
-        <div class="stats-inline">
-            <span class="si-val">${stats.wpm} <small>WPM</small></span>
-            <span class="si-dot">·</span>
-            <span class="si-val">${stats.acc}% <small>Acc</small></span>
-            <span class="si-dot">·</span>
-            <span class="si-val">${formatTime(stats.time)}</span>
-            ${bestStreak > 0 ? `<span class="si-dot">·</span><span class="si-val">🔥${bestStreak}</span>` : ''}
+        <div class="${hasTrophies ? 'stats-with-trophies' : ''}">
+            <div class="${hasTrophies ? 'stats-main' : ''}">
+                <div class="stats-title">${title}</div>
+                <div class="stats-inline">
+                    <span class="si-val">${stats.wpm} <small>WPM</small></span>
+                    <span class="si-dot">·</span>
+                    <span class="si-val">${stats.acc}% <small>Acc</small></span>
+                    <span class="si-dot">·</span>
+                    <span class="si-val">${formatTime(stats.time)}</span>
+                    ${bestStreak > 0 ? `<span class="si-dot">·</span><span class="si-val">🔥${bestStreak}</span>` : ''}
+                </div>
+                <div class="cumulative-row">
+                    <span>Today: ${stats.today}</span>
+                    <span>Week: ${stats.week}</span>
+                </div>
+                ${getGoalProgressHTML()}
+                ${getSprintHistoryHTML()}
+                ${getMissedCharsHTML()}
+                ${hint ? `<div class="start-hint" id="modal-hint" style="display:none;">${hint}</div>` : ''}
+            </div>
+            ${trophyHTML}
         </div>
-        <div class="cumulative-row">
-            <span>Today: ${stats.today}</span>
-            <span>Week: ${stats.week}</span>
-        </div>
-        ${getGoalProgressHTML()}
-        ${getPlacementsHTML(stats.placements)}
-        ${getSprintHistoryHTML()}
-        ${getMissedCharsHTML()}
-        ${hint ? `<div class="start-hint" id="modal-hint" style="display:none;">${hint}</div>` : ''}
     `;
 
     // Add sprint length dropdown to footer alongside button
