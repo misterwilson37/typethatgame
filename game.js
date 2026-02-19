@@ -1,14 +1,15 @@
-// v2.4.6 - Caps Lock warning
+// v2.7.0 - Practice Mode with Gemini AI
 import { db, auth } from "./firebase-config.js";
-import { doc, getDoc, setDoc, getDocs, collection, addDoc, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { doc, getDoc, setDoc, getDocs, collection, addDoc, query, orderBy, limit, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import {
     onAuthStateChanged,
     GoogleAuthProvider,
     signInWithPopup,
     signOut
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
-const VERSION = "2.6.6";
+const VERSION = "2.7.0";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -96,6 +97,21 @@ let userInitials = '';
 let leaderboardOptOut = false;
 let leaderboardCache = {}; // { category: [entries], ... }
 let leaderboardCacheTime = 0;
+
+// Practice Mode
+const functions = getFunctions();
+const generatePractice = httpsCallable(functions, 'generatePractice');
+let isPracticeMode = false;
+let practiceRealBookData = null;    // saved real book state
+let practiceRealChapterNum = null;
+let practiceRealCharIndex = null;
+let practiceRealSavedCharIndex = null;
+let practiceRealLastSavedIndex = null;
+let practiceRealFurthestChapter = null;
+let practiceRealFurthestCharIndex = null;
+let practiceProblemChars = [];      // the chars that triggered this practice
+let practicePrompt = '';            // the prompt sent to Gemini
+let practiceText = '';              // the generated text
 
 // Profanity filter for initials (covers letter substitutions kids try)
 const BLOCKED_INITIALS = new Set([
@@ -860,20 +876,23 @@ function isPositionAhead(chapA, idxA, chapB, idxB) {
 async function saveProgress(force = false) {
     if (!currentUser || currentUser.isAnonymous) return;
     try {
-        if (currentCharIndex > lastSavedIndex || force) {
-            // Update furthest tracking (only moves forward)
-            if (isPositionAhead(currentChapterNum, currentCharIndex, furthestChapter, furthestCharIndex)) {
-                furthestChapter = currentChapterNum;
-                furthestCharIndex = currentCharIndex;
+        // Don't save book position during practice mode
+        if (!isPracticeMode) {
+            if (currentCharIndex > lastSavedIndex || force) {
+                // Update furthest tracking (only moves forward)
+                if (isPositionAhead(currentChapterNum, currentCharIndex, furthestChapter, furthestCharIndex)) {
+                    furthestChapter = currentChapterNum;
+                    furthestCharIndex = currentCharIndex;
+                }
+                await setDoc(doc(db, "users", currentUser.uid, "progress", currentBookId), {
+                    chapter: currentChapterNum,
+                    charIndex: currentCharIndex,
+                    furthestChapter: furthestChapter,
+                    furthestCharIndex: furthestCharIndex,
+                    lastUpdated: new Date()
+                }, { merge: true });
+                lastSavedIndex = currentCharIndex;
             }
-            await setDoc(doc(db, "users", currentUser.uid, "progress", currentBookId), {
-                chapter: currentChapterNum,
-                charIndex: currentCharIndex,
-                furthestChapter: furthestChapter,
-                furthestCharIndex: furthestCharIndex,
-                lastUpdated: new Date()
-            }, { merge: true });
-            lastSavedIndex = currentCharIndex;
         }
         await setDoc(doc(db, "users", currentUser.uid, "stats", "time_tracking"), statsData, { merge: true });
 
@@ -999,7 +1018,11 @@ function getMissedCharsHTML() {
     const pills = entries.map(([ch, count]) => 
         `<span style="display:inline-block; background:#fff0f0; border:1px solid #ffcccc; border-radius:3px; padding:1px 6px; margin:0 2px; font-weight:bold; color:#D32F2F;">${ch} <small style="color:#999;">×${count}</small></span>`
     ).join('');
-    return `<div style="font-size:0.8em; color:#888; margin:4px 0;">Watch out for: ${pills}</div>`;
+    const canPractice = currentUser && !currentUser.isAnonymous && !isPracticeMode;
+    const practiceBtn = canPractice 
+        ? ` <button id="practice-btn" class="practice-btn" title="AI-generated practice focusing on your weak spots">✨ Practice</button>` 
+        : '';
+    return `<div style="font-size:0.8em; color:#888; margin:4px 0;">Watch out for: ${pills}${practiceBtn}</div>`;
 }
 
 function getPlacementsHTML(placements) {
@@ -1027,6 +1050,34 @@ function getSprintHistoryHTML() {
 
 async function finishChapter() {
     isGameActive = false; clearInterval(timerInterval);
+
+    // Practice mode: log session and offer to return
+    if (isPracticeMode) {
+        const charsTyped = currentCharIndex - sprintCharStart;
+        const sprintMinutes = sprintSeconds / 60;
+        const sprintWPM = (sprintMinutes > 0) ? Math.round((charsTyped / 5) / sprintMinutes) : 0;
+        const sprintTotalEntries = charsTyped + sprintMistakes;
+        const sprintAcc = (sprintTotalEntries > 0) ? Math.round((charsTyped / sprintTotalEntries) * 100) : 100;
+        logSession(sprintSeconds, charsTyped, sprintMistakes, sprintWPM, sprintAcc);
+
+        // Log practice session details
+        await logPracticeSession(sprintWPM, sprintAcc, sprintSeconds, charsTyped, sprintMistakes);
+
+        const todayWPM = calculateAverageWPM(statsData.charsToday, statsData.secondsToday);
+        const todayAcc = calculateAverageAcc(statsData.charsToday, statsData.mistakesToday);
+        const weekWPM = calculateAverageWPM(statsData.charsWeek, statsData.secondsWeek);
+        const weekAcc = calculateAverageAcc(statsData.charsWeek, statsData.mistakesWeek);
+        const stats = {
+            time: sprintSeconds, wpm: sprintWPM, acc: sprintAcc,
+            today: `${formatTime(statsData.secondsToday)} (${todayWPM} WPM | ${todayAcc}%)`,
+            week: `${formatTime(statsData.secondsWeek)} (${weekWPM} WPM | ${weekAcc}%)`,
+            placements: []
+        };
+        showStatsModal('✨ Practice Complete!', stats, '📖 Return to Book', () => {
+            exitPracticeMode();
+        }, 'Press Enter to return', true);
+        return;
+    }
 
     let nextChapterId = null;
     let nextChapterTitle = "";
@@ -1100,6 +1151,10 @@ async function finishChapter() {
 }
 
 function getHeaderHTML() {
+    if (isPracticeMode) {
+        updateBookInfoBar('✨ Practice Mode', 'AI-Generated Exercise');
+        return `<div class="modal-header-compact"><span class="mh-book">✨ Practice Mode</span> <span class="mh-sep">—</span> <span class="mh-chap">Targeted Exercise</span></div>`;
+    }
     let bookTitle = (bookMetadata && bookMetadata.title) ? escapeHtml(bookMetadata.title) : escapeHtml(currentBookId.replace(/_/g, ' '));
 
     let displayChapTitle = `Ch. ${escapeHtml(String(currentChapterNum))}`;
@@ -1224,12 +1279,25 @@ function showStatsModal(title, stats, btnText, callback, hint, instant) {
     `;
 
     // Add sprint length dropdown to footer alongside button
+    const returnLink = isPracticeMode ? `<a href="#" id="practice-return" style="color:var(--carolina-blue); font-size:0.75em;">↩ Return to Book</a>` : '';
     document.getElementById('modal-footer').innerHTML = `
         <div class="modal-footer-row">
             <select id="sprint-select" class="modal-select modal-select-sm">${getSessionOptionsHTML()}</select>
             <button id="action-btn" class="modal-btn">Action</button>
         </div>
+        ${returnLink}
     `;
+
+    // Wire practice button if present
+    const practiceBtn = document.getElementById('practice-btn');
+    if (practiceBtn) {
+        practiceBtn.onclick = () => startPracticeMode();
+    }
+    // Wire return-to-book link
+    const returnEl = document.getElementById('practice-return');
+    if (returnEl) {
+        returnEl.onclick = (e) => { e.preventDefault(); exitPracticeMode(); };
+    }
     // Save sprint changes immediately so smart-start (which closes modal first) sees them
     document.getElementById('sprint-select').onchange = (e) => {
         sessionValueStr = e.target.value;
@@ -2569,6 +2637,197 @@ async function openLeaderboard(activeTab) {
     document.querySelectorAll('.lb-tab').forEach(tab => {
         tab.onclick = () => openLeaderboard(tab.dataset.cat);
     });
+}
+
+// ========================
+// PRACTICE MODE
+// ========================
+
+async function startPracticeMode() {
+    if (isPracticeMode) return;
+    
+    // Get the problem characters from the current session
+    const entries = Object.entries(missedCharsMap).sort((a,b) => b[1] - a[1]).slice(0, 8);
+    if (entries.length === 0) return;
+    practiceProblemChars = entries.map(([ch]) => ch);
+    
+    // Get a text snippet for style reference (first 500 chars of current chapter)
+    const textSnippet = (fullText || '').substring(0, 500);
+    
+    // Get book/chapter info
+    let chapterTitle = '';
+    if (bookMetadata && bookMetadata.chapters) {
+        const c = bookMetadata.chapters.find(ch => ch.id === "chapter_" + currentChapterNum);
+        if (c && c.title) chapterTitle = c.title;
+    }
+    const bookTitle = (bookMetadata && bookMetadata.title) || currentBookId.replace(/_/g, ' ');
+
+    // Show loading state
+    closeModal();
+    isModalOpen = true; isInputBlocked = true;
+    setModalTitle('');
+    resetModalFooter();
+    document.getElementById('modal-body').innerHTML = `
+        <div style="text-align:center; padding:20px;">
+            <div class="stats-title">✨ Generating Practice...</div>
+            <div style="font-size:0.85em; color:#888; margin-top:8px;">
+                Creating a paragraph focused on: ${practiceProblemChars.map(c => `<b style="color:#D32F2F;">${escapeHtml(c)}</b>`).join(', ')}
+            </div>
+            <div style="margin-top:12px; color:#aaa;">This may take a few seconds...</div>
+        </div>
+    `;
+    const btn = document.getElementById('action-btn');
+    btn.style.display = 'none';
+    showModalPanel();
+
+    try {
+        const result = await generatePractice({
+            problemChars: practiceProblemChars,
+            bookTitle: bookTitle,
+            chapterTitle: chapterTitle,
+            textSnippet: textSnippet
+        });
+
+        practiceText = result.data.text;
+        practicePrompt = result.data.prompt || '';
+        const remaining = result.data.remaining;
+
+        // Save real book state
+        practiceRealBookData = bookData;
+        practiceRealChapterNum = currentChapterNum;
+        practiceRealCharIndex = currentCharIndex;
+        practiceRealSavedCharIndex = savedCharIndex;
+        practiceRealLastSavedIndex = lastSavedIndex;
+        practiceRealFurthestChapter = furthestChapter;
+        practiceRealFurthestCharIndex = furthestCharIndex;
+
+        // Enter practice mode
+        isPracticeMode = true;
+        
+        // Inject practice text as a fake chapter
+        bookData = { segments: [{ text: practiceText }] };
+        savedCharIndex = 0;
+        currentCharIndex = 0;
+        lastSavedIndex = 0;
+
+        // Reset sprint tracking for practice
+        sprintSeconds = 0;
+        sprintMistakes = 0;
+        sprintCharStart = 0;
+
+        // Set up the display
+        setupGame();
+        getHeaderHTML();
+        
+        // Add practice visual indicator
+        const bar = document.getElementById('book-info-bar');
+        if (bar) bar.classList.add('practice-active');
+        
+        closeModal();
+        
+        // Show practice start modal
+        isModalOpen = true; isInputBlocked = false;
+        modalActionCallback = startGame;
+        setModalTitle('');
+        resetModalFooter();
+        document.getElementById('modal-body').innerHTML = `
+            <div style="text-align:center;">
+                <div class="stats-title">✨ Practice Ready!</div>
+                <div style="font-size:0.85em; color:#888; margin:6px 0;">
+                    Focused on: ${practiceProblemChars.map(c => `<b style="color:#D32F2F;">${escapeHtml(c)}</b>`).join(', ')}
+                </div>
+                ${remaining !== undefined ? `<div style="font-size:0.75em; color:#aaa;">${remaining} practice session${remaining !== 1 ? 's' : ''} remaining today</div>` : ''}
+                <div class="start-hint" style="margin-top:8px;">Type first character to start · ESC to pause</div>
+            </div>
+        `;
+        const startBtn = document.getElementById('action-btn');
+        startBtn.innerText = 'Start Practice'; startBtn.onclick = startGame;
+        startBtn.disabled = false; startBtn.style.display = 'inline-block'; startBtn.style.opacity = '1';
+        showModalPanel();
+
+    } catch (e) {
+        console.error("Practice generation failed:", e);
+        let errorMsg = 'Something went wrong. Please try again.';
+        if (e.code === 'functions/resource-exhausted') {
+            errorMsg = e.message || "You've used all your practice sessions for today.";
+        } else if (e.code === 'functions/unauthenticated') {
+            errorMsg = 'You must be signed in to use practice mode.';
+        }
+        
+        // Show error then go back to break modal
+        document.getElementById('modal-body').innerHTML = `
+            <div style="text-align:center; padding:12px;">
+                <div class="stats-title">⚠️ Practice Unavailable</div>
+                <div style="font-size:0.9em; color:#888; margin-top:8px;">${escapeHtml(errorMsg)}</div>
+            </div>
+        `;
+        const errBtn = document.getElementById('action-btn');
+        errBtn.innerText = 'OK'; errBtn.disabled = false; errBtn.style.opacity = '1'; errBtn.style.display = 'inline-block';
+        errBtn.onclick = () => { closeModal(); showStartModal("Continue"); };
+        modalActionCallback = () => { closeModal(); showStartModal("Continue"); };
+    }
+}
+
+function exitPracticeMode() {
+    if (!isPracticeMode) return;
+    
+    // Restore real book state
+    isPracticeMode = false;
+    bookData = practiceRealBookData;
+    currentChapterNum = practiceRealChapterNum;
+    savedCharIndex = practiceRealSavedCharIndex;
+    currentCharIndex = practiceRealCharIndex;
+    lastSavedIndex = practiceRealLastSavedIndex;
+    furthestChapter = practiceRealFurthestChapter;
+    furthestCharIndex = practiceRealFurthestCharIndex;
+
+    // Clear practice state
+    practiceRealBookData = null;
+    practiceRealChapterNum = null;
+    practiceRealCharIndex = null;
+    practiceRealSavedCharIndex = null;
+    practiceRealLastSavedIndex = null;
+    practiceRealFurthestChapter = null;
+    practiceRealFurthestCharIndex = null;
+    practiceText = '';
+    practicePrompt = '';
+    practiceProblemChars = [];
+
+    // Remove practice visual indicator
+    const bar = document.getElementById('book-info-bar');
+    if (bar) bar.classList.remove('practice-active');
+
+    // Reload the real chapter display
+    closeModal();
+    setupGame();
+    getHeaderHTML();
+}
+
+async function logPracticeSession(wpm, acc, seconds, chars, mistakes) {
+    if (!currentUser || currentUser.isAnonymous) return;
+    try {
+        await addDoc(collection(db, "practice_sessions"), {
+            uid: currentUser.uid,
+            email: currentUser.email || '',
+            displayName: currentUser.displayName || 'Anonymous',
+            timestamp: new Date(),
+            date: new Date().toISOString().split('T')[0],
+            bookId: currentBookId,
+            chapter: practiceRealChapterNum,
+            problemChars: practiceProblemChars,
+            prompt: practicePrompt,
+            generatedText: practiceText,
+            wpm: wpm,
+            accuracy: acc,
+            seconds: seconds,
+            chars: chars,
+            mistakes: mistakes,
+            // Capture which chars were still problematic during practice
+            practiceErrors: Object.entries(missedCharsMap)
+                .filter(([ch]) => practiceProblemChars.includes(ch))
+                .map(([ch, count]) => ({ char: ch, errors: count }))
+        });
+    } catch(e) { console.warn("Practice session log failed:", e); }
 }
 
 window.onload = init;
