@@ -8,7 +8,7 @@ import {
     signOut
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "2.6.2";
+const VERSION = "2.6.4";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -36,6 +36,8 @@ let currentCharIndex = 0;
 let savedCharIndex = 0;
 let lastSavedIndex = 0;
 let currentChapterNum = 1;
+let furthestChapter = 1;
+let furthestCharIndex = 0;
 let autoStartNext = false; // skip start modal when advancing chapters
 let ggRealCharIndex = -1;  // real position before Game Genie warps
 
@@ -91,8 +93,41 @@ let anonMistakes = 0;
 
 // Leaderboard
 let userInitials = '';
+let leaderboardOptOut = false;
 let leaderboardCache = {}; // { category: [entries], ... }
 let leaderboardCacheTime = 0;
+
+// Profanity filter for initials (covers letter substitutions kids try)
+const BLOCKED_INITIALS = new Set([
+    'ASS','AZZ','A55','BCH','BJ','BJB','BJS','CNT','COC','COK','CUM','CUK',
+    'DCK','DIK','DIX','DMN','DNG','DIC','FAG','FAT','FCK','FKU','FUC','FUK','FUQ',
+    'GAY','GEI','GEY','GOD','HOR','JEW','JIZ','JZZ','KKK','KIK','KYK',
+    'LSD','MFF','NGR','NIG','NGA','NUT','PIS','PMS','POO','PEE','PUS',
+    'RAP','SEX','SHT','SLT','STD','SUK','SUC','TIT','THC','TWT','VAG',
+    'WTF','WOP','XTC','XXX',
+]);
+
+function isInitialsClean(val) {
+    const upper = val.toUpperCase();
+    if (BLOCKED_INITIALS.has(upper)) return false;
+    // Also check with common substitutions reversed (0→O, 1→I, 3→E, 5→S, etc.)
+    const normalized = upper
+        .replace(/0/g, 'O').replace(/1/g, 'I').replace(/3/g, 'E')
+        .replace(/4/g, 'A').replace(/5/g, 'S').replace(/8/g, 'B');
+    if (normalized !== upper && BLOCKED_INITIALS.has(normalized)) return false;
+    return true;
+}
+
+function getDefaultInitials() {
+    if (!currentUser || !currentUser.displayName) return '';
+    const parts = currentUser.displayName.trim().split(/\s+/);
+    if (parts.length >= 2) {
+        return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    } else if (parts.length === 1 && parts[0].length >= 2) {
+        return parts[0].substring(0, 2).toUpperCase();
+    }
+    return '';
+}
 
 // DOM
 const textStream = document.getElementById('text-stream');
@@ -298,6 +333,11 @@ async function loadUserProgress() {
             if (data.completedChapters && Array.isArray(data.completedChapters)) {
                 completedChapters = new Set(data.completedChapters.map(String));
             }
+            // Load furthest tracking
+            if (data.furthestChapter !== undefined) furthestChapter = data.furthestChapter;
+            else furthestChapter = currentChapterNum;
+            if (data.furthestCharIndex !== undefined) furthestCharIndex = data.furthestCharIndex;
+            else furthestCharIndex = savedCharIndex;
         }
         lastSavedIndex = savedCharIndex;
         loadChapter(currentChapterNum);
@@ -810,13 +850,27 @@ function updateImageDisplay() {
     if(p) p.style.display = 'none';
 }
 
+// Returns true if position A is ahead of position B in the book
+function isPositionAhead(chapA, idxA, chapB, idxB) {
+    const a = parseInt(chapA) || 0;
+    const b = parseInt(chapB) || 0;
+    return a > b || (a === b && idxA > idxB);
+}
+
 async function saveProgress(force = false) {
     if (!currentUser || currentUser.isAnonymous) return;
     try {
         if (currentCharIndex > lastSavedIndex || force) {
+            // Update furthest tracking (only moves forward)
+            if (isPositionAhead(currentChapterNum, currentCharIndex, furthestChapter, furthestCharIndex)) {
+                furthestChapter = currentChapterNum;
+                furthestCharIndex = currentCharIndex;
+            }
             await setDoc(doc(db, "users", currentUser.uid, "progress", currentBookId), {
                 chapter: currentChapterNum,
                 charIndex: currentCharIndex,
+                furthestChapter: furthestChapter,
+                furthestCharIndex: furthestCharIndex,
                 lastUpdated: new Date()
             }, { merge: true });
             lastSavedIndex = currentCharIndex;
@@ -1078,13 +1132,42 @@ function showStartModal(btnText) {
         ${getGoalProgressHTML()}
     ` : (goals.dailySeconds > 0 || goals.weeklySeconds > 0) ? getGoalProgressHTML() : '';
 
+    // Check if furthest point is ahead — offer jump link
+    let jumpHtml = '';
+    if (currentUser && !currentUser.isAnonymous && 
+        isPositionAhead(furthestChapter, furthestCharIndex, currentChapterNum, currentCharIndex)) {
+        let chapLabel = `Ch. ${furthestChapter}`;
+        if (bookMetadata && bookMetadata.chapters) {
+            const chap = bookMetadata.chapters.find(c => c.id === "chapter_" + furthestChapter);
+            if (chap && chap.title && chap.title != furthestChapter) {
+                if (chap.title.toLowerCase().startsWith('chapter')) chapLabel = chap.title;
+                else chapLabel = `Ch. ${furthestChapter}: ${chap.title}`;
+            }
+        }
+        jumpHtml = `<div style="margin:4px 0;"><a href="#" id="jump-furthest" style="color:var(--carolina-blue); font-size:0.85em;">📚 Jump to furthest point (${escapeHtml(chapLabel)})</a></div>`;
+    }
+
     document.getElementById('modal-body').innerHTML = `
         ${statsSection}
+        ${jumpHtml}
         <div class="start-controls">
             ${getDropdownHTML()}
             <div class="start-hint">Type first character to start · ESC to pause</div>
         </div>
     `;
+
+    // Wire jump link
+    const jumpLink = document.getElementById('jump-furthest');
+    if (jumpLink) {
+        jumpLink.onclick = async (e) => {
+            e.preventDefault();
+            currentChapterNum = furthestChapter;
+            savedCharIndex = furthestCharIndex;
+            lastSavedIndex = furthestCharIndex;
+            closeModal();
+            await loadChapter(furthestChapter);
+        };
+    }
 
     const btn = document.getElementById('action-btn');
     btn.innerText = btnText; btn.onclick = startGame; btn.disabled = false; btn.style.display = 'inline-block'; btn.style.opacity = '1';
@@ -1226,8 +1309,39 @@ function showAnonLoginPrompt() {
                 const initialsPromptShown = await loadInitials();
                 trophyBtn.classList.remove('hidden');
 
-                // Save current progress position
-                await saveProgress(true);
+                // Read their saved progress BEFORE writing anything to it
+                const progRef = doc(db, "users", currentUser.uid, "progress", currentBookId);
+                const progSnap = await getDoc(progRef);
+                let savedChap = null, savedIdx = 0, savedFurthestChap = null, savedFurthestIdx = 0;
+                if (progSnap.exists()) {
+                    const data = progSnap.data();
+                    savedChap = data.chapter || null;
+                    savedIdx = data.charIndex || 0;
+                    savedFurthestChap = data.furthestChapter || savedChap;
+                    savedFurthestIdx = data.furthestCharIndex || savedIdx;
+                    if (data.completedChapters && Array.isArray(data.completedChapters)) {
+                        completedChapters = new Set(data.completedChapters.map(String));
+                    }
+                }
+
+                // Update furthest: take the max of saved furthest and current anonymous position
+                if (savedFurthestChap !== null) {
+                    furthestChapter = savedFurthestChap;
+                    furthestCharIndex = savedFurthestIdx;
+                }
+                if (isPositionAhead(currentChapterNum, currentCharIndex, furthestChapter, furthestCharIndex)) {
+                    furthestChapter = currentChapterNum;
+                    furthestCharIndex = currentCharIndex;
+                }
+
+                // Now save progress — write current position + updated furthest
+                await setDoc(progRef, {
+                    chapter: currentChapterNum,
+                    charIndex: currentCharIndex,
+                    furthestChapter: furthestChapter,
+                    furthestCharIndex: furthestCharIndex,
+                    lastUpdated: new Date()
+                }, { merge: true });
             } catch(e) { console.warn("Retroactive save failed:", e); }
 
             // If initials prompt is showing, let it handle the flow
@@ -1236,31 +1350,12 @@ function showAnonLoginPrompt() {
                 return;
             }
 
-            // Check if they have saved progress further than where they are now
-            try {
-                const progRef = doc(db, "users", currentUser.uid, "progress", currentBookId);
-                const progSnap = await getDoc(progRef);
-                if (progSnap.exists()) {
-                    const data = progSnap.data();
-                    const savedChap = data.chapter;
-                    const savedIdx = data.charIndex || 0;
-                    if (data.completedChapters && Array.isArray(data.completedChapters)) {
-                        completedChapters = new Set(data.completedChapters.map(String));
-                    }
-
-                    // Determine if saved position is further
-                    const savedChapNum = parseInt(savedChap) || 0;
-                    const currentChapNum = parseInt(currentChapterNum) || 0;
-                    const isFurther = savedChapNum > currentChapNum || 
-                                     (savedChapNum === currentChapNum && savedIdx > currentCharIndex);
-                    
-                    if (isFurther) {
-                        anonLoginInProgress = false;
-                        showJumpToProgressPrompt(savedChap, savedIdx);
-                        return;
-                    }
-                }
-            } catch(e) { console.warn("Progress check failed:", e); }
+            // Check if furthest point is ahead of current position
+            if (isPositionAhead(furthestChapter, furthestCharIndex, currentChapterNum, currentCharIndex)) {
+                anonLoginInProgress = false;
+                showJumpToProgressPrompt(furthestChapter, furthestCharIndex);
+                return;
+            }
         }
 
         anonLoginInProgress = false;
@@ -1449,6 +1544,11 @@ async function openMenuModal() {
             <div class="menu-label">Initials</div>
             <input id="initials-input" type="text" maxlength="3" value="${escapeHtml(userInitials)}" 
                    class="initials-box-settings">
+            <div id="initials-settings-error" style="color:#D32F2F; font-size:0.7em; min-height:1em; margin-top:2px;"></div>
+            <label style="display:flex; align-items:center; gap:5px; font-size:0.7em; color:#888; margin-top:4px; cursor:pointer;">
+                <input type="checkbox" id="lb-optout" ${leaderboardOptOut ? 'checked' : ''}>
+                Hide me from leaderboards
+            </label>
         </div>` : '';
 
     document.getElementById('modal-body').innerHTML = `
@@ -1489,11 +1589,27 @@ async function openMenuModal() {
     if (initialsInput) {
         initialsInput.onblur = async () => {
             const val = initialsInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '').substring(0, 3);
+            const errEl = document.getElementById('initials-settings-error');
+            if (val && !isInitialsClean(val)) {
+                if (errEl) errEl.textContent = "Not allowed — try again";
+                initialsInput.value = userInitials; // revert
+                return;
+            }
+            if (errEl) errEl.textContent = '';
             if (val && val !== userInitials) {
                 userInitials = val;
                 initialsInput.value = val;
                 await saveInitials(val);
             }
+        };
+    }
+
+    const optOutBox = document.getElementById('lb-optout');
+    if (optOutBox) {
+        optOutBox.onchange = async () => {
+            leaderboardOptOut = optOutBox.checked;
+            await saveInitials(userInitials);
+            leaderboardCacheTime = 0; // bust cache
         };
     }
 
@@ -2189,21 +2305,25 @@ async function loadInitials() {
     if (!currentUser || currentUser.isAnonymous) return false;
     try {
         const snap = await getDoc(doc(db, "users", currentUser.uid, "profile", "info"));
-        if (snap.exists() && snap.data().initials) {
-            userInitials = snap.data().initials;
-            return false;
-        } else {
-            // No initials yet — prompt
-            showInitialsPrompt();
-            return true;
+        if (snap.exists()) {
+            const data = snap.data();
+            if (data.initials) userInitials = data.initials;
+            if (data.leaderboardOptOut !== undefined) leaderboardOptOut = data.leaderboardOptOut;
+            if (userInitials) return false;
         }
+        // No initials yet — prompt
+        showInitialsPrompt();
+        return true;
     } catch(e) { console.warn("Load initials failed:", e); return false; }
 }
 
 async function saveInitials(initials) {
     if (!currentUser || currentUser.isAnonymous) return;
     try {
-        await setDoc(doc(db, "users", currentUser.uid, "profile", "info"), { initials }, { merge: true });
+        await setDoc(doc(db, "users", currentUser.uid, "profile", "info"), { 
+            initials, 
+            leaderboardOptOut 
+        }, { merge: true });
     } catch(e) { console.warn("Save initials failed:", e); }
 }
 
@@ -2213,6 +2333,8 @@ function showInitialsPrompt() {
     setModalTitle('');
     resetModalFooter();
 
+    const prefill = getDefaultInitials();
+
     document.getElementById('modal-body').innerHTML = `
         <div style="text-align:center;">
             <div class="stats-title">🏆 Enter Your Initials</div>
@@ -2220,10 +2342,11 @@ function showInitialsPrompt() {
                 These appear on the leaderboard. Three characters max!
             </div>
             <div style="display:flex; justify-content:center; gap:8px;" id="initials-boxes">
-                <input class="initials-box" maxlength="1" data-idx="0" autocomplete="off" autocapitalize="characters">
-                <input class="initials-box" maxlength="1" data-idx="1" autocomplete="off" autocapitalize="characters">
+                <input class="initials-box" maxlength="1" data-idx="0" value="${prefill[0] || ''}" autocomplete="off" autocapitalize="characters">
+                <input class="initials-box" maxlength="1" data-idx="1" value="${prefill[1] || ''}" autocomplete="off" autocapitalize="characters">
                 <input class="initials-box" maxlength="1" data-idx="2" autocomplete="off" autocapitalize="characters">
             </div>
+            <div id="initials-error" style="color:#D32F2F; font-size:0.8em; margin-top:6px; min-height:1.2em;"></div>
         </div>
     `;
 
@@ -2233,32 +2356,19 @@ function showInitialsPrompt() {
         const boxes = document.querySelectorAll('.initials-box');
         const val = Array.from(boxes).map(b => b.value).join('').toUpperCase().replace(/[^A-Z0-9]/g, '');
         if (val.length === 0) return;
+        if (!isInitialsClean(val)) {
+            const errEl = document.getElementById('initials-error');
+            if (errEl) errEl.textContent = "Those initials aren't allowed. Try something else!";
+            return;
+        }
         userInitials = val.substring(0, 3);
         await saveInitials(userInitials);
         closeModal();
 
-        // After first-time initials, check if user has saved progress further ahead
-        if (currentUser && !currentUser.isAnonymous) {
-            try {
-                const progRef = doc(db, "users", currentUser.uid, "progress", currentBookId);
-                const progSnap = await getDoc(progRef);
-                if (progSnap.exists()) {
-                    const data = progSnap.data();
-                    const savedChap = data.chapter;
-                    const savedIdx = data.charIndex || 0;
-                    if (data.completedChapters && Array.isArray(data.completedChapters)) {
-                        completedChapters = new Set(data.completedChapters.map(String));
-                    }
-                    const savedChapNum = parseInt(savedChap) || 0;
-                    const currentChapNum = parseInt(currentChapterNum) || 0;
-                    const isFurther = savedChapNum > currentChapNum ||
-                                     (savedChapNum === currentChapNum && savedIdx > currentCharIndex);
-                    if (isFurther) {
-                        showJumpToProgressPrompt(savedChap, savedIdx);
-                        return;
-                    }
-                }
-            } catch(e) { /* proceed normally */ }
+        // After first-time initials, check if furthest point is ahead
+        if (isPositionAhead(furthestChapter, furthestCharIndex, currentChapterNum, currentCharIndex)) {
+            showJumpToProgressPrompt(furthestChapter, furthestCharIndex);
+            return;
         }
 
         showStartModal("Start");
@@ -2272,6 +2382,9 @@ function showInitialsPrompt() {
             box.oninput = () => {
                 box.value = box.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
                 if (box.value && i < 2) boxes[i + 1].focus();
+                // Clear error on edit
+                const errEl = document.getElementById('initials-error');
+                if (errEl) errEl.textContent = '';
             };
             box.onkeydown = (e) => {
                 if (e.key === 'Backspace' && !box.value && i > 0) {
@@ -2282,7 +2395,9 @@ function showInitialsPrompt() {
                 }
             };
         });
-        boxes[0].focus();
+        // Focus the first empty box (after prefill)
+        const firstEmpty = Array.from(boxes).findIndex(b => !b.value);
+        (firstEmpty >= 0 ? boxes[firstEmpty] : boxes[2]).focus();
         isInputBlocked = false;
     }, 100);
 }
@@ -2312,6 +2427,7 @@ async function updateLeaderboard() {
         const entry = {
             initials: userInitials,
             displayName: currentUser.displayName || '',
+            leaderboardOptOut: leaderboardOptOut,
             bestWPM: Math.max(existingBestWPM, lastSprintWPM),
             bestAccuracy: Math.max(existingBestAcc, lastSprintAcc),
             bestStreak: Math.max(existingBestStreak, bestStreak),
@@ -2353,7 +2469,7 @@ async function fetchLeaderboard() {
         const result = {};
         for (const cat of LB_CATEGORIES) {
             const sorted = [...entries]
-                .filter(e => (e[cat.key] || 0) > 0)
+                .filter(e => (e[cat.key] || 0) > 0 && !e.leaderboardOptOut)
                 .sort((a, b) => (b[cat.key] || 0) - (a[cat.key] || 0))
                 .slice(0, 10);
             result[cat.key] = sorted;
