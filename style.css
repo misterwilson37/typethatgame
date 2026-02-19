@@ -1,4 +1,4 @@
-/* v2.6.5 - Leaderboard placement trophies in break modal */
+/* v2.6.6 - Trophy sidebar panel in break modal */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -378,6 +378,22 @@ button.secondary-btn:hover { border-color: #888; color: #fff; }
 .initials-box:focus { border-color: #FFD700; box-shadow: 0 0 8px rgba(255,215,0,0.3); }
 
 /* Leaderboard */
+.stats-with-trophies { display: flex; gap: 0; align-items: stretch; min-height: 0; flex: 1; }
+.stats-main { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
+.trophy-panel {
+    flex: 0 0 auto; width: 80px;
+    background: #111; border-radius: 6px;
+    margin-left: 10px;
+    padding: 8px 8px;
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+.trophy-header { font-size: 1.4em; margin-bottom: 2px; }
+.trophy-row { display: flex; flex-direction: column; align-items: center; gap: 0; }
+.trophy-icon { font-size: 1.1em; line-height: 1.2; }
+.trophy-label { font-size: 0.55rem; font-weight: bold; letter-spacing: 0.5px; text-align: center; white-space: nowrap; }
+
 .lb-container { display: flex; flex-direction: column; height: 100%; }
 .lb-tabs { display: flex; gap: 4px; justify-content: center; margin-bottom: 6px; flex-wrap: wrap; }
 .lb-tab {
