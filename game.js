@@ -8,7 +8,7 @@ import {
     signOut
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-const VERSION = "2.6.4";
+const VERSION = "2.6.5";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -943,7 +943,7 @@ function calculateAverageAcc(chars, mistakes) {
     return Math.round((chars / total) * 100);
 }
 
-function pauseGameForBreak() {
+async function pauseGameForBreak() {
     isGameActive = false; clearInterval(timerInterval); saveProgress();
     const charsTyped = currentCharIndex - sprintCharStart;
     const sprintMinutes = sprintSeconds / 60;
@@ -961,8 +961,8 @@ function pauseGameForBreak() {
     // Record sprint in history
     sprintHistory.push({ wpm: sprintWPM, acc: sprintAcc, time: sprintSeconds });
 
-    // Update leaderboard
-    updateLeaderboard();
+    // Update leaderboard and get placements
+    const placements = await updateLeaderboard();
 
     // Check if anon user should be prompted to log in
     if (checkAnonLoginPrompt()) {
@@ -978,7 +978,8 @@ function pauseGameForBreak() {
     const stats = {
         time: sprintSeconds, wpm: sprintWPM, acc: sprintAcc,
         today: `${formatTime(statsData.secondsToday)} (${todayWPM} WPM | ${todayAcc}%)`,
-        week: `${formatTime(statsData.secondsWeek)} (${weekWPM} WPM | ${weekAcc}%)`
+        week: `${formatTime(statsData.secondsWeek)} (${weekWPM} WPM | ${weekAcc}%)`,
+        placements: placements || []
     };
 
     let title = "Sprint Complete";
@@ -1001,6 +1002,19 @@ function getMissedCharsHTML() {
     return `<div style="font-size:0.8em; color:#888; margin:4px 0;">Watch out for: ${pills}</div>`;
 }
 
+function getPlacementsHTML(placements) {
+    if (!placements || placements.length === 0) return '';
+    const trophies = placements.map(p => {
+        let trophy, color;
+        if (p.rank === 1) { trophy = '🥇'; color = '#FFD700'; }
+        else if (p.rank === 2) { trophy = '🥈'; color = '#C0C0C0'; }
+        else if (p.rank === 3) { trophy = '🥉'; color = '#CD7F32'; }
+        else { trophy = '🏆'; color = '#4B9CD3'; }
+        return `<span style="display:inline-block; color:${color}; margin:0 3px;" title="#${p.rank} in ${p.category.label}">${trophy}<small style="font-size:0.7em;">${p.category.label.split(' ')[1]}</small></span>`;
+    }).join('');
+    return `<div style="text-align:center; margin:4px 0; font-size:0.95em;">Leaderboard: ${trophies}</div>`;
+}
+
 function getSprintHistoryHTML() {
     if (sprintHistory.length <= 1) return '';
     const rows = sprintHistory.map((s, i) => {
@@ -1010,7 +1024,7 @@ function getSprintHistoryHTML() {
     return `<div style="font-size:0.75em; color:#777; margin:4px 0; line-height:1.6;">Sprints: ${rows}</div>`;
 }
 
-function finishChapter() {
+async function finishChapter() {
     isGameActive = false; clearInterval(timerInterval);
 
     let nextChapterId = null;
@@ -1043,18 +1057,19 @@ function finishChapter() {
     const weekWPM = calculateAverageWPM(statsData.charsWeek, statsData.secondsWeek);
     const weekAcc = calculateAverageAcc(statsData.charsWeek, statsData.mistakesWeek);
 
-    const stats = {
-        time: sprintSeconds, wpm: sprintWPM, acc: sprintAcc,
-        today: `${formatTime(statsData.secondsToday)} (${todayWPM} WPM | ${todayAcc}%)`,
-        week: `${formatTime(statsData.secondsWeek)} (${weekWPM} WPM | ${weekAcc}%)`
-    };
-
     let title = `📖 Chapter ${currentChapterNum} Complete!`;
 
     // Mark chapter as completed
     completedChapters.add(String(currentChapterNum));
     saveCompletedChapters();
-    updateLeaderboard();
+    const placements = await updateLeaderboard();
+
+    const stats = {
+        time: sprintSeconds, wpm: sprintWPM, acc: sprintAcc,
+        today: `${formatTime(statsData.secondsToday)} (${todayWPM} WPM | ${todayAcc}%)`,
+        week: `${formatTime(statsData.secondsWeek)} (${weekWPM} WPM | ${weekAcc}%)`,
+        placements: placements || []
+    };
     if (dailyGoalCelebrated && goals.dailySeconds > 0 && statsData.secondsToday - sprintSeconds < goals.dailySeconds) {
         title = `🎉 Chapter ${currentChapterNum} Complete + Daily Goal!`;
     }
@@ -1194,6 +1209,7 @@ function showStatsModal(title, stats, btnText, callback, hint, instant) {
             <span>Week: ${stats.week}</span>
         </div>
         ${getGoalProgressHTML()}
+        ${getPlacementsHTML(stats.placements)}
         ${getSprintHistoryHTML()}
         ${getMissedCharsHTML()}
         ${hint ? `<div class="start-hint" id="modal-hint" style="display:none;">${hint}</div>` : ''}
@@ -2403,7 +2419,7 @@ function showInitialsPrompt() {
 }
 
 async function updateLeaderboard() {
-    if (!currentUser || currentUser.isAnonymous || !userInitials) return;
+    if (!currentUser || currentUser.isAnonymous || !userInitials) return [];
     try {
         const today = new Date().toISOString().split('T')[0];
         const weekStart = getWeekStart(new Date());
@@ -2438,7 +2454,20 @@ async function updateLeaderboard() {
         };
         
         await setDoc(lbRef, entry, { merge: true });
-    } catch(e) { console.warn("Leaderboard update failed:", e); }
+
+        // Now fetch all entries to compute placements
+        leaderboardCacheTime = 0; // bust cache
+        const allData = await fetchLeaderboard();
+        const placements = [];
+        for (const cat of LB_CATEGORIES) {
+            const list = allData[cat.key] || [];
+            const idx = list.findIndex(e => e.uid === currentUser.uid);
+            if (idx >= 0 && idx < 10) {
+                placements.push({ category: cat, rank: idx + 1 });
+            }
+        }
+        return placements;
+    } catch(e) { console.warn("Leaderboard update failed:", e); return []; }
 }
 
 const LB_CATEGORIES = [
