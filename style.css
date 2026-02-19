@@ -1,4 +1,4 @@
-/* v2.6.6 - Trophy sidebar panel in break modal */
+/* v2.7.0 - Practice Mode with Gemini AI */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -413,3 +413,21 @@ button.secondary-btn:hover { border-color: #888; color: #fff; }
 .lb-me { background: #fffce8; font-weight: bold; }
 .lb-initials { font-weight: bold; color: var(--black); min-width: 3em; letter-spacing: 2px; }
 .lb-val { margin-left: auto; color: var(--carolina-blue); font-weight: bold; }
+
+/* Practice Mode */
+.practice-btn {
+    display: inline-block; vertical-align: middle;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white; border: none; border-radius: 3px;
+    padding: 2px 8px; margin-left: 6px;
+    font-family: inherit; font-size: 0.85em; font-weight: bold;
+    cursor: pointer; transition: opacity 0.15s;
+}
+.practice-btn:hover { opacity: 0.85; }
+.practice-active {
+    background: linear-gradient(90deg, #1a1a2e 0%, #16213e 50%, #1a1a2e 100%) !important;
+    border-top: 2px solid #667eea !important;
+}
+.practice-active .bib-title,
+.practice-active .bib-chap { color: #c4b5fd !important; }
+.practice-active .bib-sep { color: #667eea !important; }
