@@ -9,7 +9,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
-const VERSION = "2.7.3";
+const VERSION = "2.7.4";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -1716,13 +1716,14 @@ async function openMenuModal() {
     document.getElementById('guide-toggle').onchange = (e) => {
         handGuideEnabled = e.target.checked;
         localStorage.setItem('ttb_handGuide', handGuideEnabled);
-        const guide = document.getElementById('hand-guide');
+        const guide = document.getElementById('hand-guide-overlay');
         if (guide) guide.classList.toggle('hidden', !handGuideEnabled);
+        if (handGuideEnabled) { positionFingerDots(); updateHandGuide(); }
     };
     document.getElementById('guide-color').oninput = (e) => {
         handGuideColor = e.target.value;
         localStorage.setItem('ttb_handGuideColor', handGuideColor);
-        const guide = document.getElementById('hand-guide');
+        const guide = document.getElementById('hand-guide-overlay');
         if (guide) guide.style.setProperty('--guide-color', handGuideColor);
     };
 
@@ -1895,6 +1896,10 @@ function setKeyboardLayout(layout) {
     shiftRows = LAYOUTS[layout].shiftRows;
     createKeyboard();
     buildFingerMap();
+    // Recreate hand guide overlay for new key positions
+    const old = document.getElementById('hand-guide-overlay');
+    if (old) old.remove();
+    createHandGuide();
     highlightCurrentChar();
 }
 
@@ -1951,39 +1956,46 @@ function flashKey(char) {
 }
 
 // ========================
-// HAND GUIDE (SVG finger overlay)
+// HAND GUIDE (keyboard overlay with stretching fingers)
 // ========================
+
+// Home row key indices per finger (maps to rows[1] array positions)
+const FINGER_HOME_KEYS = {
+    'left-pinky': { row: 1, col: 0 },
+    'left-ring':  { row: 1, col: 1 },
+    'left-middle':{ row: 1, col: 2 },
+    'left-index': { row: 1, col: 3 },
+    'right-index':{ row: 1, col: 6 },
+    'right-middle':{ row: 1, col: 7 },
+    'right-ring': { row: 1, col: 8 },
+    'right-pinky':{ row: 1, col: 9 },
+};
 
 function buildFingerMap() {
     fingerMap = {};
     const assignments = [
-        // Row 0 (top): 10 keys
         ['left-pinky','left-ring','left-middle','left-index','left-index',
          'right-index','right-index','right-middle','right-ring','right-pinky'],
-        // Row 1 (home): 10 keys
         ['left-pinky','left-ring','left-middle','left-index','left-index',
          'right-index','right-index','right-middle','right-ring','right-pinky'],
-        // Row 2 (bottom): 7 keys
         ['left-pinky','left-ring','left-middle','left-index','left-index',
          'right-index','right-index'],
     ];
-    const rowNames = ['top', 'home', 'bottom'];
 
     rows.forEach((rowChars, rIndex) => {
         const assign = assignments[rIndex];
         if (!assign) return;
         rowChars.forEach((char, cIndex) => {
             if (cIndex >= assign.length) return;
-            const parts = assign[cIndex].split('-');
-            fingerMap[char] = { hand: parts[0], finger: parts[1], row: rowNames[rIndex] };
+            fingerMap[char] = { finger: assign[cIndex], row: rIndex, col: cIndex };
             if (shiftRows[rIndex] && shiftRows[rIndex][cIndex]) {
-                fingerMap[shiftRows[rIndex][cIndex]] = { hand: parts[0], finger: parts[1], row: rowNames[rIndex], shift: true };
+                fingerMap[shiftRows[rIndex][cIndex]] = { finger: assign[cIndex], row: rIndex, col: cIndex, shift: true };
             }
         });
     });
-    fingerMap[' '] = { hand: 'either', finger: 'thumb', row: 'space' };
-    fingerMap['\n'] = { hand: 'right', finger: 'pinky', row: 'home' };
-    fingerMap['\t'] = { hand: 'left', finger: 'pinky', row: 'top' };
+    fingerMap[' '] = { finger: 'thumb', row: 'space', col: 0 };
+    fingerMap['\n'] = { finger: 'right-pinky', row: 1, col: 9 };
+    fingerMap['\t'] = { finger: 'left-pinky', row: 0, col: 0 };
 }
 
 function getFingerInfo(char) {
@@ -1996,85 +2008,214 @@ function getFingerInfo(char) {
 }
 
 function createHandGuide() {
-    if (document.getElementById('hand-guide')) return;
-    const div = document.createElement('div');
-    div.id = 'hand-guide';
-    if (!handGuideEnabled) div.classList.add('hidden');
-    div.style.setProperty('--guide-color', handGuideColor);
+    if (document.getElementById('hand-guide-overlay')) return;
+    const kb = document.getElementById('virtual-keyboard');
+    kb.style.position = 'relative';
 
-    div.innerHTML = `
-    <svg viewBox="0 0 480 125" xmlns="http://www.w3.org/2000/svg">
-      <g id="left-hand">
-        <rect class="hg-palm" x="18" y="78" width="118" height="42" rx="14"/>
-        <g id="left-pinky" class="hg-finger"><rect x="20" y="34" width="18" height="50" rx="8"/></g>
-        <g id="left-ring" class="hg-finger"><rect x="44" y="18" width="20" height="66" rx="9"/></g>
-        <g id="left-middle" class="hg-finger"><rect x="70" y="8" width="21" height="76" rx="9"/></g>
-        <g id="left-index" class="hg-finger"><rect x="97" y="18" width="21" height="66" rx="9"/></g>
-        <g id="left-thumb" class="hg-finger"><rect x="122" y="62" width="18" height="36" rx="8" transform="rotate(-20,131,80)"/></g>
-      </g>
-      <g id="right-hand">
-        <rect class="hg-palm" x="344" y="78" width="118" height="42" rx="14"/>
-        <g id="right-thumb" class="hg-finger"><rect x="340" y="62" width="18" height="36" rx="8" transform="rotate(20,349,80)"/></g>
-        <g id="right-index" class="hg-finger"><rect x="362" y="18" width="21" height="66" rx="9"/></g>
-        <g id="right-middle" class="hg-finger"><rect x="389" y="8" width="21" height="76" rx="9"/></g>
-        <g id="right-ring" class="hg-finger"><rect x="416" y="18" width="20" height="66" rx="9"/></g>
-        <g id="right-pinky" class="hg-finger"><rect x="442" y="34" width="18" height="50" rx="8"/></g>
-      </g>
-    </svg>`;
+    const overlay = document.createElement('div');
+    overlay.id = 'hand-guide-overlay';
+    if (!handGuideEnabled) overlay.classList.add('hidden');
+    overlay.style.setProperty('--guide-color', handGuideColor);
 
-    const keyboard = document.getElementById('virtual-keyboard');
-    keyboard.parentNode.insertBefore(div, keyboard);
+    // SVG for drawing reach lines
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.id = 'hg-svg';
+    svg.setAttribute('width', '100%');
+    svg.setAttribute('height', '100%');
+    svg.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;z-index:2;';
+    overlay.appendChild(svg);
+
+    // Create finger dots
+    const fingerNames = [
+        'left-pinky','left-ring','left-middle','left-index',
+        'right-index','right-middle','right-ring','right-pinky'
+    ];
+    fingerNames.forEach(name => {
+        // Home dot (always visible)
+        const home = document.createElement('div');
+        home.className = 'hg-dot hg-home';
+        home.id = `hg-home-${name}`;
+        overlay.appendChild(home);
+
+        // Reach dot (moves to target)
+        const reach = document.createElement('div');
+        reach.className = 'hg-dot hg-reach';
+        reach.id = `hg-reach-${name}`;
+        overlay.appendChild(reach);
+    });
+
+    // Thumb dots (one for each)
+    ['left-thumb', 'right-thumb'].forEach(name => {
+        const dot = document.createElement('div');
+        dot.className = 'hg-dot hg-home hg-thumb';
+        dot.id = `hg-home-${name}`;
+        overlay.appendChild(dot);
+    });
+
+    kb.appendChild(overlay);
+    // Defer positioning until after browser layout
+    requestAnimationFrame(() => { positionFingerDots(); updateHandGuide(); });
+}
+
+function getKeyCenter(keyEl) {
+    const kb = document.getElementById('virtual-keyboard');
+    if (!kb || !keyEl) return null;
+    const kbRect = kb.getBoundingClientRect();
+    const keyRect = keyEl.getBoundingClientRect();
+    return {
+        x: keyRect.left - kbRect.left + keyRect.width / 2,
+        y: keyRect.top - kbRect.top + keyRect.height / 2
+    };
+}
+
+function positionFingerDots() {
+    const kb = document.getElementById('virtual-keyboard');
+    if (!kb) return;
+    const kbRows = kb.querySelectorAll('.kb-row');
+    if (kbRows.length < 3) return;
+
+    // Position home dots on home row keys
+    Object.entries(FINGER_HOME_KEYS).forEach(([finger, info]) => {
+        const row = kbRows[info.row];
+        if (!row) return;
+        // Account for special keys (CAPS on row 1, SHIFT on row 2)
+        const keyOffset = (info.row === 1) ? 1 : (info.row === 2) ? 1 : 0;
+        const keys = row.querySelectorAll('.key:not(.wide)');
+        const keyEl = keys[info.col];
+        if (!keyEl) return;
+        const pos = getKeyCenter(keyEl);
+        if (!pos) return;
+
+        const homeDot = document.getElementById(`hg-home-${finger}`);
+        if (homeDot) {
+            homeDot.style.left = (pos.x - 8) + 'px';
+            homeDot.style.top = (pos.y - 8) + 'px';
+        }
+        const reachDot = document.getElementById(`hg-reach-${finger}`);
+        if (reachDot) {
+            reachDot.style.left = (pos.x - 6) + 'px';
+            reachDot.style.top = (pos.y - 6) + 'px';
+            reachDot.style.opacity = '0';
+        }
+    });
+
+    // Position thumb dots on space bar
+    const spaceRow = kbRows[kbRows.length - 1];
+    const spaceKey = spaceRow ? spaceRow.querySelector('.space') : null;
+    if (spaceKey) {
+        const pos = getKeyCenter(spaceKey);
+        if (pos) {
+            const lt = document.getElementById('hg-home-left-thumb');
+            const rt = document.getElementById('hg-home-right-thumb');
+            if (lt) { lt.style.left = (pos.x - 40) + 'px'; lt.style.top = (pos.y - 8) + 'px'; }
+            if (rt) { rt.style.left = (pos.x + 24) + 'px'; rt.style.top = (pos.y - 8) + 'px'; }
+        }
+    }
 }
 
 function updateHandGuide() {
     if (!handGuideEnabled) return;
-    const guide = document.getElementById('hand-guide');
-    if (!guide || currentCharIndex >= fullText.length) return;
+    const overlay = document.getElementById('hand-guide-overlay');
+    if (!overlay || !fullText || currentCharIndex >= fullText.length) return;
 
     const nextChar = fullText[currentCharIndex];
     const info = getFingerInfo(nextChar);
 
-    // Clear all states
-    guide.querySelectorAll('.hg-finger').forEach(f => {
-        f.classList.remove('hg-active', 'hg-shift', 'hg-reach-top', 'hg-reach-bottom');
+    // Clear all active states
+    overlay.querySelectorAll('.hg-reach').forEach(el => {
+        el.style.opacity = '0';
+        el.classList.remove('hg-active-dot');
     });
+    overlay.querySelectorAll('.hg-home').forEach(el => {
+        el.classList.remove('hg-home-active', 'hg-shift-dot');
+    });
+    const svg = document.getElementById('hg-svg');
+    if (svg) svg.innerHTML = '';
 
     if (!info) return;
 
+    const kb = document.getElementById('virtual-keyboard');
+    const kbRows = kb.querySelectorAll('.kb-row');
+
     // Space: highlight both thumbs
     if (info.finger === 'thumb') {
-        const lt = guide.querySelector('#left-thumb');
-        const rt = guide.querySelector('#right-thumb');
-        if (lt) lt.classList.add('hg-active');
-        if (rt) rt.classList.add('hg-active');
+        const lt = document.getElementById('hg-home-left-thumb');
+        const rt = document.getElementById('hg-home-right-thumb');
+        if (lt) lt.classList.add('hg-home-active');
+        if (rt) rt.classList.add('hg-home-active');
         return;
     }
 
-    // Highlight target finger
-    const fingerEl = guide.querySelector(`#${info.hand}-${info.finger}`);
-    if (fingerEl) {
-        fingerEl.classList.add('hg-active');
-        if (info.row === 'top') fingerEl.classList.add('hg-reach-top');
-        else if (info.row === 'bottom') fingerEl.classList.add('hg-reach-bottom');
+    // Find target key element
+    let targetKeyEl = null;
+    if (info.row !== 'space' && kbRows[info.row]) {
+        const keys = kbRows[info.row].querySelectorAll('.key:not(.wide)');
+        targetKeyEl = keys[info.col];
+    }
+    // Special keys
+    if (nextChar === '\n') targetKeyEl = document.getElementById('key-ENTER');
+    if (nextChar === '\t') targetKeyEl = document.getElementById('key-TAB');
+
+    const fingerName = info.finger;
+
+    // If it's a home row key, just highlight the home dot
+    const homeInfo = FINGER_HOME_KEYS[fingerName];
+    if (homeInfo && info.row === homeInfo.row && info.col === homeInfo.col) {
+        const homeDot = document.getElementById(`hg-home-${fingerName}`);
+        if (homeDot) homeDot.classList.add('hg-home-active');
+    } else if (targetKeyEl) {
+        // Finger needs to reach — show trail from home to target
+        const homeDot = document.getElementById(`hg-home-${fingerName}`);
+        const reachDot = document.getElementById(`hg-reach-${fingerName}`);
+        const targetPos = getKeyCenter(targetKeyEl);
+
+        if (homeDot) homeDot.classList.add('hg-home-active');
+
+        if (reachDot && targetPos) {
+            reachDot.style.left = (targetPos.x - 6) + 'px';
+            reachDot.style.top = (targetPos.y - 6) + 'px';
+            reachDot.style.opacity = '1';
+            reachDot.classList.add('hg-active-dot');
+        }
+
+        // Draw reach line
+        if (svg && homeDot && targetPos) {
+            const homeX = parseFloat(homeDot.style.left) + 8;
+            const homeY = parseFloat(homeDot.style.top) + 8;
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.setAttribute('x1', homeX);
+            line.setAttribute('y1', homeY);
+            line.setAttribute('x2', targetPos.x);
+            line.setAttribute('y2', targetPos.y);
+            line.setAttribute('class', 'hg-reach-line');
+            svg.appendChild(line);
+        }
     }
 
     // Shift: highlight opposite pinky
     if (info.shift) {
-        const shiftHand = info.hand === 'left' ? 'right' : 'left';
-        const shiftEl = guide.querySelector(`#${shiftHand}-pinky`);
-        if (shiftEl) shiftEl.classList.add('hg-shift');
+        const shiftHand = fingerName.startsWith('left') ? 'right' : 'left';
+        const shiftDot = document.getElementById(`hg-home-${shiftHand}-pinky`);
+        if (shiftDot) shiftDot.classList.add('hg-shift-dot');
     }
 }
 
 function flashFingerPressed() {
     if (!handGuideEnabled) return;
-    const guide = document.getElementById('hand-guide');
-    if (!guide) return;
-    guide.querySelectorAll('.hg-active').forEach(f => {
-        f.classList.add('hg-pressed');
-        setTimeout(() => f.classList.remove('hg-pressed'), 120);
+    const overlay = document.getElementById('hand-guide-overlay');
+    if (!overlay) return;
+    overlay.querySelectorAll('.hg-home-active, .hg-active-dot').forEach(el => {
+        el.classList.add('hg-pressed');
+        setTimeout(() => el.classList.remove('hg-pressed'), 120);
     });
 }
+
+// Reposition on resize
+let hgResizeTimer;
+window.addEventListener('resize', () => {
+    clearTimeout(hgResizeTimer);
+    hgResizeTimer = setTimeout(() => { positionFingerDots(); updateHandGuide(); }, 150);
+});
 
 // --- CELEBRATIONS ---
 function createCelebrationCanvas() {
