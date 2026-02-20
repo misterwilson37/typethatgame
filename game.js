@@ -9,7 +9,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
-const VERSION = "2.8.4";
+const VERSION = "2.8.5";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -1640,7 +1640,9 @@ function setModalTitle(text) {
 }
 
 async function openMenuModal() {
-    if (isGameActive) pauseGameForBreak();
+    // Quietly pause without showing break modal
+    const wasActive = isGameActive;
+    if (isGameActive) { isGameActive = false; clearInterval(timerInterval); }
     isModalOpen = true; isInputBlocked = false;
     modalGeneration++;
     modalActionCallback = () => { closeModal(); startGame(); };
@@ -2098,9 +2100,10 @@ function getKeyCenterInKB(charOrId) {
     if (!keyEl) return null;
     const kbRect = kb.getBoundingClientRect();
     const keyRect = keyEl.getBoundingClientRect();
+    // Offset by border so SVG coords align with overlay (which sits inside border)
     return {
-        x: keyRect.left - kbRect.left + keyRect.width / 2,
-        y: keyRect.top - kbRect.top + keyRect.height / 2
+        x: keyRect.left - kbRect.left - kb.clientLeft + keyRect.width / 2,
+        y: keyRect.top - kbRect.top - kb.clientTop + keyRect.height / 2
     };
 }
 
@@ -2156,9 +2159,9 @@ function buildFingerSVG() {
     const svg = document.getElementById('hg-svg');
     if (!kb || !svg) return;
     svg.innerHTML = '';
-    svg.setAttribute('width', kb.offsetWidth);
-    svg.setAttribute('height', kb.offsetHeight);
-    svg.setAttribute('viewBox', `0 0 ${kb.offsetWidth} ${kb.offsetHeight}`);
+    svg.setAttribute('width', kb.clientWidth);
+    svg.setAttribute('height', kb.clientHeight);
+    svg.setAttribute('viewBox', `0 0 ${kb.clientWidth} ${kb.clientHeight}`);
 
     const homeKeys = getHomeKeys();
     const R = 11; // finger circle radius
