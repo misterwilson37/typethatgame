@@ -9,7 +9,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
-const VERSION = "2.7.4";
+const VERSION = "2.7.5";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -1956,20 +1956,23 @@ function flashKey(char) {
 }
 
 // ========================
-// HAND GUIDE (keyboard overlay with stretching fingers)
+// HAND GUIDE (SVG finger overlay on keyboard)
 // ========================
 
-// Home row key indices per finger (maps to rows[1] array positions)
-const FINGER_HOME_KEYS = {
-    'left-pinky': { row: 1, col: 0 },
-    'left-ring':  { row: 1, col: 1 },
-    'left-middle':{ row: 1, col: 2 },
-    'left-index': { row: 1, col: 3 },
-    'right-index':{ row: 1, col: 6 },
-    'right-middle':{ row: 1, col: 7 },
-    'right-ring': { row: 1, col: 8 },
-    'right-pinky':{ row: 1, col: 9 },
-};
+// Map each finger to its home key character (layout-dependent)
+function getHomeKeys() {
+    const r = rows[1]; // home row
+    return {
+        'left-pinky':  r[0],  // a
+        'left-ring':   r[1],  // s
+        'left-middle': r[2],  // d
+        'left-index':  r[3],  // f
+        'right-index': r[6],  // j
+        'right-middle':r[7],  // k
+        'right-ring':  r[8],  // l
+        'right-pinky': r[9],  // ;
+    };
+}
 
 function buildFingerMap() {
     fingerMap = {};
@@ -1987,15 +1990,15 @@ function buildFingerMap() {
         if (!assign) return;
         rowChars.forEach((char, cIndex) => {
             if (cIndex >= assign.length) return;
-            fingerMap[char] = { finger: assign[cIndex], row: rIndex, col: cIndex };
+            fingerMap[char] = { finger: assign[cIndex], keyChar: char };
             if (shiftRows[rIndex] && shiftRows[rIndex][cIndex]) {
-                fingerMap[shiftRows[rIndex][cIndex]] = { finger: assign[cIndex], row: rIndex, col: cIndex, shift: true };
+                fingerMap[shiftRows[rIndex][cIndex]] = { finger: assign[cIndex], keyChar: char, shift: true };
             }
         });
     });
-    fingerMap[' '] = { finger: 'thumb', row: 'space', col: 0 };
-    fingerMap['\n'] = { finger: 'right-pinky', row: 1, col: 9 };
-    fingerMap['\t'] = { finger: 'left-pinky', row: 0, col: 0 };
+    fingerMap[' '] = { finger: 'thumb', keyChar: ' ' };
+    fingerMap['\n'] = { finger: 'right-pinky', keyChar: rows[1][9] };
+    fingerMap['\t'] = { finger: 'left-pinky', keyChar: rows[0][0] };
 }
 
 function getFingerInfo(char) {
@@ -2007,59 +2010,15 @@ function getFingerInfo(char) {
     return null;
 }
 
-function createHandGuide() {
-    if (document.getElementById('hand-guide-overlay')) return;
+function getKeyCenterInKB(charOrId) {
     const kb = document.getElementById('virtual-keyboard');
-    kb.style.position = 'relative';
-
-    const overlay = document.createElement('div');
-    overlay.id = 'hand-guide-overlay';
-    if (!handGuideEnabled) overlay.classList.add('hidden');
-    overlay.style.setProperty('--guide-color', handGuideColor);
-
-    // SVG for drawing reach lines
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.id = 'hg-svg';
-    svg.setAttribute('width', '100%');
-    svg.setAttribute('height', '100%');
-    svg.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;z-index:2;';
-    overlay.appendChild(svg);
-
-    // Create finger dots
-    const fingerNames = [
-        'left-pinky','left-ring','left-middle','left-index',
-        'right-index','right-middle','right-ring','right-pinky'
-    ];
-    fingerNames.forEach(name => {
-        // Home dot (always visible)
-        const home = document.createElement('div');
-        home.className = 'hg-dot hg-home';
-        home.id = `hg-home-${name}`;
-        overlay.appendChild(home);
-
-        // Reach dot (moves to target)
-        const reach = document.createElement('div');
-        reach.className = 'hg-dot hg-reach';
-        reach.id = `hg-reach-${name}`;
-        overlay.appendChild(reach);
-    });
-
-    // Thumb dots (one for each)
-    ['left-thumb', 'right-thumb'].forEach(name => {
-        const dot = document.createElement('div');
-        dot.className = 'hg-dot hg-home hg-thumb';
-        dot.id = `hg-home-${name}`;
-        overlay.appendChild(dot);
-    });
-
-    kb.appendChild(overlay);
-    // Defer positioning until after browser layout
-    requestAnimationFrame(() => { positionFingerDots(); updateHandGuide(); });
-}
-
-function getKeyCenter(keyEl) {
-    const kb = document.getElementById('virtual-keyboard');
-    if (!kb || !keyEl) return null;
+    if (!kb) return null;
+    let keyEl;
+    if (charOrId === ' ') keyEl = document.getElementById('key- ');
+    else if (charOrId === 'ENTER') keyEl = document.getElementById('key-ENTER');
+    else if (charOrId === 'SHIFT') keyEl = document.getElementById('key-SHIFT');
+    else keyEl = document.getElementById(`key-${charOrId}`);
+    if (!keyEl) return null;
     const kbRect = kb.getBoundingClientRect();
     const keyRect = keyEl.getBoundingClientRect();
     return {
@@ -2068,143 +2027,170 @@ function getKeyCenter(keyEl) {
     };
 }
 
-function positionFingerDots() {
+function createHandGuide() {
+    const old = document.getElementById('hand-guide-overlay');
+    if (old) old.remove();
+
     const kb = document.getElementById('virtual-keyboard');
     if (!kb) return;
-    const kbRows = kb.querySelectorAll('.kb-row');
-    if (kbRows.length < 3) return;
+    kb.style.position = 'relative';
 
-    // Position home dots on home row keys
-    Object.entries(FINGER_HOME_KEYS).forEach(([finger, info]) => {
-        const row = kbRows[info.row];
-        if (!row) return;
-        // Account for special keys (CAPS on row 1, SHIFT on row 2)
-        const keyOffset = (info.row === 1) ? 1 : (info.row === 2) ? 1 : 0;
-        const keys = row.querySelectorAll('.key:not(.wide)');
-        const keyEl = keys[info.col];
-        if (!keyEl) return;
-        const pos = getKeyCenter(keyEl);
-        if (!pos) return;
+    const overlay = document.createElement('div');
+    overlay.id = 'hand-guide-overlay';
+    if (!handGuideEnabled) overlay.classList.add('hidden');
+    overlay.style.setProperty('--guide-color', handGuideColor);
 
-        const homeDot = document.getElementById(`hg-home-${finger}`);
-        if (homeDot) {
-            homeDot.style.left = (pos.x - 8) + 'px';
-            homeDot.style.top = (pos.y - 8) + 'px';
+    // SVG covers entire keyboard area
+    overlay.innerHTML = `<svg id="hg-svg" xmlns="http://www.w3.org/2000/svg"></svg>`;
+    kb.appendChild(overlay);
+
+    // Build SVG finger elements after DOM settles
+    requestAnimationFrame(() => {
+        const svg = document.getElementById('hg-svg');
+        if (!svg) return;
+        const kb = document.getElementById('virtual-keyboard');
+        svg.setAttribute('width', kb.offsetWidth);
+        svg.setAttribute('height', kb.offsetHeight);
+        svg.setAttribute('viewBox', `0 0 ${kb.offsetWidth} ${kb.offsetHeight}`);
+
+        const homeKeys = getHomeKeys();
+        const fingerNames = Object.keys(homeKeys);
+
+        // Create resting fingers on home row
+        fingerNames.forEach(name => {
+            const pos = getKeyCenterInKB(homeKeys[name]);
+            if (!pos) return;
+            // Resting finger: short capsule centered on home key
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.id = `hg-finger-${name}`;
+            line.classList.add('hg-finger-line', 'hg-resting');
+            line.setAttribute('x1', pos.x);
+            line.setAttribute('y1', pos.y + 10);
+            line.setAttribute('x2', pos.x);
+            line.setAttribute('y2', pos.y - 10);
+            line.setAttribute('stroke-width', '14');
+            line.setAttribute('stroke-linecap', 'round');
+            svg.appendChild(line);
+        });
+
+        // Thumbs on space bar
+        const spacePos = getKeyCenterInKB(' ');
+        if (spacePos) {
+            ['left-thumb', 'right-thumb'].forEach((name, i) => {
+                const xOff = i === 0 ? -30 : 30;
+                const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                line.id = `hg-finger-${name}`;
+                line.classList.add('hg-finger-line', 'hg-resting');
+                line.setAttribute('x1', spacePos.x + xOff);
+                line.setAttribute('y1', spacePos.y + 6);
+                line.setAttribute('x2', spacePos.x + xOff);
+                line.setAttribute('y2', spacePos.y - 6);
+                line.setAttribute('stroke-width', '14');
+                line.setAttribute('stroke-linecap', 'round');
+                svg.appendChild(line);
+            });
         }
-        const reachDot = document.getElementById(`hg-reach-${finger}`);
-        if (reachDot) {
-            reachDot.style.left = (pos.x - 6) + 'px';
-            reachDot.style.top = (pos.y - 6) + 'px';
-            reachDot.style.opacity = '0';
-        }
+
+        updateHandGuide();
     });
-
-    // Position thumb dots on space bar
-    const spaceRow = kbRows[kbRows.length - 1];
-    const spaceKey = spaceRow ? spaceRow.querySelector('.space') : null;
-    if (spaceKey) {
-        const pos = getKeyCenter(spaceKey);
-        if (pos) {
-            const lt = document.getElementById('hg-home-left-thumb');
-            const rt = document.getElementById('hg-home-right-thumb');
-            if (lt) { lt.style.left = (pos.x - 40) + 'px'; lt.style.top = (pos.y - 8) + 'px'; }
-            if (rt) { rt.style.left = (pos.x + 24) + 'px'; rt.style.top = (pos.y - 8) + 'px'; }
-        }
-    }
 }
 
 function updateHandGuide() {
     if (!handGuideEnabled) return;
-    const overlay = document.getElementById('hand-guide-overlay');
-    if (!overlay || !fullText || currentCharIndex >= fullText.length) return;
+    const svg = document.getElementById('hg-svg');
+    if (!svg || !fullText || currentCharIndex >= fullText.length) return;
 
     const nextChar = fullText[currentCharIndex];
     const info = getFingerInfo(nextChar);
+    const homeKeys = getHomeKeys();
 
-    // Clear all active states
-    overlay.querySelectorAll('.hg-reach').forEach(el => {
-        el.style.opacity = '0';
-        el.classList.remove('hg-active-dot');
+    // Reset all fingers to resting
+    svg.querySelectorAll('.hg-finger-line').forEach(el => {
+        el.classList.remove('hg-active-finger', 'hg-shift-finger');
+        el.classList.add('hg-resting');
+        // Snap back to home position
+        const name = el.id.replace('hg-finger-', '');
+        let homePos;
+        if (name === 'left-thumb' || name === 'right-thumb') {
+            homePos = getKeyCenterInKB(' ');
+            if (homePos) {
+                const xOff = name === 'left-thumb' ? -30 : 30;
+                el.setAttribute('x1', homePos.x + xOff);
+                el.setAttribute('y1', homePos.y + 6);
+                el.setAttribute('x2', homePos.x + xOff);
+                el.setAttribute('y2', homePos.y - 6);
+            }
+        } else if (homeKeys[name]) {
+            homePos = getKeyCenterInKB(homeKeys[name]);
+            if (homePos) {
+                el.setAttribute('x1', homePos.x);
+                el.setAttribute('y1', homePos.y + 10);
+                el.setAttribute('x2', homePos.x);
+                el.setAttribute('y2', homePos.y - 10);
+            }
+        }
     });
-    overlay.querySelectorAll('.hg-home').forEach(el => {
-        el.classList.remove('hg-home-active', 'hg-shift-dot');
-    });
-    const svg = document.getElementById('hg-svg');
-    if (svg) svg.innerHTML = '';
 
     if (!info) return;
 
-    const kb = document.getElementById('virtual-keyboard');
-    const kbRows = kb.querySelectorAll('.kb-row');
-
     // Space: highlight both thumbs
     if (info.finger === 'thumb') {
-        const lt = document.getElementById('hg-home-left-thumb');
-        const rt = document.getElementById('hg-home-right-thumb');
-        if (lt) lt.classList.add('hg-home-active');
-        if (rt) rt.classList.add('hg-home-active');
+        ['left-thumb', 'right-thumb'].forEach(name => {
+            const el = document.getElementById(`hg-finger-${name}`);
+            if (el) { el.classList.remove('hg-resting'); el.classList.add('hg-active-finger'); }
+        });
         return;
     }
 
-    // Find target key element
-    let targetKeyEl = null;
-    if (info.row !== 'space' && kbRows[info.row]) {
-        const keys = kbRows[info.row].querySelectorAll('.key:not(.wide)');
-        targetKeyEl = keys[info.col];
-    }
-    // Special keys
-    if (nextChar === '\n') targetKeyEl = document.getElementById('key-ENTER');
-    if (nextChar === '\t') targetKeyEl = document.getElementById('key-TAB');
-
     const fingerName = info.finger;
+    const fingerEl = document.getElementById(`hg-finger-${fingerName}`);
+    if (!fingerEl) return;
 
-    // If it's a home row key, just highlight the home dot
-    const homeInfo = FINGER_HOME_KEYS[fingerName];
-    if (homeInfo && info.row === homeInfo.row && info.col === homeInfo.col) {
-        const homeDot = document.getElementById(`hg-home-${fingerName}`);
-        if (homeDot) homeDot.classList.add('hg-home-active');
-    } else if (targetKeyEl) {
-        // Finger needs to reach — show trail from home to target
-        const homeDot = document.getElementById(`hg-home-${fingerName}`);
-        const reachDot = document.getElementById(`hg-reach-${fingerName}`);
-        const targetPos = getKeyCenter(targetKeyEl);
+    // Find target key position
+    const targetChar = info.keyChar;
+    let targetPos;
+    if (nextChar === '\n') targetPos = getKeyCenterInKB('ENTER');
+    else targetPos = getKeyCenterInKB(targetChar);
 
-        if (homeDot) homeDot.classList.add('hg-home-active');
+    // Find home position
+    const homeChar = homeKeys[fingerName];
+    const homePos = homeChar ? getKeyCenterInKB(homeChar) : null;
 
-        if (reachDot && targetPos) {
-            reachDot.style.left = (targetPos.x - 6) + 'px';
-            reachDot.style.top = (targetPos.y - 6) + 'px';
-            reachDot.style.opacity = '1';
-            reachDot.classList.add('hg-active-dot');
-        }
-
-        // Draw reach line
-        if (svg && homeDot && targetPos) {
-            const homeX = parseFloat(homeDot.style.left) + 8;
-            const homeY = parseFloat(homeDot.style.top) + 8;
-            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-            line.setAttribute('x1', homeX);
-            line.setAttribute('y1', homeY);
-            line.setAttribute('x2', targetPos.x);
-            line.setAttribute('y2', targetPos.y);
-            line.setAttribute('class', 'hg-reach-line');
-            svg.appendChild(line);
-        }
+    if (targetPos && homePos) {
+        // Stretch finger from home (base) to target (tip)
+        fingerEl.setAttribute('x1', homePos.x);
+        fingerEl.setAttribute('y1', homePos.y);
+        fingerEl.setAttribute('x2', targetPos.x);
+        fingerEl.setAttribute('y2', targetPos.y);
+        fingerEl.classList.remove('hg-resting');
+        fingerEl.classList.add('hg-active-finger');
     }
 
     // Shift: highlight opposite pinky
     if (info.shift) {
         const shiftHand = fingerName.startsWith('left') ? 'right' : 'left';
-        const shiftDot = document.getElementById(`hg-home-${shiftHand}-pinky`);
-        if (shiftDot) shiftDot.classList.add('hg-shift-dot');
+        const shiftEl = document.getElementById(`hg-finger-${shiftHand}-pinky`);
+        if (shiftEl) {
+            const shiftTarget = getKeyCenterInKB('SHIFT');
+            const shiftHome = homeKeys[`${shiftHand}-pinky`];
+            const shiftHomePos = shiftHome ? getKeyCenterInKB(shiftHome) : null;
+            if (shiftTarget && shiftHomePos) {
+                shiftEl.setAttribute('x1', shiftHomePos.x);
+                shiftEl.setAttribute('y1', shiftHomePos.y);
+                shiftEl.setAttribute('x2', shiftTarget.x);
+                shiftEl.setAttribute('y2', shiftTarget.y);
+            }
+            shiftEl.classList.remove('hg-resting');
+            shiftEl.classList.add('hg-shift-finger');
+        }
     }
 }
 
 function flashFingerPressed() {
     if (!handGuideEnabled) return;
-    const overlay = document.getElementById('hand-guide-overlay');
-    if (!overlay) return;
-    overlay.querySelectorAll('.hg-home-active, .hg-active-dot').forEach(el => {
+    const svg = document.getElementById('hg-svg');
+    if (!svg) return;
+    svg.querySelectorAll('.hg-active-finger').forEach(el => {
         el.classList.add('hg-pressed');
         setTimeout(() => el.classList.remove('hg-pressed'), 120);
     });
@@ -2214,7 +2200,11 @@ function flashFingerPressed() {
 let hgResizeTimer;
 window.addEventListener('resize', () => {
     clearTimeout(hgResizeTimer);
-    hgResizeTimer = setTimeout(() => { positionFingerDots(); updateHandGuide(); }, 150);
+    hgResizeTimer = setTimeout(() => {
+        const old = document.getElementById('hand-guide-overlay');
+        if (old) old.remove();
+        createHandGuide();
+    }, 200);
 });
 
 // --- CELEBRATIONS ---
