@@ -1,4 +1,4 @@
-/* TypeThatBook style.css v2.8.7 */
+/* TypeThatBook style.css v2.8.8 */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -304,11 +304,11 @@ body {
     stroke: #fff !important; stroke-opacity: 0.6 !important;
 }
 
-/* Thumbs - hidden at rest, grey when space is target, white on press */
+/* Thumbs - hidden at rest, white dots on grey bar when active, bright flash on press */
 .hg-thumb-group .hg-home { fill-opacity: 0; stroke-opacity: 0; }
 .hg-thumb-group.hg-active .hg-home {
-    fill: #888; fill-opacity: 0.7;
-    stroke: #888; stroke-width: 1.5; stroke-opacity: 0.5;
+    fill: #fff; fill-opacity: 0.9;
+    stroke: #ccc; stroke-width: 1.5; stroke-opacity: 0.6;
 }
 .hg-thumb-group.hg-pressed .hg-home {
     fill: #fff !important; fill-opacity: 1 !important;
@@ -318,7 +318,7 @@ body {
 
 /* Space bar highlight when it's the target */
 .key.space.space-active {
-    background: #e8e8e8 !important;
+    background: #d8d8d8 !important;
     border-color: #999;
 }
 .key.space.space-pressed {
