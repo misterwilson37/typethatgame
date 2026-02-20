@@ -9,7 +9,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
-const VERSION = "2.7.5";
+const VERSION = "2.7.6";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -1718,7 +1718,7 @@ async function openMenuModal() {
         localStorage.setItem('ttb_handGuide', handGuideEnabled);
         const guide = document.getElementById('hand-guide-overlay');
         if (guide) guide.classList.toggle('hidden', !handGuideEnabled);
-        if (handGuideEnabled) { positionFingerDots(); updateHandGuide(); }
+        if (handGuideEnabled) { createHandGuide(); }
     };
     document.getElementById('guide-color').oninput = (e) => {
         handGuideColor = e.target.value;
@@ -1907,11 +1907,11 @@ function createKeyboard() {
     keyboardDiv.innerHTML = '';
     rows.forEach((rowChars, rIndex) => {
         const rowDiv = document.createElement('div'); rowDiv.className = 'kb-row';
-        if (rIndex === 1) addSpecialKey(rowDiv, "CAPS"); if (rIndex === 2) addSpecialKey(rowDiv, "SHIFT");
+        if (rIndex === 1) addSpecialKey(rowDiv, "CAPS"); if (rIndex === 2) addSpecialKey(rowDiv, "SHIFT", "key-SHIFT-L");
         rowChars.forEach((char, cIndex) => {
             const key = document.createElement('div'); key.className = 'key'; key.innerText = char; key.dataset.char = char; key.dataset.shift = shiftRows[rIndex][cIndex]; key.id = `key-${char}`; rowDiv.appendChild(key);
         });
-        if (rIndex === 0) addSpecialKey(rowDiv, "BACK"); if (rIndex === 1) addSpecialKey(rowDiv, "ENTER"); if (rIndex === 2) addSpecialKey(rowDiv, "SHIFT");
+        if (rIndex === 0) addSpecialKey(rowDiv, "BACK"); if (rIndex === 1) addSpecialKey(rowDiv, "ENTER"); if (rIndex === 2) addSpecialKey(rowDiv, "SHIFT", "key-SHIFT-R");
         keyboardDiv.appendChild(rowDiv);
     });
     const spaceRow = document.createElement('div'); spaceRow.className = 'kb-row';
@@ -1919,14 +1919,14 @@ function createKeyboard() {
     spaceRow.appendChild(space); keyboardDiv.appendChild(spaceRow);
 }
 
-function addSpecialKey(parent, text) {
-    const key = document.createElement('div'); key.className = 'key wide'; key.innerText = text; key.id = `key-${text}`; parent.appendChild(key);
+function addSpecialKey(parent, text, customId) {
+    const key = document.createElement('div'); key.className = 'key wide'; key.innerText = text; key.id = customId || `key-${text}`; parent.appendChild(key);
 }
 
 function toggleKeyboardCase(isShift) {
     document.querySelectorAll('.key').forEach(k => {
         if (k.dataset.char) k.innerText = isShift ? k.dataset.shift : k.dataset.char;
-        if (k.id === 'key-SHIFT') isShift ? k.classList.add('shift-active') : k.classList.remove('shift-active');
+        if (k.id === 'key-SHIFT-L' || k.id === 'key-SHIFT-R') isShift ? k.classList.add('shift-active') : k.classList.remove('shift-active');
     });
 }
 
@@ -1956,35 +1956,34 @@ function flashKey(char) {
 }
 
 // ========================
-// HAND GUIDE (SVG finger overlay on keyboard)
+// HAND GUIDE (keyboard overlay - capsule fingers)
 // ========================
 
-// Map each finger to its home key character (layout-dependent)
 function getHomeKeys() {
     const r = rows[1]; // home row
     return {
-        'left-pinky':  r[0],  // a
-        'left-ring':   r[1],  // s
-        'left-middle': r[2],  // d
-        'left-index':  r[3],  // f
-        'right-index': r[6],  // j
-        'right-middle':r[7],  // k
-        'right-ring':  r[8],  // l
-        'right-pinky': r[9],  // ;
+        'left-pinky':  r[0],  'left-ring':   r[1],  'left-middle': r[2],  'left-index':  r[3],
+        'right-index': r[6],  'right-middle':r[7],  'right-ring':  r[8],  'right-pinky': r[9],
     };
 }
+
+const FINGER_NAMES = ['left-pinky','left-ring','left-middle','left-index',
+                      'right-index','right-middle','right-ring','right-pinky'];
 
 function buildFingerMap() {
     fingerMap = {};
     const assignments = [
+        // Row 0 (top): up to 13 keys
+        ['left-pinky','left-ring','left-middle','left-index','left-index',
+         'right-index','right-index','right-middle','right-ring','right-pinky',
+         'right-pinky','right-pinky','right-pinky'],
+        // Row 1 (home): up to 11 keys
+        ['left-pinky','left-ring','left-middle','left-index','left-index',
+         'right-index','right-index','right-middle','right-ring','right-pinky','right-pinky'],
+        // Row 2 (bottom): up to 10 keys
         ['left-pinky','left-ring','left-middle','left-index','left-index',
          'right-index','right-index','right-middle','right-ring','right-pinky'],
-        ['left-pinky','left-ring','left-middle','left-index','left-index',
-         'right-index','right-index','right-middle','right-ring','right-pinky'],
-        ['left-pinky','left-ring','left-middle','left-index','left-index',
-         'right-index','right-index'],
     ];
-
     rows.forEach((rowChars, rIndex) => {
         const assign = assignments[rIndex];
         if (!assign) return;
@@ -1997,16 +1996,14 @@ function buildFingerMap() {
         });
     });
     fingerMap[' '] = { finger: 'thumb', keyChar: ' ' };
-    fingerMap['\n'] = { finger: 'right-pinky', keyChar: rows[1][9] };
+    fingerMap['\n'] = { finger: 'right-pinky', keyChar: 'ENTER' };
     fingerMap['\t'] = { finger: 'left-pinky', keyChar: rows[0][0] };
 }
 
 function getFingerInfo(char) {
     if (fingerMap[char]) return fingerMap[char];
     const lower = char.toLowerCase();
-    if (lower !== char && fingerMap[lower]) {
-        return { ...fingerMap[lower], shift: true };
-    }
+    if (lower !== char && fingerMap[lower]) return { ...fingerMap[lower], shift: true };
     return null;
 }
 
@@ -2016,7 +2013,8 @@ function getKeyCenterInKB(charOrId) {
     let keyEl;
     if (charOrId === ' ') keyEl = document.getElementById('key- ');
     else if (charOrId === 'ENTER') keyEl = document.getElementById('key-ENTER');
-    else if (charOrId === 'SHIFT') keyEl = document.getElementById('key-SHIFT');
+    else if (charOrId === 'SHIFT-L') keyEl = document.getElementById('key-SHIFT-L');
+    else if (charOrId === 'SHIFT-R') keyEl = document.getElementById('key-SHIFT-R');
     else keyEl = document.getElementById(`key-${charOrId}`);
     if (!keyEl) return null;
     const kbRect = kb.getBoundingClientRect();
@@ -2030,7 +2028,6 @@ function getKeyCenterInKB(charOrId) {
 function createHandGuide() {
     const old = document.getElementById('hand-guide-overlay');
     if (old) old.remove();
-
     const kb = document.getElementById('virtual-keyboard');
     if (!kb) return;
     kb.style.position = 'relative';
@@ -2039,60 +2036,77 @@ function createHandGuide() {
     overlay.id = 'hand-guide-overlay';
     if (!handGuideEnabled) overlay.classList.add('hidden');
     overlay.style.setProperty('--guide-color', handGuideColor);
-
-    // SVG covers entire keyboard area
     overlay.innerHTML = `<svg id="hg-svg" xmlns="http://www.w3.org/2000/svg"></svg>`;
     kb.appendChild(overlay);
 
-    // Build SVG finger elements after DOM settles
-    requestAnimationFrame(() => {
-        const svg = document.getElementById('hg-svg');
-        if (!svg) return;
-        const kb = document.getElementById('virtual-keyboard');
-        svg.setAttribute('width', kb.offsetWidth);
-        svg.setAttribute('height', kb.offsetHeight);
-        svg.setAttribute('viewBox', `0 0 ${kb.offsetWidth} ${kb.offsetHeight}`);
+    requestAnimationFrame(() => buildFingerSVG());
+}
 
-        const homeKeys = getHomeKeys();
-        const fingerNames = Object.keys(homeKeys);
+function buildFingerSVG() {
+    const kb = document.getElementById('virtual-keyboard');
+    const svg = document.getElementById('hg-svg');
+    if (!kb || !svg) return;
+    svg.innerHTML = '';
+    svg.setAttribute('width', kb.offsetWidth);
+    svg.setAttribute('height', kb.offsetHeight);
+    svg.setAttribute('viewBox', `0 0 ${kb.offsetWidth} ${kb.offsetHeight}`);
 
-        // Create resting fingers on home row
-        fingerNames.forEach(name => {
-            const pos = getKeyCenterInKB(homeKeys[name]);
-            if (!pos) return;
-            // Resting finger: short capsule centered on home key
-            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-            line.id = `hg-finger-${name}`;
-            line.classList.add('hg-finger-line', 'hg-resting');
-            line.setAttribute('x1', pos.x);
-            line.setAttribute('y1', pos.y + 10);
-            line.setAttribute('x2', pos.x);
-            line.setAttribute('y2', pos.y - 10);
-            line.setAttribute('stroke-width', '14');
-            line.setAttribute('stroke-linecap', 'round');
-            svg.appendChild(line);
-        });
+    const homeKeys = getHomeKeys();
+    const R = 11; // finger circle radius
 
-        // Thumbs on space bar
-        const spacePos = getKeyCenterInKB(' ');
-        if (spacePos) {
-            ['left-thumb', 'right-thumb'].forEach((name, i) => {
-                const xOff = i === 0 ? -30 : 30;
-                const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-                line.id = `hg-finger-${name}`;
-                line.classList.add('hg-finger-line', 'hg-resting');
-                line.setAttribute('x1', spacePos.x + xOff);
-                line.setAttribute('y1', spacePos.y + 6);
-                line.setAttribute('x2', spacePos.x + xOff);
-                line.setAttribute('y2', spacePos.y - 6);
-                line.setAttribute('stroke-width', '14');
-                line.setAttribute('stroke-linecap', 'round');
-                svg.appendChild(line);
-            });
-        }
+    // Create each finger group: home circle + reach body + reach tip
+    FINGER_NAMES.forEach(name => {
+        const pos = getKeyCenterInKB(homeKeys[name]);
+        if (!pos) return;
 
-        updateHandGuide();
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        g.id = `hg-finger-${name}`;
+        g.classList.add('hg-finger-group');
+
+        // Reach body (thick line with round caps = capsule connector)
+        const body = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        body.classList.add('hg-body');
+        body.setAttribute('x1', pos.x); body.setAttribute('y1', pos.y);
+        body.setAttribute('x2', pos.x); body.setAttribute('y2', pos.y);
+        body.setAttribute('stroke-width', R * 2);
+        body.setAttribute('stroke-linecap', 'round');
+        g.appendChild(body);
+
+        // Home circle (base of finger - always visible)
+        const home = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        home.classList.add('hg-home');
+        home.setAttribute('cx', pos.x); home.setAttribute('cy', pos.y);
+        home.setAttribute('r', R);
+        g.appendChild(home);
+
+        // Fingertip circle (target end - only visible when reaching)
+        const tip = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        tip.classList.add('hg-tip');
+        tip.setAttribute('cx', pos.x); tip.setAttribute('cy', pos.y);
+        tip.setAttribute('r', R);
+        g.appendChild(tip);
+
+        svg.appendChild(g);
     });
+
+    // Thumbs
+    const spacePos = getKeyCenterInKB(' ');
+    if (spacePos) {
+        ['left-thumb', 'right-thumb'].forEach((name, i) => {
+            const xOff = i === 0 ? -30 : 30;
+            const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            g.id = `hg-finger-${name}`;
+            g.classList.add('hg-finger-group');
+            const home = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            home.classList.add('hg-home');
+            home.setAttribute('cx', spacePos.x + xOff); home.setAttribute('cy', spacePos.y);
+            home.setAttribute('r', 9);
+            g.appendChild(home);
+            svg.appendChild(g);
+        });
+    }
+
+    updateHandGuide();
 }
 
 function updateHandGuide() {
@@ -2104,31 +2118,24 @@ function updateHandGuide() {
     const info = getFingerInfo(nextChar);
     const homeKeys = getHomeKeys();
 
-    // Reset all fingers to resting
-    svg.querySelectorAll('.hg-finger-line').forEach(el => {
-        el.classList.remove('hg-active-finger', 'hg-shift-finger');
-        el.classList.add('hg-resting');
-        // Snap back to home position
-        const name = el.id.replace('hg-finger-', '');
+    // Reset all fingers to resting state
+    svg.querySelectorAll('.hg-finger-group').forEach(g => {
+        g.classList.remove('hg-active', 'hg-shift-active');
+        const body = g.querySelector('.hg-body');
+        const home = g.querySelector('.hg-home');
+        const tip = g.querySelector('.hg-tip');
+        const name = g.id.replace('hg-finger-', '');
+
+        // Reset position to home
         let homePos;
-        if (name === 'left-thumb' || name === 'right-thumb') {
-            homePos = getKeyCenterInKB(' ');
-            if (homePos) {
-                const xOff = name === 'left-thumb' ? -30 : 30;
-                el.setAttribute('x1', homePos.x + xOff);
-                el.setAttribute('y1', homePos.y + 6);
-                el.setAttribute('x2', homePos.x + xOff);
-                el.setAttribute('y2', homePos.y - 6);
-            }
-        } else if (homeKeys[name]) {
-            homePos = getKeyCenterInKB(homeKeys[name]);
-            if (homePos) {
-                el.setAttribute('x1', homePos.x);
-                el.setAttribute('y1', homePos.y + 10);
-                el.setAttribute('x2', homePos.x);
-                el.setAttribute('y2', homePos.y - 10);
-            }
+        if (name === 'left-thumb' || name === 'right-thumb') return;
+        homePos = getKeyCenterInKB(homeKeys[name]);
+        if (!homePos) return;
+        if (body) {
+            body.setAttribute('x1', homePos.x); body.setAttribute('y1', homePos.y);
+            body.setAttribute('x2', homePos.x); body.setAttribute('y2', homePos.y);
         }
+        if (tip) { tip.setAttribute('cx', homePos.x); tip.setAttribute('cy', homePos.y); }
     });
 
     if (!info) return;
@@ -2136,52 +2143,53 @@ function updateHandGuide() {
     // Space: highlight both thumbs
     if (info.finger === 'thumb') {
         ['left-thumb', 'right-thumb'].forEach(name => {
-            const el = document.getElementById(`hg-finger-${name}`);
-            if (el) { el.classList.remove('hg-resting'); el.classList.add('hg-active-finger'); }
+            const g = document.getElementById(`hg-finger-${name}`);
+            if (g) g.classList.add('hg-active');
         });
         return;
     }
 
     const fingerName = info.finger;
-    const fingerEl = document.getElementById(`hg-finger-${fingerName}`);
-    if (!fingerEl) return;
+    const fingerG = document.getElementById(`hg-finger-${fingerName}`);
+    if (!fingerG) return;
 
-    // Find target key position
-    const targetChar = info.keyChar;
-    let targetPos;
-    if (nextChar === '\n') targetPos = getKeyCenterInKB('ENTER');
-    else targetPos = getKeyCenterInKB(targetChar);
-
-    // Find home position
+    // Find home and target positions
     const homeChar = homeKeys[fingerName];
     const homePos = homeChar ? getKeyCenterInKB(homeChar) : null;
+    const targetPos = getKeyCenterInKB(info.keyChar);
 
-    if (targetPos && homePos) {
-        // Stretch finger from home (base) to target (tip)
-        fingerEl.setAttribute('x1', homePos.x);
-        fingerEl.setAttribute('y1', homePos.y);
-        fingerEl.setAttribute('x2', targetPos.x);
-        fingerEl.setAttribute('y2', targetPos.y);
-        fingerEl.classList.remove('hg-resting');
-        fingerEl.classList.add('hg-active-finger');
+    if (!homePos || !targetPos) return;
+
+    // Stretch the finger from home to target
+    const body = fingerG.querySelector('.hg-body');
+    const tip = fingerG.querySelector('.hg-tip');
+    if (body) {
+        body.setAttribute('x1', homePos.x); body.setAttribute('y1', homePos.y);
+        body.setAttribute('x2', targetPos.x); body.setAttribute('y2', targetPos.y);
     }
+    if (tip) { tip.setAttribute('cx', targetPos.x); tip.setAttribute('cy', targetPos.y); }
+    fingerG.classList.add('hg-active');
 
-    // Shift: highlight opposite pinky
+    // Shift: stretch opposite pinky to correct shift key
     if (info.shift) {
-        const shiftHand = fingerName.startsWith('left') ? 'right' : 'left';
-        const shiftEl = document.getElementById(`hg-finger-${shiftHand}-pinky`);
-        if (shiftEl) {
-            const shiftTarget = getKeyCenterInKB('SHIFT');
+        const isLeftFinger = fingerName.startsWith('left');
+        const shiftHand = isLeftFinger ? 'right' : 'left';
+        const shiftKey = isLeftFinger ? 'SHIFT-R' : 'SHIFT-L';
+        const shiftFingerG = document.getElementById(`hg-finger-${shiftHand}-pinky`);
+        if (shiftFingerG) {
             const shiftHome = homeKeys[`${shiftHand}-pinky`];
             const shiftHomePos = shiftHome ? getKeyCenterInKB(shiftHome) : null;
-            if (shiftTarget && shiftHomePos) {
-                shiftEl.setAttribute('x1', shiftHomePos.x);
-                shiftEl.setAttribute('y1', shiftHomePos.y);
-                shiftEl.setAttribute('x2', shiftTarget.x);
-                shiftEl.setAttribute('y2', shiftTarget.y);
+            const shiftTargetPos = getKeyCenterInKB(shiftKey);
+            if (shiftHomePos && shiftTargetPos) {
+                const sBody = shiftFingerG.querySelector('.hg-body');
+                const sTip = shiftFingerG.querySelector('.hg-tip');
+                if (sBody) {
+                    sBody.setAttribute('x1', shiftHomePos.x); sBody.setAttribute('y1', shiftHomePos.y);
+                    sBody.setAttribute('x2', shiftTargetPos.x); sBody.setAttribute('y2', shiftTargetPos.y);
+                }
+                if (sTip) { sTip.setAttribute('cx', shiftTargetPos.x); sTip.setAttribute('cy', shiftTargetPos.y); }
             }
-            shiftEl.classList.remove('hg-resting');
-            shiftEl.classList.add('hg-shift-finger');
+            shiftFingerG.classList.add('hg-shift-active');
         }
     }
 }
@@ -2190,13 +2198,12 @@ function flashFingerPressed() {
     if (!handGuideEnabled) return;
     const svg = document.getElementById('hg-svg');
     if (!svg) return;
-    svg.querySelectorAll('.hg-active-finger').forEach(el => {
-        el.classList.add('hg-pressed');
-        setTimeout(() => el.classList.remove('hg-pressed'), 120);
+    svg.querySelectorAll('.hg-active').forEach(g => {
+        g.classList.add('hg-pressed');
+        setTimeout(() => g.classList.remove('hg-pressed'), 120);
     });
 }
 
-// Reposition on resize
 let hgResizeTimer;
 window.addEventListener('resize', () => {
     clearTimeout(hgResizeTimer);
