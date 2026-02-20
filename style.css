@@ -1,5 +1,4 @@
-/* TypeThatBook style.css v2.7.8 */
-/* v2.7.0 - Practice Mode with Gemini AI */
+/* TypeThatBook style.css v2.7.9 */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -171,7 +170,7 @@ body {
 #book-info-bar .bib-chap { color: #888; }
 
 #virtual-keyboard {
-    height: 260px; background: var(--accent-grey);
+    height: 305px; background: var(--accent-grey);
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     gap: 5px; border-top: 4px solid var(--black); padding: 10px 0; flex-shrink: 0;
 }
@@ -184,6 +183,17 @@ body {
 .key.target { background-color: var(--carolina-blue); color: white; transform: translateY(2px); }
 .key.space { width: 300px; }
 .key.wide { min-width: 72px; font-size: 12px; }
+.key.key-num {
+    position: relative; font-size: 14px;
+}
+.num-digit {
+    position: absolute; bottom: 3px; left: 6px;
+    font-size: 16px; font-weight: bold; color: var(--black);
+}
+.num-symbol {
+    position: absolute; top: 2px; right: 5px;
+    font-size: 11px; font-weight: normal; color: #777;
+}
 .key.shift-active { background-color: #ffd700; color: black; } 
 
 /* --- MODAL (in-flow panel, replaces keyboard) --- */
@@ -193,7 +203,7 @@ body {
     flex-shrink: 0;
     display: flex; flex-direction: column;
     box-sizing: border-box;
-    height: 284px; /* matches keyboard total height */
+    height: 329px; /* matches keyboard total height */
     padding: 12px 30px;
     animation: slideUp 0.2s ease-out;
 }
