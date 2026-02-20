@@ -1,4 +1,5 @@
-/* v2.7.5 - Practice Mode with Gemini AI */
+/* TypeThatBook style.css v2.7.6 */
+/* v2.7.0 - Practice Mode with Gemini AI */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -245,33 +246,52 @@ body {
 .menu-col-initials { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .menu-col-guide { flex: 0 0 auto; min-width: 90px; }
 
-/* Hand Guide - SVG finger overlay */
+/* Hand Guide - capsule fingers on keyboard */
 #hand-guide-overlay {
     position: absolute; top: 0; left: 0; width: 100%; height: 100%;
     pointer-events: none; z-index: 3;
 }
 #hand-guide-overlay.hidden { display: none; }
 #hg-svg { position: absolute; top: 0; left: 0; }
-.hg-finger-line {
-    transition: stroke 0.1s ease, stroke-opacity 0.1s ease, filter 0.1s ease;
+
+/* Resting state: soft circles on home row */
+.hg-finger-group .hg-home {
+    fill: var(--guide-color, #4FC3F7); fill-opacity: 0.2;
+    stroke: var(--guide-color, #4FC3F7); stroke-width: 1.5; stroke-opacity: 0.15;
 }
-.hg-finger-line.hg-resting {
-    stroke: var(--guide-color, #4FC3F7);
-    stroke-opacity: 0.18;
+.hg-finger-group .hg-body {
+    stroke: var(--guide-color, #4FC3F7); stroke-opacity: 0;
 }
-.hg-finger-line.hg-active-finger {
-    stroke: var(--guide-color, #4FC3F7);
-    stroke-opacity: 0.55;
+.hg-finger-group .hg-tip {
+    fill: var(--guide-color, #4FC3F7); fill-opacity: 0;
+    stroke: var(--guide-color, #4FC3F7); stroke-width: 0; stroke-opacity: 0;
+}
+
+/* Active: finger reaching to target */
+.hg-finger-group.hg-active .hg-home {
+    fill-opacity: 0.35; stroke-opacity: 0.4;
+}
+.hg-finger-group.hg-active .hg-body {
+    stroke-opacity: 0.2;
+}
+.hg-finger-group.hg-active .hg-tip {
+    fill-opacity: 0.6; stroke-width: 2; stroke-opacity: 0.7;
     filter: drop-shadow(0 0 4px var(--guide-color, #4FC3F7));
 }
-.hg-finger-line.hg-shift-finger {
-    stroke: var(--guide-color, #4FC3F7);
-    stroke-opacity: 0.35;
-}
-.hg-finger-line.hg-pressed {
-    stroke: #fff !important;
-    stroke-opacity: 1 !important;
+
+/* Shift pinky reaching */
+.hg-finger-group.hg-shift-active .hg-home { fill-opacity: 0.25; stroke-opacity: 0.3; }
+.hg-finger-group.hg-shift-active .hg-body { stroke-opacity: 0.12; }
+.hg-finger-group.hg-shift-active .hg-tip { fill-opacity: 0.35; stroke-width: 1.5; stroke-opacity: 0.4; }
+
+/* Pressed flash */
+.hg-finger-group.hg-pressed .hg-home,
+.hg-finger-group.hg-pressed .hg-tip {
+    fill: #fff !important; fill-opacity: 1 !important;
     filter: drop-shadow(0 0 8px #fff) !important;
+}
+.hg-finger-group.hg-pressed .hg-body {
+    stroke: #fff !important; stroke-opacity: 0.6 !important;
 }
 .initials-box-settings {
     width: 72px; background: #222; color: #FFD700;
