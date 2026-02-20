@@ -9,7 +9,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
-const VERSION = "2.7.1";
+const VERSION = "2.7.2";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -112,6 +112,10 @@ let practiceRealFurthestCharIndex = null;
 let practiceProblemChars = [];      // the chars that triggered this practice
 let practicePrompt = '';            // the prompt sent to Gemini
 let practiceText = '';              // the generated text
+let practiceTypingAccumulator = 0;  // seconds typed since last practice (or session start)
+let hasDonePractice = false;        // whether practice has been used this session
+const PRACTICE_FIRST_UNLOCK = 150;  // 2.5 min before first practice
+const PRACTICE_COOLDOWN = 60;       // 1 min between subsequent practices
 
 // Profanity filter for initials (covers letter substitutions kids try)
 const BLOCKED_INITIALS = new Set([
@@ -973,6 +977,9 @@ async function pauseGameForBreak() {
     // Log this session
     logSession(sprintSeconds, charsTyped, sprintMistakes, sprintWPM, sprintAcc);
 
+    // Accumulate typing time for practice unlock
+    practiceTypingAccumulator += sprintSeconds;
+
     // Track anonymous usage
     anonSprintCount++;
     anonTotalSeconds += sprintSeconds;
@@ -1019,9 +1026,15 @@ function getMissedCharsHTML() {
         `<span style="display:inline-block; background:#fff0f0; border:1px solid #ffcccc; border-radius:3px; padding:1px 6px; margin:0 2px; font-weight:bold; color:#D32F2F;">${ch} <small style="color:#999;">×${count}</small></span>`
     ).join('');
     const canPractice = currentUser && !currentUser.isAnonymous && !isPracticeMode;
-    const practiceBtn = canPractice 
-        ? ` <button id="practice-btn" class="practice-btn" title="AI-generated practice focusing on your weak spots">✨ Practice</button>` 
-        : '';
+    const practiceThreshold = hasDonePractice ? PRACTICE_COOLDOWN : PRACTICE_FIRST_UNLOCK;
+    const practiceReady = practiceTypingAccumulator >= practiceThreshold;
+    let practiceBtn = '';
+    if (canPractice && practiceReady) {
+        practiceBtn = ` <button id="practice-btn" class="practice-btn" title="AI-generated practice focusing on your weak spots">✨ Practice</button>`;
+    } else if (canPractice && !practiceReady) {
+        const remaining = Math.ceil((practiceThreshold - practiceTypingAccumulator) / 60);
+        practiceBtn = ` <span style="font-size:0.85em; color:#aaa;" title="Keep typing to unlock practice mode">✨ Practice unlocks in ~${remaining}m</span>`;
+    }
     return `<div style="font-size:0.8em; color:#888; margin:4px 0;">Watch out for: ${pills}${practiceBtn}</div>`;
 }
 
@@ -1103,6 +1116,9 @@ async function finishChapter() {
 
     // Log this session
     logSession(sprintSeconds, charsTyped, sprintMistakes, sprintWPM, sprintAcc);
+
+    // Accumulate typing time for practice unlock
+    practiceTypingAccumulator += sprintSeconds;
 
     const todayWPM = calculateAverageWPM(statsData.charsToday, statsData.secondsToday);
     const todayAcc = calculateAverageAcc(statsData.charsToday, statsData.mistakesToday);
@@ -2703,6 +2719,8 @@ async function startPracticeMode() {
 
         // Enter practice mode
         isPracticeMode = true;
+        hasDonePractice = true;
+        practiceTypingAccumulator = 0;
         
         // Inject practice text as a fake chapter
         bookData = { segments: [{ text: practiceText }] };
