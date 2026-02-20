@@ -1,4 +1,4 @@
-/* TypeThatBook style.css v2.8.8 */
+/* TypeThatBook style.css v2.9.0 */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -304,28 +304,30 @@ body {
     stroke: #fff !important; stroke-opacity: 0.6 !important;
 }
 
-/* Thumbs - hidden at rest, white dots on grey bar when active, bright flash on press */
-.hg-thumb-group .hg-home { fill-opacity: 0; stroke-opacity: 0; }
-.hg-thumb-group.hg-active .hg-home {
-    fill: #fff; fill-opacity: 0.9;
-    stroke: #ccc; stroke-width: 1.5; stroke-opacity: 0.6;
+/* Space bar thumb circles via CSS pseudo-elements */
+.key.space { position: relative; overflow: visible; }
+.key.space::before, .key.space::after {
+    content: ''; position: absolute; top: 50%; width: 16px; height: 16px;
+    border-radius: 50%; transform: translateY(-50%);
+    background: white; opacity: 0; transition: opacity 0.1s;
+    pointer-events: none; z-index: 1;
 }
-.hg-thumb-group.hg-pressed .hg-home {
-    fill: #fff !important; fill-opacity: 1 !important;
-    stroke: #fff !important; stroke-opacity: 1 !important;
-    filter: drop-shadow(0 0 8px #fff) !important;
+.key.space::before { left: calc(50% - 38px); }
+.key.space::after { right: calc(50% - 38px); }
+
+/* Space target: show thumb circles */
+.key.space.space-active::before, .key.space.space-active::after {
+    opacity: 0.9;
+    box-shadow: 0 0 4px rgba(0,0,0,0.15);
 }
 
-/* Space bar highlight when it's the target */
-.key.space.space-active {
-    background: #d8d8d8 !important;
-    border-color: #999;
-}
+/* Space pressed: whole bar flashes white */
 .key.space.space-pressed {
     background: #fff !important;
     box-shadow: 0 0 12px rgba(255,255,255,0.9) !important;
     border-color: #ccc;
 }
+.key.space.space-pressed::before, .key.space.space-pressed::after { opacity: 0; }
 .initials-box-settings {
     width: 72px; background: #222; color: #FFD700;
     border: 2px solid #444; padding: 10px 8px;
