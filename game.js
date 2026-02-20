@@ -9,7 +9,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
-const VERSION = "2.7.7";
+const VERSION = "2.7.8";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -1907,11 +1907,16 @@ function createKeyboard() {
     keyboardDiv.innerHTML = '';
     rows.forEach((rowChars, rIndex) => {
         const rowDiv = document.createElement('div'); rowDiv.className = 'kb-row';
-        if (rIndex === 0) addSpecialKey(rowDiv, "TAB"); if (rIndex === 1) addSpecialKey(rowDiv, "CAPS"); if (rIndex === 2) addSpecialKey(rowDiv, "SHIFT", "key-SHIFT-L");
+        // Stagger: TAB narrower than CAPS, SHIFT wider — mimics real keyboard offset
+        if (rIndex === 0) addSpecialKey(rowDiv, "TAB", null, 72);
+        if (rIndex === 1) addSpecialKey(rowDiv, "CAPS", null, 80);
+        if (rIndex === 2) addSpecialKey(rowDiv, "SHIFT", "key-SHIFT-L", 100);
         rowChars.forEach((char, cIndex) => {
             const key = document.createElement('div'); key.className = 'key'; key.innerText = char; key.dataset.char = char; key.dataset.shift = shiftRows[rIndex][cIndex]; key.id = `key-${char}`; rowDiv.appendChild(key);
         });
-        if (rIndex === 0) addSpecialKey(rowDiv, "BACK"); if (rIndex === 1) addSpecialKey(rowDiv, "ENTER"); if (rIndex === 2) addSpecialKey(rowDiv, "SHIFT", "key-SHIFT-R");
+        if (rIndex === 0) addSpecialKey(rowDiv, "BACK", null, 72);
+        if (rIndex === 1) addSpecialKey(rowDiv, "ENTER", null, 80);
+        if (rIndex === 2) addSpecialKey(rowDiv, "SHIFT", "key-SHIFT-R", 100);
         keyboardDiv.appendChild(rowDiv);
     });
     const spaceRow = document.createElement('div'); spaceRow.className = 'kb-row';
@@ -1919,8 +1924,11 @@ function createKeyboard() {
     spaceRow.appendChild(space); keyboardDiv.appendChild(spaceRow);
 }
 
-function addSpecialKey(parent, text, customId) {
-    const key = document.createElement('div'); key.className = 'key wide'; key.innerText = text; key.id = customId || `key-${text}`; parent.appendChild(key);
+function addSpecialKey(parent, text, customId, width) {
+    const key = document.createElement('div'); key.className = 'key wide'; key.innerText = text;
+    key.id = customId || `key-${text}`;
+    if (width) key.style.width = width + 'px';
+    parent.appendChild(key);
 }
 
 function toggleKeyboardCase(isShift) {
