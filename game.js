@@ -9,7 +9,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
-const VERSION = "2.8.1";
+const VERSION = "2.8.2";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -18,8 +18,19 @@ const SPAM_THRESHOLD = 5;
 
 // Hand Guide
 let handGuideEnabled = localStorage.getItem('ttb_handGuide') === 'true';
-let handGuideColor = localStorage.getItem('ttb_handGuideColor') || '#4FC3F7';
 let fingerMap = {};
+const FINGER_COLORS = {
+    'left-pinky':   '#FF69B4', // pink
+    'left-ring':    '#E53935', // red
+    'left-middle':  '#FF9800', // orange
+    'left-index':   '#FDD835', // yellow
+    'right-index':  '#43A047', // green
+    'right-middle': '#1E88E5', // blue
+    'right-ring':   '#8E24AA', // purple
+    'right-pinky':  '#4FC3F7', // baby blue
+    'left-thumb':   '#FDD835', // yellow (same as index)
+    'right-thumb':  '#43A047', // green (same as index)
+};
 
 // ADMIN WHITELIST - same list as index.html, used to show admin link
 const ADMIN_EMAILS = [
@@ -1694,9 +1705,6 @@ async function openMenuModal() {
                     <input type="checkbox" id="guide-toggle" ${handGuideEnabled ? 'checked' : ''}>
                     Show fingers
                 </label>
-                <div class="menu-label" style="margin-top:8px;">Color</div>
-                <input type="color" id="guide-color" value="${handGuideColor}" 
-                    style="width:36px; height:28px; border:1px solid #555; border-radius:4px; cursor:pointer; background:none; padding:0; margin-top:2px;">
             </div>
             ${initialsHTML}
         </div>
@@ -1719,12 +1727,7 @@ async function openMenuModal() {
         const guide = document.getElementById('hand-guide-overlay');
         if (guide) guide.classList.toggle('hidden', !handGuideEnabled);
         if (handGuideEnabled) { createHandGuide(); }
-    };
-    document.getElementById('guide-color').oninput = (e) => {
-        handGuideColor = e.target.value;
-        localStorage.setItem('ttb_handGuideColor', handGuideColor);
-        const guide = document.getElementById('hand-guide-overlay');
-        if (guide) guide.style.setProperty('--guide-color', handGuideColor);
+        else { colorKeyboardKeys(); } // clear key colors
     };
 
     const initialsInput = document.getElementById('initials-input');
@@ -2081,11 +2084,30 @@ function createHandGuide() {
     const overlay = document.createElement('div');
     overlay.id = 'hand-guide-overlay';
     if (!handGuideEnabled) overlay.classList.add('hidden');
-    overlay.style.setProperty('--guide-color', handGuideColor);
     overlay.innerHTML = `<svg id="hg-svg" xmlns="http://www.w3.org/2000/svg"></svg>`;
     kb.appendChild(overlay);
 
+    colorKeyboardKeys();
     requestAnimationFrame(() => buildFingerSVG());
+}
+
+function colorKeyboardKeys() {
+    // Reset all keys
+    document.querySelectorAll('.key').forEach(k => { k.style.backgroundColor = ''; });
+    if (!handGuideEnabled) return;
+
+    // Color each key based on its finger assignment
+    Object.entries(fingerMap).forEach(([char, info]) => {
+        if (!info.finger || info.shift) return; // skip shift variants
+        const color = FINGER_COLORS[info.finger];
+        if (!color) return;
+        let keyEl;
+        if (char === ' ') keyEl = document.getElementById('key- ');
+        else if (char === '\n') keyEl = document.getElementById('key-ENTER');
+        else if (char === '\t') keyEl = document.getElementById('key-TAB');
+        else keyEl = document.getElementById(`key-${char}`);
+        if (keyEl) keyEl.style.backgroundColor = color + '22'; // very light tint
+    });
 }
 
 function buildFingerSVG() {
@@ -2104,10 +2126,12 @@ function buildFingerSVG() {
     FINGER_NAMES.forEach(name => {
         const pos = getKeyCenterInKB(homeKeys[name]);
         if (!pos) return;
+        const fc = FINGER_COLORS[name] || '#4FC3F7';
 
         const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         g.id = `hg-finger-${name}`;
         g.classList.add('hg-finger-group');
+        g.style.setProperty('--fc', fc);
 
         // Reach body (thick line with round caps = capsule connector)
         const body = document.createElementNS('http://www.w3.org/2000/svg', 'line');
@@ -2140,9 +2164,11 @@ function buildFingerSVG() {
     if (spacePos) {
         ['left-thumb', 'right-thumb'].forEach((name, i) => {
             const xOff = i === 0 ? -30 : 30;
+            const fc = FINGER_COLORS[name] || '#4FC3F7';
             const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
             g.id = `hg-finger-${name}`;
             g.classList.add('hg-finger-group');
+            g.style.setProperty('--fc', fc);
             const home = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
             home.classList.add('hg-home');
             home.setAttribute('cx', spacePos.x + xOff); home.setAttribute('cy', spacePos.y);
@@ -2590,8 +2616,16 @@ function openGameGenie() {
                 ${escapeHtml(fullText.substring(sentences[currentSent].start, sentences[currentSent].start + 120))}${sentences[currentSent].end - sentences[currentSent].start > 120 ? '...' : ''}
             </div>
             
-            <div style="display:flex; justify-content:center;">
+            <div style="display:flex; justify-content:center; gap:6px; align-items:center;">
                 <button id="gg-infinite" style="${isInfinite ? 'background:#ff6600; color:#fff;' : 'background:#333; color:#ff6600;'} border:1px solid #ff6600; padding:4px 12px; cursor:pointer; font-family:inherit; border-radius:3px; font-size:0.85em; font-weight:bold;" title="Toggle infinite session (no sprint timer)">${isInfinite ? '∞ INFINITE ON' : '∞ Infinite Mode'}</button>
+            </div>
+            
+            <div style="margin-top:8px; padding-top:6px; border-top:1px solid #ddd;">
+                <div style="font-size:0.75em; color:#888; text-align:center; margin-bottom:4px;">Test Text</div>
+                <div style="display:flex; justify-content:center; gap:6px;">
+                    <button id="gg-test-pangram" style="${ggBtn}" title="&quot;The quick brown fox jumps over the lazy dog!&quot; exclaimed 4 typing teachers.">🦊 Pangram</button>
+                    <button id="gg-test-alphabet" style="${ggBtn}" title="abcdefghijklmnopqrstuvwxyz 1234567890">🔤 Alphabet</button>
+                </div>
             </div>
         </div>
     `;
@@ -2649,6 +2683,18 @@ function openGameGenie() {
         }
         localStorage.setItem('ttb_sessionLength', sessionValueStr);
         openGameGenie(); // refresh UI
+    };
+    
+    // Test text buttons
+    document.getElementById('gg-test-pangram').onclick = () => {
+        ggRealCharIndex = -1;
+        closeModal();
+        startTestText(TEST_TEXT_PANGRAM, 'Pangram');
+    };
+    document.getElementById('gg-test-alphabet').onclick = () => {
+        ggRealCharIndex = -1;
+        closeModal();
+        startTestText(TEST_TEXT_ALPHABET, 'Alphabet');
     };
     
     // Return button
@@ -3002,6 +3048,58 @@ async function openLeaderboard(activeTab) {
 // ========================
 // PRACTICE MODE
 // ========================
+
+// Test Text constants (used via Game Genie)
+const TEST_TEXT_PANGRAM = '"The quick brown fox jumps over the lazy dog!" exclaimed 4 typing teachers.';
+const TEST_TEXT_ALPHABET = 'abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ 1234567890';
+
+function startTestText(text, label) {
+    if (isPracticeMode) return;
+
+    // Save real book state (reuse practice mode machinery)
+    practiceRealBookData = bookData;
+    practiceRealChapterNum = currentChapterNum;
+    practiceRealCharIndex = currentCharIndex;
+    practiceRealSavedCharIndex = savedCharIndex;
+    practiceRealLastSavedIndex = lastSavedIndex;
+    practiceRealFurthestChapter = furthestChapter;
+    practiceRealFurthestCharIndex = furthestCharIndex;
+
+    // Enter practice mode with test text
+    isPracticeMode = true;
+    practiceText = text;
+    bookData = { segments: [{ text: text }] };
+    savedCharIndex = 0;
+    currentCharIndex = 0;
+    lastSavedIndex = 0;
+    sprintSeconds = 0;
+    sprintMistakes = 0;
+    sprintCharStart = 0;
+
+    setupGame();
+    getHeaderHTML();
+
+    const bar = document.getElementById('book-info-bar');
+    if (bar) bar.classList.add('practice-active');
+
+    closeModal();
+
+    isModalOpen = true; isInputBlocked = false;
+    modalActionCallback = startGame;
+    setModalTitle('');
+    resetModalFooter();
+    document.getElementById('modal-body').innerHTML = `
+        <div style="text-align:center;">
+            <div class="stats-title">🔥 Test Text: ${escapeHtml(label)}</div>
+            <div style="font-size:0.8em; color:#888; margin:6px 0; font-family:'Courier Prime',monospace;">${escapeHtml(text)}</div>
+            <div class="start-hint" style="margin-top:8px;">Type first character to start · ESC to pause</div>
+        </div>
+    `;
+    const startBtn = document.getElementById('action-btn');
+    startBtn.innerText = 'Start Typing'; startBtn.onclick = startGame;
+    startBtn.disabled = false; startBtn.style.display = 'inline-block'; startBtn.style.opacity = '1';
+    showModalPanel();
+}
 
 async function startPracticeMode() {
     if (isPracticeMode) return;
