@@ -9,7 +9,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
-const VERSION = "2.8.8";
+const VERSION = "2.9.0";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -137,6 +137,7 @@ let practiceRealFurthestCharIndex = null;
 let practiceProblemChars = [];      // the chars that triggered this practice
 let practicePrompt = '';            // the prompt sent to Gemini
 let practiceText = '';              // the generated text
+let practiceMissedSnapshot = {};   // snapshot of missedCharsMap at practice start
 let practiceTypingAccumulator = 0;  // seconds typed since last practice (or session start)
 let hasDonePractice = false;        // whether practice has been used this session
 const PRACTICE_FIRST_UNLOCK = 150;  // 2.5 min before first practice
@@ -1067,6 +1068,71 @@ function getMissedCharsHTML() {
     return `<div style="font-size:0.8em; color:#888; margin:4px 0;">Watch out for: ${pills}${practiceBtn}</div>`;
 }
 
+function getPracticeSummaryHTML() {
+    if (!practiceText || practiceProblemChars.length === 0) return '';
+
+    // Compute practice-only misses by diffing with snapshot
+    const practiceMisses = {};
+    Object.entries(missedCharsMap).forEach(([ch, count]) => {
+        const prev = practiceMissedSnapshot[ch] || 0;
+        if (count > prev) practiceMisses[ch] = count - prev;
+    });
+
+    // Count occurrences of each focus char in practice text (case-insensitive)
+    const results = practiceProblemChars.map(ch => {
+        const lower = ch.toLowerCase();
+        const upper = ch.toUpperCase();
+        const displayCh = ch === 'Space' ? ' ' : ch === 'Enter' ? '\n' : ch;
+        let total = 0;
+        for (let i = 0; i < practiceText.length; i++) {
+            const c = practiceText[i];
+            if (c === displayCh || c === lower || c === upper) total++;
+        }
+        const missed = practiceMisses[ch] || 0;
+        const hit = Math.max(0, total - missed);
+        const acc = total > 0 ? Math.round((hit / total) * 100) : 100;
+        return { ch, total, hit, missed, acc };
+    }).filter(r => r.total > 0);
+
+    if (results.length === 0) return '';
+
+    // Grade each character
+    const gradeChar = (acc) => {
+        if (acc === 100) return { emoji: '⭐', color: '#FFD700', label: 'Perfect!' };
+        if (acc >= 90) return { emoji: '🔥', color: '#FF6600', label: 'Great' };
+        if (acc >= 75) return { emoji: '👍', color: '#43A047', label: 'Good' };
+        if (acc >= 50) return { emoji: '💪', color: '#1E88E5', label: 'Keep at it' };
+        return { emoji: '🎯', color: '#E53935', label: 'Needs work' };
+    };
+
+    // Overall practice grade
+    const totalAll = results.reduce((s, r) => s + r.total, 0);
+    const hitAll = results.reduce((s, r) => s + r.hit, 0);
+    const overallAcc = totalAll > 0 ? Math.round((hitAll / totalAll) * 100) : 100;
+    const overall = gradeChar(overallAcc);
+
+    const rows = results.map(r => {
+        const g = gradeChar(r.acc);
+        const display = r.ch === 'Space' ? '␣' : r.ch;
+        return `<div style="display:flex; align-items:center; gap:6px; padding:3px 0;">
+            <span style="font-weight:bold; font-size:1.1em; width:24px; text-align:center; color:#333;">${escapeHtml(display)}</span>
+            <div style="flex:1; height:14px; background:#eee; border-radius:7px; overflow:hidden;">
+                <div style="height:100%; width:${r.acc}%; background:${g.color}; border-radius:7px; transition:width 0.3s;"></div>
+            </div>
+            <span style="font-size:0.85em; min-width:42px; text-align:right; color:${g.color}; font-weight:bold;">${r.acc}%</span>
+            <span style="font-size:0.8em;">${g.emoji}</span>
+        </div>`;
+    }).join('');
+
+    return `<div style="margin:8px 0; padding:8px 12px; background:#f8f8f8; border-radius:6px;">
+        <div style="text-align:center; font-size:0.85em; margin-bottom:6px;">
+            <span style="font-weight:bold;">Focus Characters</span>
+            <span style="margin-left:8px; color:${overall.color}; font-weight:bold;">${overall.emoji} ${overallAcc}% ${overall.label}</span>
+        </div>
+        ${rows}
+    </div>`;
+}
+
 function getPlacementsHTML(placements) {
     if (!placements || placements.length === 0) return '';
     const rows = placements.map(p => {
@@ -1101,23 +1167,42 @@ async function finishChapter() {
         const sprintTotalEntries = charsTyped + sprintMistakes;
         const sprintAcc = (sprintTotalEntries > 0) ? Math.round((charsTyped / sprintTotalEntries) * 100) : 100;
         logSession(sprintSeconds, charsTyped, sprintMistakes, sprintWPM, sprintAcc);
-
-        // Log practice session details
         await logPracticeSession(sprintWPM, sprintAcc, sprintSeconds, charsTyped, sprintMistakes);
 
         const todayWPM = calculateAverageWPM(statsData.charsToday, statsData.secondsToday);
         const todayAcc = calculateAverageAcc(statsData.charsToday, statsData.mistakesToday);
         const weekWPM = calculateAverageWPM(statsData.charsWeek, statsData.secondsWeek);
         const weekAcc = calculateAverageAcc(statsData.charsWeek, statsData.mistakesWeek);
-        const stats = {
-            time: sprintSeconds, wpm: sprintWPM, acc: sprintAcc,
-            today: `${formatTime(statsData.secondsToday)} (${todayWPM} WPM | ${todayAcc}%)`,
-            week: `${formatTime(statsData.secondsWeek)} (${weekWPM} WPM | ${weekAcc}%)`,
-            placements: []
-        };
-        showStatsModal('✨ Practice Complete!', stats, '📖 Return to Book', () => {
-            exitPracticeMode();
-        }, 'Press Enter to return', true);
+
+        // Build practice-specific summary
+        const summaryHTML = getPracticeSummaryHTML();
+
+        isModalOpen = true; isInputBlocked = false;
+        setModalTitle('');
+        document.getElementById('modal-body').innerHTML = `
+            <div>
+                <div class="stats-title">✨ Practice Complete!</div>
+                <div class="stats-inline">
+                    <span class="si-val">${sprintWPM} <small>WPM</small></span>
+                    <span class="si-dot">·</span>
+                    <span class="si-val">${sprintAcc}% <small>Acc</small></span>
+                    <span class="si-dot">·</span>
+                    <span class="si-val">${formatTime(sprintSeconds)}</span>
+                </div>
+                ${summaryHTML}
+                <div class="cumulative-row">
+                    <span>Today: ${formatTime(statsData.secondsToday)} (${todayWPM} WPM | ${todayAcc}%)</span>
+                    <span>Week: ${formatTime(statsData.secondsWeek)} (${weekWPM} WPM | ${weekAcc}%)</span>
+                </div>
+                <div class="start-hint" style="margin-top:6px;">Press Enter to return</div>
+            </div>
+        `;
+        resetModalFooter();
+        const btn = document.getElementById('action-btn');
+        btn.innerText = '📖 Return to Book'; btn.disabled = false; btn.style.opacity = '1'; btn.style.display = 'inline-block';
+        btn.onclick = () => { closeModal(); exitPracticeMode(); };
+        modalActionCallback = () => { closeModal(); exitPracticeMode(); };
+        showModalPanel();
         return;
     }
 
@@ -1182,17 +1267,32 @@ async function finishChapter() {
     }
 
     showStatsModal(title, stats, `Next → ${nextLabel}`, async () => {
-        await saveProgress(true);
-        currentChapterNum = nextChapterId;
-        savedCharIndex = 0; currentCharIndex = 0; lastSavedIndex = 0;
-        if (currentUser && !currentUser.isAnonymous) {
-            await setDoc(doc(db, "users", currentUser.uid, "progress", currentBookId), {
-                chapter: currentChapterNum, charIndex: 0
-            }, { merge: true });
-        }
-        autoStartNext = true;
-        loadChapter(nextChapterId);
+        advanceToNextChapter();
     }, 'Press Enter to continue', true);
+}
+
+async function advanceToNextChapter() {
+    let nextChapterId = null;
+    if (bookMetadata && bookMetadata.chapters) {
+        const currentIdx = bookMetadata.chapters.findIndex(c => c.id == "chapter_" + currentChapterNum);
+        if (currentIdx !== -1 && currentIdx + 1 < bookMetadata.chapters.length) {
+            nextChapterId = bookMetadata.chapters[currentIdx + 1].id.replace("chapter_", "");
+        }
+    }
+    if (!nextChapterId) {
+        if (!isNaN(currentChapterNum)) nextChapterId = parseFloat(currentChapterNum) + 1;
+        else nextChapterId = 1;
+    }
+    await saveProgress(true);
+    currentChapterNum = nextChapterId;
+    savedCharIndex = 0; currentCharIndex = 0; lastSavedIndex = 0;
+    if (currentUser && !currentUser.isAnonymous) {
+        await setDoc(doc(db, "users", currentUser.uid, "progress", currentBookId), {
+            chapter: currentChapterNum, charIndex: 0
+        }, { merge: true });
+    }
+    autoStartNext = true;
+    loadChapter(nextChapterId);
 }
 
 function getHeaderHTML() {
@@ -2022,11 +2122,21 @@ function flashKey(char) {
     if (el) {
         el.style.backgroundColor = 'var(--brute-force-color)';
         setTimeout(() => {
-            // Compute correct color rather than restoring (avoids race condition with rapid mistakes)
             if (!handGuideEnabled) { el.style.backgroundColor = ''; return; }
+            // Special keys without dataset.char
+            if (el.id === 'key- ') {
+                el.style.backgroundColor = handGuideRainbow ? '#d0d0d0' : handGuideColor + '38';
+                return;
+            }
+            if (el.id === 'key-ENTER' || el.id === 'key-BACK') {
+                el.style.backgroundColor = getFingerColor('right-pinky') + '38'; return;
+            }
+            if (el.id === 'key-TAB') {
+                el.style.backgroundColor = getFingerColor('left-pinky') + '38'; return;
+            }
             const keyChar = el.dataset.char || '';
             const info = fingerMap[keyChar];
-            if (info && info.finger && info.finger !== 'thumb') {
+            if (info && info.finger) {
                 el.style.backgroundColor = getFingerColor(info.finger) + '38';
             } else { el.style.backgroundColor = ''; }
         }, 200);
@@ -2152,6 +2262,16 @@ function colorKeyboardKeys() {
         if (keyEl) keyEl.style.backgroundColor = color + '38';
     });
 
+    // Space bar: grey for rainbow, user color tint for single color
+    const spaceEl = document.getElementById('key- ');
+    if (spaceEl) {
+        if (handGuideRainbow) {
+            spaceEl.style.backgroundColor = '#d0d0d0';
+        } else {
+            spaceEl.style.backgroundColor = handGuideColor + '38';
+        }
+    }
+
     // Color special keys by their pinky finger
     const lp = getFingerColor('left-pinky') + '38';
     const rp = getFingerColor('right-pinky') + '38';
@@ -2213,23 +2333,6 @@ function buildFingerSVG() {
         svg.appendChild(g);
     });
 
-    // Thumbs - invisible at rest, white when space is target
-    const spacePos = getKeyCenterInKB(' ');
-    if (spacePos) {
-        ['left-thumb', 'right-thumb'].forEach((name, i) => {
-            const xOff = i === 0 ? -30 : 30;
-            const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-            g.id = `hg-finger-${name}`;
-            g.classList.add('hg-finger-group', 'hg-thumb-group');
-            const home = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-            home.classList.add('hg-home');
-            home.setAttribute('cx', spacePos.x + xOff); home.setAttribute('cy', spacePos.y);
-            home.setAttribute('r', 9);
-            g.appendChild(home);
-            svg.appendChild(g);
-        });
-    }
-
     updateHandGuide();
 }
 
@@ -2255,9 +2358,7 @@ function updateHandGuide() {
         const name = g.id.replace('hg-finger-', '');
 
         // Reset position to home
-        let homePos;
-        if (name === 'left-thumb' || name === 'right-thumb') return;
-        homePos = getKeyCenterInKB(homeKeys[name]);
+        const homePos = getKeyCenterInKB(homeKeys[name]);
         if (!homePos) return;
         if (body) {
             body.setAttribute('x1', homePos.x); body.setAttribute('y1', homePos.y);
@@ -2268,12 +2369,8 @@ function updateHandGuide() {
 
     if (!info) return;
 
-    // Space: show thumbs and highlight bar
+    // Space: just highlight the bar (CSS handles thumb circles via ::before/::after)
     if (info.finger === 'thumb') {
-        ['left-thumb', 'right-thumb'].forEach(name => {
-            const g = document.getElementById(`hg-finger-${name}`);
-            if (g) g.classList.add('hg-active');
-        });
         const spaceBar = document.getElementById('key- ');
         if (spaceBar) spaceBar.classList.add('space-active');
         return;
@@ -2332,7 +2429,7 @@ function flashFingerPressed() {
         g.classList.add('hg-pressed');
         setTimeout(() => g.classList.remove('hg-pressed'), 120);
     });
-    // Flash space bar on thumb press
+    // Flash space bar on press
     const spaceKey = document.getElementById('key- ');
     if (spaceKey && spaceKey.classList.contains('space-active')) {
         spaceKey.classList.add('space-pressed');
@@ -3152,6 +3249,7 @@ function startTestText(text, label) {
     // Enter practice mode with test text
     isPracticeMode = true;
     practiceText = text;
+    practiceMissedSnapshot = { ...missedCharsMap };
     bookData = { segments: [{ text: text }] };
     savedCharIndex = 0;
     currentCharIndex = 0;
@@ -3247,6 +3345,7 @@ async function startPracticeMode() {
         isPracticeMode = true;
         hasDonePractice = true;
         practiceTypingAccumulator = 0;
+        practiceMissedSnapshot = { ...missedCharsMap };
         
         // Inject practice text as a fake chapter
         bookData = { segments: [{ text: practiceText }] };
@@ -3319,7 +3418,7 @@ function exitPracticeMode() {
     isPracticeMode = false;
     bookData = practiceRealBookData;
     currentChapterNum = practiceRealChapterNum;
-    savedCharIndex = practiceRealCharIndex;       // restore to where user actually was
+    savedCharIndex = practiceRealCharIndex;
     currentCharIndex = practiceRealCharIndex;
     lastSavedIndex = practiceRealLastSavedIndex;
     furthestChapter = practiceRealFurthestChapter;
@@ -3336,15 +3435,23 @@ function exitPracticeMode() {
     practiceText = '';
     practicePrompt = '';
     practiceProblemChars = [];
+    practiceMissedSnapshot = {};
 
     // Remove practice visual indicator
     const bar = document.getElementById('book-info-bar');
     if (bar) bar.classList.remove('practice-active');
 
-    // Reload the real chapter display
-    closeModal();
+    // Rebuild fullText to check if we were at chapter end
     setupGame();
     getHeaderHTML();
+    closeModal();
+
+    // If restored position is at/past chapter end, advance to next chapter
+    if (currentCharIndex >= fullText.length) {
+        autoStartNext = true;
+        advanceToNextChapter();
+        return;
+    }
 }
 
 async function logPracticeSession(wpm, acc, seconds, chars, mistakes) {
