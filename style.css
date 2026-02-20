@@ -1,4 +1,4 @@
-/* TypeThatBook style.css v2.7.6 */
+/* TypeThatBook style.css v2.7.8 */
 /* v2.7.0 - Practice Mode with Gemini AI */
 :root {
     --bg-color: #ffffff;
@@ -183,7 +183,7 @@ body {
 }
 .key.target { background-color: var(--carolina-blue); color: white; transform: translateY(2px); }
 .key.space { width: 300px; }
-.key.wide { width: 80px; font-size: 12px; }
+.key.wide { min-width: 72px; font-size: 12px; }
 .key.shift-active { background-color: #ffd700; color: black; } 
 
 /* --- MODAL (in-flow panel, replaces keyboard) --- */
@@ -254,10 +254,10 @@ body {
 #hand-guide-overlay.hidden { display: none; }
 #hg-svg { position: absolute; top: 0; left: 0; }
 
-/* Resting state: soft circles on home row */
+/* Resting state: circles on home row */
 .hg-finger-group .hg-home {
-    fill: var(--guide-color, #4FC3F7); fill-opacity: 0.2;
-    stroke: var(--guide-color, #4FC3F7); stroke-width: 1.5; stroke-opacity: 0.15;
+    fill: var(--guide-color, #4FC3F7); fill-opacity: 0.4;
+    stroke: var(--guide-color, #4FC3F7); stroke-width: 1.5; stroke-opacity: 0.35;
 }
 .hg-finger-group .hg-body {
     stroke: var(--guide-color, #4FC3F7); stroke-opacity: 0;
@@ -269,20 +269,20 @@ body {
 
 /* Active: finger reaching to target */
 .hg-finger-group.hg-active .hg-home {
-    fill-opacity: 0.35; stroke-opacity: 0.4;
+    fill-opacity: 0.55; stroke-opacity: 0.6;
 }
 .hg-finger-group.hg-active .hg-body {
-    stroke-opacity: 0.2;
+    stroke-opacity: 0.4;
 }
 .hg-finger-group.hg-active .hg-tip {
-    fill-opacity: 0.6; stroke-width: 2; stroke-opacity: 0.7;
-    filter: drop-shadow(0 0 4px var(--guide-color, #4FC3F7));
+    fill-opacity: 0.8; stroke-width: 2; stroke-opacity: 0.9;
+    filter: drop-shadow(0 0 5px var(--guide-color, #4FC3F7));
 }
 
 /* Shift pinky reaching */
-.hg-finger-group.hg-shift-active .hg-home { fill-opacity: 0.25; stroke-opacity: 0.3; }
-.hg-finger-group.hg-shift-active .hg-body { stroke-opacity: 0.12; }
-.hg-finger-group.hg-shift-active .hg-tip { fill-opacity: 0.35; stroke-width: 1.5; stroke-opacity: 0.4; }
+.hg-finger-group.hg-shift-active .hg-home { fill-opacity: 0.45; stroke-opacity: 0.5; }
+.hg-finger-group.hg-shift-active .hg-body { stroke-opacity: 0.25; }
+.hg-finger-group.hg-shift-active .hg-tip { fill-opacity: 0.55; stroke-width: 1.5; stroke-opacity: 0.6; }
 
 /* Pressed flash */
 .hg-finger-group.hg-pressed .hg-home,
