@@ -9,7 +9,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
-const VERSION = "2.8.5";
+const VERSION = "2.8.6";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -1645,7 +1645,7 @@ async function openMenuModal() {
     if (isGameActive) { isGameActive = false; clearInterval(timerInterval); }
     isModalOpen = true; isInputBlocked = false;
     modalGeneration++;
-    modalActionCallback = () => { closeModal(); startGame(); };
+    modalActionCallback = () => { closeModal(); createHandGuide(); startGame(); };
     resetModalFooter();
 
     setModalTitle('Settings');
@@ -1754,12 +1754,10 @@ async function openMenuModal() {
         localStorage.setItem('ttb_handGuideRainbow', handGuideRainbow);
         const colorRow = document.getElementById('guide-color-row');
         if (colorRow) colorRow.style.display = handGuideRainbow ? 'none' : 'flex';
-        if (handGuideEnabled) createHandGuide();
     };
     document.getElementById('guide-color').oninput = (e) => {
         handGuideColor = e.target.value;
         localStorage.setItem('ttb_handGuideColor', handGuideColor);
-        if (handGuideEnabled && !handGuideRainbow) createHandGuide();
     };
 
     const initialsInput = document.getElementById('initials-input');
@@ -1885,6 +1883,7 @@ async function openMenuModal() {
             loadChapter(val);
         } else {
             closeModal();
+            createHandGuide();
             if (!isGameActive) startGame();
         }
     };
@@ -2131,7 +2130,7 @@ function colorKeyboardKeys() {
 
     // Color each key based on its finger assignment
     Object.entries(fingerMap).forEach(([char, info]) => {
-        if (!info.finger || info.shift) return;
+        if (!info.finger || info.shift || info.finger === 'thumb') return;
         const color = getFingerColor(info.finger);
         if (!color) return;
         let keyEl;
@@ -2203,16 +2202,14 @@ function buildFingerSVG() {
         svg.appendChild(g);
     });
 
-    // Thumbs
+    // Thumbs - invisible at rest, white when space is target
     const spacePos = getKeyCenterInKB(' ');
     if (spacePos) {
         ['left-thumb', 'right-thumb'].forEach((name, i) => {
             const xOff = i === 0 ? -30 : 30;
-            const fc = getFingerColor(name);
             const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
             g.id = `hg-finger-${name}`;
-            g.classList.add('hg-finger-group');
-            g.style.setProperty('--fc', fc);
+            g.classList.add('hg-finger-group', 'hg-thumb-group');
             const home = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
             home.classList.add('hg-home');
             home.setAttribute('cx', spacePos.x + xOff); home.setAttribute('cy', spacePos.y);
@@ -2233,6 +2230,10 @@ function updateHandGuide() {
     const nextChar = fullText[currentCharIndex];
     const info = getFingerInfo(nextChar);
     const homeKeys = getHomeKeys();
+
+    // Clear space bar highlight
+    const spaceKeyReset = document.getElementById('key- ');
+    if (spaceKeyReset) spaceKeyReset.classList.remove('space-active');
 
     // Reset all fingers to resting state
     svg.querySelectorAll('.hg-finger-group').forEach(g => {
@@ -2256,12 +2257,14 @@ function updateHandGuide() {
 
     if (!info) return;
 
-    // Space: highlight both thumbs
+    // Space: show thumbs and highlight bar
     if (info.finger === 'thumb') {
         ['left-thumb', 'right-thumb'].forEach(name => {
             const g = document.getElementById(`hg-finger-${name}`);
             if (g) g.classList.add('hg-active');
         });
+        const spaceBar = document.getElementById('key- ');
+        if (spaceBar) spaceBar.classList.add('space-active');
         return;
     }
 
@@ -2318,6 +2321,12 @@ function flashFingerPressed() {
         g.classList.add('hg-pressed');
         setTimeout(() => g.classList.remove('hg-pressed'), 120);
     });
+    // Flash space bar on thumb press
+    const spaceKey = document.getElementById('key- ');
+    if (spaceKey && spaceKey.classList.contains('space-active')) {
+        spaceKey.classList.add('space-pressed');
+        setTimeout(() => spaceKey.classList.remove('space-pressed'), 120);
+    }
 }
 
 let hgResizeTimer;
