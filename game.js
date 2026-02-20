@@ -9,7 +9,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
-const VERSION = "2.7.6";
+const VERSION = "2.7.7";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -1907,7 +1907,7 @@ function createKeyboard() {
     keyboardDiv.innerHTML = '';
     rows.forEach((rowChars, rIndex) => {
         const rowDiv = document.createElement('div'); rowDiv.className = 'kb-row';
-        if (rIndex === 1) addSpecialKey(rowDiv, "CAPS"); if (rIndex === 2) addSpecialKey(rowDiv, "SHIFT", "key-SHIFT-L");
+        if (rIndex === 0) addSpecialKey(rowDiv, "TAB"); if (rIndex === 1) addSpecialKey(rowDiv, "CAPS"); if (rIndex === 2) addSpecialKey(rowDiv, "SHIFT", "key-SHIFT-L");
         rowChars.forEach((char, cIndex) => {
             const key = document.createElement('div'); key.className = 'key'; key.innerText = char; key.dataset.char = char; key.dataset.shift = shiftRows[rIndex][cIndex]; key.id = `key-${char}`; rowDiv.appendChild(key);
         });
