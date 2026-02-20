@@ -1,4 +1,4 @@
-// v2.7.0 - Practice Mode with Gemini AI 
+// v2.7.0 - Practice Mode with Gemini AI
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc, getDocs, collection, addDoc, query, orderBy, limit, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import {
@@ -9,7 +9,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
-const VERSION = "2.8.7";
+const VERSION = "2.8.8";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -2019,7 +2019,18 @@ function flashKey(char) {
         if (found) targetId = found.id;
     }
     const el = document.getElementById(targetId);
-    if (el) { const prev = el.style.backgroundColor; el.style.backgroundColor = 'var(--brute-force-color)'; setTimeout(() => el.style.backgroundColor = prev, 200); }
+    if (el) {
+        el.style.backgroundColor = 'var(--brute-force-color)';
+        setTimeout(() => {
+            // Compute correct color rather than restoring (avoids race condition with rapid mistakes)
+            if (!handGuideEnabled) { el.style.backgroundColor = ''; return; }
+            const keyChar = el.dataset.char || '';
+            const info = fingerMap[keyChar];
+            if (info && info.finger && info.finger !== 'thumb') {
+                el.style.backgroundColor = getFingerColor(info.finger) + '38';
+            } else { el.style.backgroundColor = ''; }
+        }, 200);
+    }
 }
 
 // ========================
