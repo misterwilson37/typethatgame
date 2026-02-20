@@ -9,12 +9,17 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
-const VERSION = "2.7.2";
+const VERSION = "2.7.3";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
 const SPRINT_COOLDOWN_MS = 1500;
 const SPAM_THRESHOLD = 5;
+
+// Hand Guide
+let handGuideEnabled = localStorage.getItem('ttb_handGuide') === 'true';
+let handGuideColor = localStorage.getItem('ttb_handGuideColor') || '#4FC3F7';
+let fingerMap = {};
 
 // ADMIN WHITELIST - same list as index.html, used to show admin link
 const ADMIN_EMAILS = [
@@ -194,6 +199,8 @@ async function init() {
     }
 
     createKeyboard();
+    buildFingerMap();
+    createHandGuide();
     setupAuthListeners();
     trophyBtn.onclick = () => openLeaderboard();
 
@@ -756,6 +763,7 @@ function handleTyping(key) {
             }
         }
 
+        flashFingerPressed();
         highlightCurrentChar(); centerView();
     } else {
         mistakes++; sprintMistakes++;
@@ -863,6 +871,7 @@ function highlightCurrentChar() {
     document.querySelectorAll('.letter.active').forEach(el => el.classList.remove('active'));
     const el = document.getElementById(`char-${currentCharIndex}`);
     if (el) { el.classList.add('active'); highlightKey(fullText[currentCharIndex]); }
+    updateHandGuide();
 }
 
 function updateImageDisplay() {
@@ -1679,6 +1688,16 @@ async function openMenuModal() {
                     <option value="dvorak" ${currentLayout === 'dvorak' ? 'selected' : ''}>Dvorak</option>
                 </select>
             </div>
+            <div class="menu-col menu-col-guide">
+                <div class="menu-label">Hand Guide</div>
+                <label style="display:flex; align-items:center; gap:5px; font-size:0.8em; color:#ccc; cursor:pointer; margin-top:4px;">
+                    <input type="checkbox" id="guide-toggle" ${handGuideEnabled ? 'checked' : ''}>
+                    Show fingers
+                </label>
+                <div class="menu-label" style="margin-top:8px;">Color</div>
+                <input type="color" id="guide-color" value="${handGuideColor}" 
+                    style="width:36px; height:28px; border:1px solid #555; border-radius:4px; cursor:pointer; background:none; padding:0; margin-top:2px;">
+            </div>
             ${initialsHTML}
         </div>
     `;
@@ -1691,6 +1710,20 @@ async function openMenuModal() {
         sessionValueStr = e.target.value;
         sessionLimit = (sessionValueStr === 'infinity') ? 'infinity' : parseInt(sessionValueStr);
         localStorage.setItem('ttb_sessionLength', sessionValueStr);
+    };
+
+    // Hand guide controls
+    document.getElementById('guide-toggle').onchange = (e) => {
+        handGuideEnabled = e.target.checked;
+        localStorage.setItem('ttb_handGuide', handGuideEnabled);
+        const guide = document.getElementById('hand-guide');
+        if (guide) guide.classList.toggle('hidden', !handGuideEnabled);
+    };
+    document.getElementById('guide-color').oninput = (e) => {
+        handGuideColor = e.target.value;
+        localStorage.setItem('ttb_handGuideColor', handGuideColor);
+        const guide = document.getElementById('hand-guide');
+        if (guide) guide.style.setProperty('--guide-color', handGuideColor);
     };
 
     const initialsInput = document.getElementById('initials-input');
@@ -1861,6 +1894,7 @@ function setKeyboardLayout(layout) {
     rows = LAYOUTS[layout].rows;
     shiftRows = LAYOUTS[layout].shiftRows;
     createKeyboard();
+    buildFingerMap();
     highlightCurrentChar();
 }
 
@@ -1914,6 +1948,132 @@ function flashKey(char) {
     }
     const el = document.getElementById(targetId);
     if (el) { el.style.backgroundColor = 'var(--brute-force-color)'; setTimeout(() => el.style.backgroundColor = '', 200); }
+}
+
+// ========================
+// HAND GUIDE (SVG finger overlay)
+// ========================
+
+function buildFingerMap() {
+    fingerMap = {};
+    const assignments = [
+        // Row 0 (top): 10 keys
+        ['left-pinky','left-ring','left-middle','left-index','left-index',
+         'right-index','right-index','right-middle','right-ring','right-pinky'],
+        // Row 1 (home): 10 keys
+        ['left-pinky','left-ring','left-middle','left-index','left-index',
+         'right-index','right-index','right-middle','right-ring','right-pinky'],
+        // Row 2 (bottom): 7 keys
+        ['left-pinky','left-ring','left-middle','left-index','left-index',
+         'right-index','right-index'],
+    ];
+    const rowNames = ['top', 'home', 'bottom'];
+
+    rows.forEach((rowChars, rIndex) => {
+        const assign = assignments[rIndex];
+        if (!assign) return;
+        rowChars.forEach((char, cIndex) => {
+            if (cIndex >= assign.length) return;
+            const parts = assign[cIndex].split('-');
+            fingerMap[char] = { hand: parts[0], finger: parts[1], row: rowNames[rIndex] };
+            if (shiftRows[rIndex] && shiftRows[rIndex][cIndex]) {
+                fingerMap[shiftRows[rIndex][cIndex]] = { hand: parts[0], finger: parts[1], row: rowNames[rIndex], shift: true };
+            }
+        });
+    });
+    fingerMap[' '] = { hand: 'either', finger: 'thumb', row: 'space' };
+    fingerMap['\n'] = { hand: 'right', finger: 'pinky', row: 'home' };
+    fingerMap['\t'] = { hand: 'left', finger: 'pinky', row: 'top' };
+}
+
+function getFingerInfo(char) {
+    if (fingerMap[char]) return fingerMap[char];
+    const lower = char.toLowerCase();
+    if (lower !== char && fingerMap[lower]) {
+        return { ...fingerMap[lower], shift: true };
+    }
+    return null;
+}
+
+function createHandGuide() {
+    if (document.getElementById('hand-guide')) return;
+    const div = document.createElement('div');
+    div.id = 'hand-guide';
+    if (!handGuideEnabled) div.classList.add('hidden');
+    div.style.setProperty('--guide-color', handGuideColor);
+
+    div.innerHTML = `
+    <svg viewBox="0 0 480 125" xmlns="http://www.w3.org/2000/svg">
+      <g id="left-hand">
+        <rect class="hg-palm" x="18" y="78" width="118" height="42" rx="14"/>
+        <g id="left-pinky" class="hg-finger"><rect x="20" y="34" width="18" height="50" rx="8"/></g>
+        <g id="left-ring" class="hg-finger"><rect x="44" y="18" width="20" height="66" rx="9"/></g>
+        <g id="left-middle" class="hg-finger"><rect x="70" y="8" width="21" height="76" rx="9"/></g>
+        <g id="left-index" class="hg-finger"><rect x="97" y="18" width="21" height="66" rx="9"/></g>
+        <g id="left-thumb" class="hg-finger"><rect x="122" y="62" width="18" height="36" rx="8" transform="rotate(-20,131,80)"/></g>
+      </g>
+      <g id="right-hand">
+        <rect class="hg-palm" x="344" y="78" width="118" height="42" rx="14"/>
+        <g id="right-thumb" class="hg-finger"><rect x="340" y="62" width="18" height="36" rx="8" transform="rotate(20,349,80)"/></g>
+        <g id="right-index" class="hg-finger"><rect x="362" y="18" width="21" height="66" rx="9"/></g>
+        <g id="right-middle" class="hg-finger"><rect x="389" y="8" width="21" height="76" rx="9"/></g>
+        <g id="right-ring" class="hg-finger"><rect x="416" y="18" width="20" height="66" rx="9"/></g>
+        <g id="right-pinky" class="hg-finger"><rect x="442" y="34" width="18" height="50" rx="8"/></g>
+      </g>
+    </svg>`;
+
+    const keyboard = document.getElementById('virtual-keyboard');
+    keyboard.parentNode.insertBefore(div, keyboard);
+}
+
+function updateHandGuide() {
+    if (!handGuideEnabled) return;
+    const guide = document.getElementById('hand-guide');
+    if (!guide || currentCharIndex >= fullText.length) return;
+
+    const nextChar = fullText[currentCharIndex];
+    const info = getFingerInfo(nextChar);
+
+    // Clear all states
+    guide.querySelectorAll('.hg-finger').forEach(f => {
+        f.classList.remove('hg-active', 'hg-shift', 'hg-reach-top', 'hg-reach-bottom');
+    });
+
+    if (!info) return;
+
+    // Space: highlight both thumbs
+    if (info.finger === 'thumb') {
+        const lt = guide.querySelector('#left-thumb');
+        const rt = guide.querySelector('#right-thumb');
+        if (lt) lt.classList.add('hg-active');
+        if (rt) rt.classList.add('hg-active');
+        return;
+    }
+
+    // Highlight target finger
+    const fingerEl = guide.querySelector(`#${info.hand}-${info.finger}`);
+    if (fingerEl) {
+        fingerEl.classList.add('hg-active');
+        if (info.row === 'top') fingerEl.classList.add('hg-reach-top');
+        else if (info.row === 'bottom') fingerEl.classList.add('hg-reach-bottom');
+    }
+
+    // Shift: highlight opposite pinky
+    if (info.shift) {
+        const shiftHand = info.hand === 'left' ? 'right' : 'left';
+        const shiftEl = guide.querySelector(`#${shiftHand}-pinky`);
+        if (shiftEl) shiftEl.classList.add('hg-shift');
+    }
+}
+
+function flashFingerPressed() {
+    if (!handGuideEnabled) return;
+    const guide = document.getElementById('hand-guide');
+    if (!guide) return;
+    guide.querySelectorAll('.hg-active').forEach(f => {
+        f.classList.add('hg-pressed');
+        setTimeout(() => f.classList.remove('hg-pressed'), 120);
+    });
 }
 
 // --- CELEBRATIONS ---
