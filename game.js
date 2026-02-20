@@ -9,7 +9,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
-const VERSION = "2.8.0";
+const VERSION = "2.8.1";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -1719,7 +1719,6 @@ async function openMenuModal() {
         const guide = document.getElementById('hand-guide-overlay');
         if (guide) guide.classList.toggle('hidden', !handGuideEnabled);
         if (handGuideEnabled) { createHandGuide(); }
-        else { document.querySelectorAll('.finger-over').forEach(el => el.classList.remove('finger-over')); }
     };
     document.getElementById('guide-color').oninput = (e) => {
         handGuideColor = e.target.value;
@@ -2165,15 +2164,6 @@ function updateHandGuide() {
     const info = getFingerInfo(nextChar);
     const homeKeys = getHomeKeys();
 
-    // Clear all finger-over classes
-    document.querySelectorAll('.finger-over').forEach(el => el.classList.remove('finger-over'));
-
-    // Add finger-over to all home row keys (resting circles always sit there)
-    Object.values(homeKeys).forEach(ch => {
-        const keyEl = document.getElementById(`key-${ch}`);
-        if (keyEl) keyEl.classList.add('finger-over');
-    });
-
     // Reset all fingers to resting state
     svg.querySelectorAll('.hg-finger-group').forEach(g => {
         g.classList.remove('hg-active', 'hg-shift-active');
@@ -2226,10 +2216,6 @@ function updateHandGuide() {
     if (tip) { tip.setAttribute('cx', targetPos.x); tip.setAttribute('cy', targetPos.y); }
     fingerG.classList.add('hg-active');
 
-    // Mark target key for white text
-    const targetKeyEl = document.getElementById(`key-${info.keyChar}`);
-    if (targetKeyEl) targetKeyEl.classList.add('finger-over');
-
     // Shift: stretch opposite pinky to correct shift key
     if (info.shift) {
         const isLeftFinger = fingerName.startsWith('left');
@@ -2250,9 +2236,6 @@ function updateHandGuide() {
                 if (sTip) { sTip.setAttribute('cx', shiftTargetPos.x); sTip.setAttribute('cy', shiftTargetPos.y); }
             }
             shiftFingerG.classList.add('hg-shift-active');
-            // Mark shift key for white text
-            const shiftKeyEl = document.getElementById(`key-${shiftKey}`);
-            if (shiftKeyEl) shiftKeyEl.classList.add('finger-over');
         }
     }
 }
