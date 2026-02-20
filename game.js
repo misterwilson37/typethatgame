@@ -1,4 +1,4 @@
-// v2.7.0 - Practice Mode with Gemini AI
+// v2.7.0 - Practice Mode with Gemini AI 
 import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, setDoc, getDocs, collection, addDoc, query, orderBy, limit, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import {
