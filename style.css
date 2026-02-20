@@ -1,4 +1,4 @@
-/* v2.7.0 - Practice Mode with Gemini AI */
+/* v2.7.2 - Practice Mode with Gemini AI */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -245,40 +245,49 @@ body {
 .menu-col-initials { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .menu-col-guide { flex: 0 0 auto; min-width: 90px; }
 
-/* Hand Guide */
-#hand-guide {
-    max-width: 420px; margin: 2px auto 0; padding: 0;
-    opacity: 0.9; transition: opacity 0.2s;
+/* Hand Guide - keyboard overlay */
+#hand-guide-overlay {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: 3;
 }
-#hand-guide.hidden { display: none; }
-#hand-guide svg { width: 100%; height: auto; display: block; }
-.hg-palm { fill: rgba(120,120,120,0.06); }
-.hg-finger rect {
-    fill: rgba(150,150,150,0.12);
-    stroke: rgba(150,150,150,0.08);
-    stroke-width: 0.8;
-    transition: fill 0.12s ease, transform 0.18s ease, stroke 0.12s ease;
+#hand-guide-overlay.hidden { display: none; }
+.hg-dot {
+    position: absolute; border-radius: 50%;
+    transition: left 0.12s ease, top 0.12s ease, opacity 0.1s;
 }
-.hg-finger.hg-active rect {
-    fill: var(--guide-color, #4FC3F7);
-    fill-opacity: 0.7;
+.hg-home {
+    width: 16px; height: 16px;
+    background: var(--guide-color, #4FC3F7);
+    opacity: 0.25;
+    z-index: 3;
+}
+.hg-home.hg-home-active {
+    opacity: 0.7;
+    box-shadow: 0 0 8px var(--guide-color, #4FC3F7);
+}
+.hg-home.hg-shift-dot {
+    opacity: 0.5;
+    box-shadow: 0 0 6px var(--guide-color, #4FC3F7);
+}
+.hg-reach {
+    width: 12px; height: 12px;
+    background: var(--guide-color, #4FC3F7);
+    opacity: 0; z-index: 4;
+    box-shadow: 0 0 10px var(--guide-color, #4FC3F7), 0 0 20px var(--guide-color, #4FC3F7);
+}
+.hg-reach.hg-active-dot { opacity: 0.9; }
+.hg-dot.hg-pressed {
+    background: #fff !important;
+    box-shadow: 0 0 14px #fff !important;
+    opacity: 1 !important;
+}
+.hg-thumb { width: 16px; height: 16px; }
+.hg-reach-line {
     stroke: var(--guide-color, #4FC3F7);
-    stroke-width: 1.5;
-    stroke-opacity: 0.9;
+    stroke-width: 3;
+    stroke-opacity: 0.3;
+    stroke-linecap: round;
 }
-.hg-finger.hg-shift rect {
-    fill: var(--guide-color, #4FC3F7);
-    fill-opacity: 0.3;
-    stroke: var(--guide-color, #4FC3F7);
-    stroke-opacity: 0.4;
-}
-.hg-finger.hg-pressed rect {
-    fill: #fff !important;
-    fill-opacity: 1 !important;
-    stroke: #fff !important;
-}
-.hg-finger.hg-reach-top { transform: translateY(-8px); }
-.hg-finger.hg-reach-bottom { transform: translateY(6px); }
 .initials-box-settings {
     width: 72px; background: #222; color: #FFD700;
     border: 2px solid #444; padding: 10px 8px;
