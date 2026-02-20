@@ -9,7 +9,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
-const VERSION = "2.9.0";
+const VERSION = "2.9.1";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -519,6 +519,7 @@ function gameTick() {
 
     // AUTO PAUSE FOR INACTIVITY
     if (now - lastInputTime > AFK_THRESHOLD && !isModalOpen && !ggBypassIdle) {
+        if (currentCharIndex >= fullText.length) { finishChapter(); return; }
         triggerHardStop(fullText[currentCharIndex], true);
         return;
     }
@@ -799,7 +800,7 @@ function handleTyping(key) {
 
         // Track missed characters
         const missKey = targetChar === ' ' ? 'Space' : targetChar === '\n' ? 'Enter' : targetChar;
-        missedCharsMap[missKey] = (missedCharsMap[missKey] || 0) + 1;
+        if (missKey) missedCharsMap[missKey] = (missedCharsMap[missKey] || 0) + 1;
 
         if (consecutiveMistakes >= SPAM_THRESHOLD && !ggAllowMistakes) {
             triggerHardStop(targetChar, false);
@@ -817,6 +818,7 @@ function triggerHardStop(targetChar, isAfk) {
     isHardStop = true;
     resetModalFooter();
 
+    if (!targetChar) targetChar = '?';
     let friendlyKey = targetChar;
     if (targetChar === ' ') friendlyKey = 'Space';
     if (targetChar === '\n') friendlyKey = 'Enter';
@@ -1124,10 +1126,10 @@ function getPracticeSummaryHTML() {
         </div>`;
     }).join('');
 
-    return `<div style="margin:8px 0; padding:8px 12px; background:#f8f8f8; border-radius:6px;">
+    return `<div style="width:100%;">
         <div style="text-align:center; font-size:0.85em; margin-bottom:6px;">
-            <span style="font-weight:bold;">Focus Characters</span>
-            <span style="margin-left:8px; color:${overall.color}; font-weight:bold;">${overall.emoji} ${overallAcc}% ${overall.label}</span>
+            <div style="font-weight:bold;">Focus Characters</div>
+            <div style="color:${overall.color}; font-weight:bold;">${overall.emoji} ${overallAcc}% ${overall.label}</div>
         </div>
         ${rows}
     </div>`;
@@ -1180,21 +1182,23 @@ async function finishChapter() {
         isModalOpen = true; isInputBlocked = false;
         setModalTitle('');
         document.getElementById('modal-body').innerHTML = `
-            <div>
-                <div class="stats-title">✨ Practice Complete!</div>
-                <div class="stats-inline">
-                    <span class="si-val">${sprintWPM} <small>WPM</small></span>
-                    <span class="si-dot">·</span>
-                    <span class="si-val">${sprintAcc}% <small>Acc</small></span>
-                    <span class="si-dot">·</span>
-                    <span class="si-val">${formatTime(sprintSeconds)}</span>
+            <div style="display:flex; gap:12px; align-items:stretch;">
+                <div style="flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center;">
+                    <div class="stats-title">✨ Practice Complete!</div>
+                    <div class="stats-inline">
+                        <span class="si-val">${sprintWPM} <small>WPM</small></span>
+                        <span class="si-dot">·</span>
+                        <span class="si-val">${sprintAcc}% <small>Acc</small></span>
+                        <span class="si-dot">·</span>
+                        <span class="si-val">${formatTime(sprintSeconds)}</span>
+                    </div>
+                    <div class="cumulative-row">
+                        <span>Today: ${formatTime(statsData.secondsToday)} (${todayWPM} WPM | ${todayAcc}%)</span>
+                        <span>Week: ${formatTime(statsData.secondsWeek)} (${weekWPM} WPM | ${weekAcc}%)</span>
+                    </div>
+                    <div class="start-hint" style="margin-top:6px;">Press Enter to return</div>
                 </div>
-                ${summaryHTML}
-                <div class="cumulative-row">
-                    <span>Today: ${formatTime(statsData.secondsToday)} (${todayWPM} WPM | ${todayAcc}%)</span>
-                    <span>Week: ${formatTime(statsData.secondsWeek)} (${weekWPM} WPM | ${weekAcc}%)</span>
-                </div>
-                <div class="start-hint" style="margin-top:6px;">Press Enter to return</div>
+                ${summaryHTML ? `<div style="flex:0 0 auto; min-width:180px; max-width:220px; border-left:1px solid #eee; padding-left:12px; display:flex; align-items:center;">${summaryHTML}</div>` : ''}
             </div>
         `;
         resetModalFooter();
