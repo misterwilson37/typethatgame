@@ -9,7 +9,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
-const VERSION = "2.8.2";
+const VERSION = "2.8.3";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -18,6 +18,8 @@ const SPAM_THRESHOLD = 5;
 
 // Hand Guide
 let handGuideEnabled = localStorage.getItem('ttb_handGuide') === 'true';
+let handGuideRainbow = localStorage.getItem('ttb_handGuideRainbow') !== 'false'; // default true
+let handGuideColor = localStorage.getItem('ttb_handGuideColor') || '#4FC3F7';
 let fingerMap = {};
 const FINGER_COLORS = {
     'left-pinky':   '#FF69B4', // pink
@@ -31,6 +33,11 @@ const FINGER_COLORS = {
     'left-thumb':   '#FDD835', // yellow (same as index)
     'right-thumb':  '#43A047', // green (same as index)
 };
+
+function getFingerColor(fingerName) {
+    if (handGuideRainbow) return FINGER_COLORS[fingerName] || '#4FC3F7';
+    return handGuideColor;
+}
 
 // ADMIN WHITELIST - same list as index.html, used to show admin link
 const ADMIN_EMAILS = [
@@ -57,6 +64,7 @@ let furthestChapter = 1;
 let furthestCharIndex = 0;
 let autoStartNext = false; // skip start modal when advancing chapters
 let ggRealCharIndex = -1;  // real position before Game Genie warps
+let ggAllowMistakes = false; // bypass mistake limit (session only, not persisted)
 
 // Stats
 let sessionLimit = 30;
@@ -791,7 +799,7 @@ function handleTyping(key) {
         const missKey = targetChar === ' ' ? 'Space' : targetChar === '\n' ? 'Enter' : targetChar;
         missedCharsMap[missKey] = (missedCharsMap[missKey] || 0) + 1;
 
-        if (consecutiveMistakes >= SPAM_THRESHOLD) {
+        if (consecutiveMistakes >= SPAM_THRESHOLD && !ggAllowMistakes) {
             triggerHardStop(targetChar, false);
         }
     }
@@ -1705,6 +1713,15 @@ async function openMenuModal() {
                     <input type="checkbox" id="guide-toggle" ${handGuideEnabled ? 'checked' : ''}>
                     Show fingers
                 </label>
+                <label style="display:flex; align-items:center; gap:5px; font-size:0.8em; color:#ccc; cursor:pointer; margin-top:4px;">
+                    <input type="checkbox" id="guide-rainbow" ${handGuideRainbow ? 'checked' : ''}>
+                    🌈 Rainbow
+                </label>
+                <div id="guide-color-row" style="display:${handGuideRainbow ? 'none' : 'flex'}; align-items:center; gap:5px; margin-top:4px;">
+                    <input type="color" id="guide-color" value="${handGuideColor}" 
+                        style="width:28px; height:22px; border:1px solid #555; border-radius:3px; cursor:pointer; background:none; padding:0;">
+                    <span style="font-size:0.7em; color:#888;">Color</span>
+                </div>
             </div>
             ${initialsHTML}
         </div>
@@ -1727,7 +1744,19 @@ async function openMenuModal() {
         const guide = document.getElementById('hand-guide-overlay');
         if (guide) guide.classList.toggle('hidden', !handGuideEnabled);
         if (handGuideEnabled) { createHandGuide(); }
-        else { colorKeyboardKeys(); } // clear key colors
+        else { colorKeyboardKeys(); }
+    };
+    document.getElementById('guide-rainbow').onchange = (e) => {
+        handGuideRainbow = e.target.checked;
+        localStorage.setItem('ttb_handGuideRainbow', handGuideRainbow);
+        const colorRow = document.getElementById('guide-color-row');
+        if (colorRow) colorRow.style.display = handGuideRainbow ? 'none' : 'flex';
+        if (handGuideEnabled) createHandGuide();
+    };
+    document.getElementById('guide-color').oninput = (e) => {
+        handGuideColor = e.target.value;
+        localStorage.setItem('ttb_handGuideColor', handGuideColor);
+        if (handGuideEnabled && !handGuideRainbow) createHandGuide();
     };
 
     const initialsInput = document.getElementById('initials-input');
@@ -2098,16 +2127,27 @@ function colorKeyboardKeys() {
 
     // Color each key based on its finger assignment
     Object.entries(fingerMap).forEach(([char, info]) => {
-        if (!info.finger || info.shift) return; // skip shift variants
-        const color = FINGER_COLORS[info.finger];
+        if (!info.finger || info.shift) return;
+        const color = getFingerColor(info.finger);
         if (!color) return;
         let keyEl;
         if (char === ' ') keyEl = document.getElementById('key- ');
         else if (char === '\n') keyEl = document.getElementById('key-ENTER');
         else if (char === '\t') keyEl = document.getElementById('key-TAB');
         else keyEl = document.getElementById(`key-${char}`);
-        if (keyEl) keyEl.style.backgroundColor = color + '22'; // very light tint
+        if (keyEl) keyEl.style.backgroundColor = color + '38';
     });
+
+    // Color special keys by their pinky finger
+    const lp = getFingerColor('left-pinky') + '38';
+    const rp = getFingerColor('right-pinky') + '38';
+    const el = id => document.getElementById(id);
+    if (el('key-TAB')) el('key-TAB').style.backgroundColor = lp;
+    if (el('key-CAPS')) el('key-CAPS').style.backgroundColor = lp;
+    if (el('key-SHIFT-L')) el('key-SHIFT-L').style.backgroundColor = lp;
+    if (el('key-SHIFT-R')) el('key-SHIFT-R').style.backgroundColor = rp;
+    if (el('key-ENTER')) el('key-ENTER').style.backgroundColor = rp;
+    if (el('key-BACK')) el('key-BACK').style.backgroundColor = rp;
 }
 
 function buildFingerSVG() {
@@ -2126,7 +2166,7 @@ function buildFingerSVG() {
     FINGER_NAMES.forEach(name => {
         const pos = getKeyCenterInKB(homeKeys[name]);
         if (!pos) return;
-        const fc = FINGER_COLORS[name] || '#4FC3F7';
+        const fc = getFingerColor(name);
 
         const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         g.id = `hg-finger-${name}`;
@@ -2164,7 +2204,7 @@ function buildFingerSVG() {
     if (spacePos) {
         ['left-thumb', 'right-thumb'].forEach((name, i) => {
             const xOff = i === 0 ? -30 : 30;
-            const fc = FINGER_COLORS[name] || '#4FC3F7';
+            const fc = getFingerColor(name);
             const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
             g.id = `hg-finger-${name}`;
             g.classList.add('hg-finger-group');
@@ -2621,10 +2661,20 @@ function openGameGenie() {
             </div>
             
             <div style="margin-top:8px; padding-top:6px; border-top:1px solid #ddd;">
-                <div style="font-size:0.75em; color:#888; text-align:center; margin-bottom:4px;">Test Text</div>
-                <div style="display:flex; justify-content:center; gap:6px;">
-                    <button id="gg-test-pangram" style="${ggBtn}" title="&quot;The quick brown fox jumps over the lazy dog!&quot; exclaimed 4 typing teachers.">🦊 Pangram</button>
-                    <button id="gg-test-alphabet" style="${ggBtn}" title="abcdefghijklmnopqrstuvwxyz 1234567890">🔤 Alphabet</button>
+                <div style="display:flex; justify-content:center; gap:10px; align-items:center;">
+                    <div>
+                        <div style="font-size:0.75em; color:#888; text-align:center; margin-bottom:4px;">Test Text</div>
+                        <div style="display:flex; gap:6px;">
+                            <button id="gg-test-pangram" style="${ggBtn}" title="&quot;The quick brown fox jumps over the lazy dog!&quot; exclaimed 4 typing teachers.">🦊 Pangram</button>
+                            <button id="gg-test-alphabet" style="${ggBtn}" title="abcdefghijklmnopqrstuvwxyz 1234567890">🔤 Alphabet</button>
+                        </div>
+                    </div>
+                    <div style="border-left:1px solid #ddd; padding-left:10px;">
+                        <label style="display:flex; align-items:center; gap:4px; font-size:0.75em; color:${ggAllowMistakes ? '#ff6600' : '#888'}; cursor:pointer;">
+                            <input type="checkbox" id="gg-allow-mistakes" ${ggAllowMistakes ? 'checked' : ''}>
+                            Allow Mistakes
+                        </label>
+                    </div>
                 </div>
             </div>
         </div>
@@ -2695,6 +2745,9 @@ function openGameGenie() {
         ggRealCharIndex = -1;
         closeModal();
         startTestText(TEST_TEXT_ALPHABET, 'Alphabet');
+    };
+    document.getElementById('gg-allow-mistakes').onchange = (e) => {
+        ggAllowMistakes = e.target.checked;
     };
     
     // Return button
