@@ -9,7 +9,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
-const VERSION = "2.8.3";
+const VERSION = "2.8.4";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -65,6 +65,7 @@ let furthestCharIndex = 0;
 let autoStartNext = false; // skip start modal when advancing chapters
 let ggRealCharIndex = -1;  // real position before Game Genie warps
 let ggAllowMistakes = false; // bypass mistake limit (session only, not persisted)
+let ggBypassIdle = false; // bypass AFK/idle timer (session only)
 
 // Stats
 let sessionLimit = 30;
@@ -516,7 +517,7 @@ function gameTick() {
     const now = Date.now();
 
     // AUTO PAUSE FOR INACTIVITY
-    if (now - lastInputTime > AFK_THRESHOLD && !isModalOpen) {
+    if (now - lastInputTime > AFK_THRESHOLD && !isModalOpen && !ggBypassIdle) {
         triggerHardStop(fullText[currentCharIndex], true);
         return;
     }
@@ -2017,7 +2018,7 @@ function flashKey(char) {
         if (found) targetId = found.id;
     }
     const el = document.getElementById(targetId);
-    if (el) { el.style.backgroundColor = 'var(--brute-force-color)'; setTimeout(() => el.style.backgroundColor = '', 200); }
+    if (el) { const prev = el.style.backgroundColor; el.style.backgroundColor = 'var(--brute-force-color)'; setTimeout(() => el.style.backgroundColor = prev, 200); }
 }
 
 // ========================
@@ -2674,6 +2675,10 @@ function openGameGenie() {
                             <input type="checkbox" id="gg-allow-mistakes" ${ggAllowMistakes ? 'checked' : ''}>
                             Allow Mistakes
                         </label>
+                        <label style="display:flex; align-items:center; gap:4px; font-size:0.75em; color:${ggBypassIdle ? '#ff6600' : '#888'}; cursor:pointer; margin-top:3px;">
+                            <input type="checkbox" id="gg-bypass-idle" ${ggBypassIdle ? 'checked' : ''}>
+                            Bypass Idle
+                        </label>
                     </div>
                 </div>
             </div>
@@ -2748,6 +2753,9 @@ function openGameGenie() {
     };
     document.getElementById('gg-allow-mistakes').onchange = (e) => {
         ggAllowMistakes = e.target.checked;
+    };
+    document.getElementById('gg-bypass-idle').onchange = (e) => {
+        ggBypassIdle = e.target.checked;
     };
     
     // Return button
