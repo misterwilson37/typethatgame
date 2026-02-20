@@ -9,7 +9,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
-const VERSION = "2.7.8";
+const VERSION = "2.7.9";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -1875,16 +1875,22 @@ async function switchChapterHot(newChapter) {
 // --- KEYBOARD LAYOUTS ---
 const LAYOUTS = {
     qwerty: {
+        numRow:      ['`','1','2','3','4','5','6','7','8','9','0','-','='],
+        numShiftRow: ['~','!','@','#','$','%','^','&','*','(',')','_','+'],
         rows:      [['q','w','e','r','t','y','u','i','o','p','[',']','\\'],['a','s','d','f','g','h','j','k','l',';',"'"],['z','x','c','v','b','n','m',',','.','/']],
         shiftRows: [['Q','W','E','R','T','Y','U','I','O','P','{','}','|'],['A','S','D','F','G','H','J','K','L',':','"'],['Z','X','C','V','B','N','M','<','>','?']]
     },
     dvorak: {
+        numRow:      ['`','1','2','3','4','5','6','7','8','9','0','[',']'],
+        numShiftRow: ['~','!','@','#','$','%','^','&','*','(',')' ,'{','}'],
         rows:      [["'",',','.','p','y','f','g','c','r','l','/','+','\\'],['a','o','e','u','i','d','h','t','n','s','-'],[';','q','j','k','x','b','m','w','v','z']],
         shiftRows: [['"','<','>','P','Y','F','G','C','R','L','?','=','|'],['A','O','E','U','I','D','H','T','N','S','_'],[':', 'Q','J','K','X','B','M','W','V','Z']]
     }
 };
 
 let currentLayout = localStorage.getItem('keyboardLayout') || 'qwerty';
+let numRow = LAYOUTS[currentLayout].numRow;
+let numShiftRow = LAYOUTS[currentLayout].numShiftRow;
 let rows = LAYOUTS[currentLayout].rows;
 let shiftRows = LAYOUTS[currentLayout].shiftRows;
 
@@ -1892,6 +1898,8 @@ function setKeyboardLayout(layout) {
     if (!LAYOUTS[layout]) return;
     currentLayout = layout;
     localStorage.setItem('keyboardLayout', layout);
+    numRow = LAYOUTS[layout].numRow;
+    numShiftRow = LAYOUTS[layout].numShiftRow;
     rows = LAYOUTS[layout].rows;
     shiftRows = LAYOUTS[layout].shiftRows;
     createKeyboard();
@@ -1905,20 +1913,36 @@ function setKeyboardLayout(layout) {
 
 function createKeyboard() {
     keyboardDiv.innerHTML = '';
+
+    // Number row: dual-character keys + BACK
+    const numDiv = document.createElement('div'); numDiv.className = 'kb-row';
+    numRow.forEach((char, i) => {
+        const key = document.createElement('div');
+        key.className = 'key key-num';
+        key.dataset.char = char;
+        key.dataset.shift = numShiftRow[i];
+        key.id = `key-${char}`;
+        key.innerHTML = `<span class="num-symbol">${escapeHtml(numShiftRow[i])}</span><span class="num-digit">${escapeHtml(char)}</span>`;
+        numDiv.appendChild(key);
+    });
+    addSpecialKey(numDiv, "BACK", null, 53);
+    keyboardDiv.appendChild(numDiv);
+
+    // Letter rows
     rows.forEach((rowChars, rIndex) => {
         const rowDiv = document.createElement('div'); rowDiv.className = 'kb-row';
-        // Stagger: TAB narrower than CAPS, SHIFT wider — mimics real keyboard offset
         if (rIndex === 0) addSpecialKey(rowDiv, "TAB", null, 72);
         if (rIndex === 1) addSpecialKey(rowDiv, "CAPS", null, 80);
         if (rIndex === 2) addSpecialKey(rowDiv, "SHIFT", "key-SHIFT-L", 100);
         rowChars.forEach((char, cIndex) => {
             const key = document.createElement('div'); key.className = 'key'; key.innerText = char; key.dataset.char = char; key.dataset.shift = shiftRows[rIndex][cIndex]; key.id = `key-${char}`; rowDiv.appendChild(key);
         });
-        if (rIndex === 0) addSpecialKey(rowDiv, "BACK", null, 72);
         if (rIndex === 1) addSpecialKey(rowDiv, "ENTER", null, 80);
         if (rIndex === 2) addSpecialKey(rowDiv, "SHIFT", "key-SHIFT-R", 100);
         keyboardDiv.appendChild(rowDiv);
     });
+
+    // Space row
     const spaceRow = document.createElement('div'); spaceRow.className = 'kb-row';
     const space = document.createElement('div'); space.className = 'key space'; space.innerText = ""; space.id = "key- ";
     spaceRow.appendChild(space); keyboardDiv.appendChild(spaceRow);
@@ -1933,6 +1957,7 @@ function addSpecialKey(parent, text, customId, width) {
 
 function toggleKeyboardCase(isShift) {
     document.querySelectorAll('.key').forEach(k => {
+        if (k.classList.contains('key-num')) return; // number keys always show both
         if (k.dataset.char) k.innerText = isShift ? k.dataset.shift : k.dataset.char;
         if (k.id === 'key-SHIFT-L' || k.id === 'key-SHIFT-R') isShift ? k.classList.add('shift-active') : k.classList.remove('shift-active');
     });
@@ -1980,6 +2005,19 @@ const FINGER_NAMES = ['left-pinky','left-ring','left-middle','left-index',
 
 function buildFingerMap() {
     fingerMap = {};
+
+    // Number row finger assignments
+    const numAssign = ['left-pinky','left-pinky','left-ring','left-middle','left-index','left-index',
+                       'right-index','right-index','right-middle','right-ring','right-pinky','right-pinky','right-pinky'];
+    numRow.forEach((char, i) => {
+        if (i >= numAssign.length) return;
+        fingerMap[char] = { finger: numAssign[i], keyChar: char };
+        if (numShiftRow[i]) {
+            fingerMap[numShiftRow[i]] = { finger: numAssign[i], keyChar: char, shift: true };
+        }
+    });
+
+    // Letter row finger assignments
     const assignments = [
         // Row 0 (top): up to 13 keys
         ['left-pinky','left-ring','left-middle','left-index','left-index',
