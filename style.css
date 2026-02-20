@@ -1,4 +1,4 @@
-/* TypeThatBook style.css v2.8.6 */
+/* TypeThatBook style.css v2.8.7 */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -304,27 +304,27 @@ body {
     stroke: #fff !important; stroke-opacity: 0.6 !important;
 }
 
-/* Thumbs - invisible at rest, white when active */
+/* Thumbs - hidden at rest, grey when space is target, white on press */
 .hg-thumb-group .hg-home { fill-opacity: 0; stroke-opacity: 0; }
 .hg-thumb-group.hg-active .hg-home {
-    fill: #fff; fill-opacity: 0.8;
-    stroke: #fff; stroke-width: 2; stroke-opacity: 1;
-    filter: drop-shadow(0 0 6px rgba(255,255,255,0.8));
+    fill: #888; fill-opacity: 0.7;
+    stroke: #888; stroke-width: 1.5; stroke-opacity: 0.5;
 }
 .hg-thumb-group.hg-pressed .hg-home {
     fill: #fff !important; fill-opacity: 1 !important;
-    filter: drop-shadow(0 0 10px #fff) !important;
+    stroke: #fff !important; stroke-opacity: 1 !important;
+    filter: drop-shadow(0 0 8px #fff) !important;
 }
 
 /* Space bar highlight when it's the target */
 .key.space.space-active {
-    background: rgba(255,255,255,0.95) !important;
-    box-shadow: 0 0 8px rgba(255,255,255,0.6), inset 0 0 4px rgba(200,200,200,0.3);
-    border-color: #aaa;
+    background: #e8e8e8 !important;
+    border-color: #999;
 }
 .key.space.space-pressed {
     background: #fff !important;
-    box-shadow: 0 0 14px rgba(255,255,255,0.9) !important;
+    box-shadow: 0 0 12px rgba(255,255,255,0.9) !important;
+    border-color: #ccc;
 }
 .initials-box-settings {
     width: 72px; background: #222; color: #FFD700;
