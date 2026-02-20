@@ -1,4 +1,4 @@
-/* TypeThatBook style.css v2.8.3 */
+/* TypeThatBook style.css v2.8.4 */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -180,7 +180,7 @@ body {
     border-radius: 4px; display: flex; align-items: center; justify-content: center;
     font-weight: bold; font-size: 16px; color: var(--black);
 }
-.key.target { background-color: var(--carolina-blue); color: white; transform: translateY(2px); }
+.key.target { background-color: var(--carolina-blue); color: white; transform: translateY(2px); position: relative; z-index: 5; }
 .key.space { width: 300px; }
 .key.wide { min-width: 72px; font-size: 12px; }
 .key.key-num {
