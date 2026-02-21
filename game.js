@@ -9,7 +9,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
-const VERSION = "2.9.1";
+const VERSION = "2.9.2";
 const DEFAULT_BOOK = "wizard_of_oz";
 const IDLE_THRESHOLD = 2000;
 const AFK_THRESHOLD = 5000; // 5 Seconds to Auto-Pause
@@ -1094,7 +1094,7 @@ function getPracticeSummaryHTML() {
         const hit = Math.max(0, total - missed);
         const acc = total > 0 ? Math.round((hit / total) * 100) : 100;
         return { ch, total, hit, missed, acc };
-    }).filter(r => r.total > 0);
+    }).filter(r => r.total > 0).slice(0, 5);
 
     if (results.length === 0) return '';
 
@@ -1182,7 +1182,8 @@ async function finishChapter() {
         isModalOpen = true; isInputBlocked = false;
         setModalTitle('');
         document.getElementById('modal-body').innerHTML = `
-            <div style="display:flex; gap:12px; align-items:stretch;">
+            <div style="display:flex; gap:0; align-items:stretch;">
+                ${summaryHTML ? `<div style="flex:0 0 auto; min-width:180px; max-width:200px;"></div>` : ''}
                 <div style="flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center;">
                     <div class="stats-title">✨ Practice Complete!</div>
                     <div class="stats-inline">
@@ -1198,7 +1199,7 @@ async function finishChapter() {
                     </div>
                     <div class="start-hint" style="margin-top:6px;">Press Enter to return</div>
                 </div>
-                ${summaryHTML ? `<div style="flex:0 0 auto; min-width:180px; max-width:220px; border-left:1px solid #eee; padding-left:12px; display:flex; align-items:center;">${summaryHTML}</div>` : ''}
+                ${summaryHTML ? `<div style="flex:0 0 auto; min-width:180px; max-width:200px; border-left:1px solid #eee; padding-left:12px; display:flex; align-items:center;">${summaryHTML}</div>` : ''}
             </div>
         `;
         resetModalFooter();
@@ -1404,6 +1405,7 @@ function showStatsModal(title, stats, btnText, callback, hint, instant) {
 
     document.getElementById('modal-body').innerHTML = `
         <div class="${hasTrophies ? 'stats-with-trophies' : ''}">
+            ${hasTrophies ? '<div class="stats-balance"></div>' : ''}
             <div class="${hasTrophies ? 'stats-main' : ''}">
                 <div class="stats-title">${title}</div>
                 <div class="stats-inline">
@@ -2741,7 +2743,7 @@ function openGameGenie() {
     }
     
     document.getElementById('modal-body').innerHTML = `
-        <div style="font-family: 'Courier Prime', monospace; text-align: left; width: 50%; margin: 0 auto; font-size: 0.8em;">
+        <div style="font-family: 'Courier Prime', monospace; text-align: left; width: 60%; margin: 0 auto; font-size: 0.8em;">
             <div style="display:flex; gap:6px; align-items:center; margin-bottom:6px;">
                 <select id="gg-chapter-select" style="flex:1; background:#f8f8f8; border:1px solid #ccc; padding:3px 4px; font-family:inherit; font-size:0.9em; border-radius:3px;">${chapOpts}</select>
                 <button id="gg-chapter-go" style="${ggBtn}">Jump Ch.</button>
@@ -2786,23 +2788,29 @@ function openGameGenie() {
             </div>
             
             <div style="margin-top:8px; padding-top:6px; border-top:1px solid #ddd;">
-                <div style="display:flex; justify-content:center; gap:10px; align-items:center;">
+                <div style="display:flex; justify-content:space-between; gap:8px; align-items:flex-start;">
                     <div>
-                        <div style="font-size:0.75em; color:#888; text-align:center; margin-bottom:4px;">Test Text</div>
-                        <div style="display:flex; gap:6px;">
-                            <button id="gg-test-pangram" style="${ggBtn}" title="&quot;The quick brown fox jumps over the lazy dog!&quot; exclaimed 4 typing teachers.">🦊 Pangram</button>
-                            <button id="gg-test-alphabet" style="${ggBtn}" title="abcdefghijklmnopqrstuvwxyz 1234567890">🔤 Alphabet</button>
+                        <div style="font-size:0.7em; color:#666; margin-bottom:3px;">Test Text</div>
+                        <div style="display:flex; gap:4px;">
+                            <button id="gg-test-pangram" style="${ggBtn}" title="All letters + numbers + quotes">🦊 Pangram</button>
+                            <button id="gg-test-alphabet" style="${ggBtn}" title="A-Z + 0-9">🔤 ABC</button>
                         </div>
                     </div>
-                    <div style="border-left:1px solid #ddd; padding-left:10px;">
-                        <label style="display:flex; align-items:center; gap:4px; font-size:0.75em; color:${ggAllowMistakes ? '#ff6600' : '#888'}; cursor:pointer;">
-                            <input type="checkbox" id="gg-allow-mistakes" ${ggAllowMistakes ? 'checked' : ''}>
-                            Allow Mistakes
+                    <div>
+                        <div style="font-size:0.7em; color:#666; margin-bottom:3px;">Toggles</div>
+                        <label style="display:flex; align-items:center; gap:3px; font-size:0.7em; color:${ggAllowMistakes ? '#ff6600' : '#888'}; cursor:pointer;">
+                            <input type="checkbox" id="gg-allow-mistakes" ${ggAllowMistakes ? 'checked' : ''}> Mistakes OK
                         </label>
-                        <label style="display:flex; align-items:center; gap:4px; font-size:0.75em; color:${ggBypassIdle ? '#ff6600' : '#888'}; cursor:pointer; margin-top:3px;">
-                            <input type="checkbox" id="gg-bypass-idle" ${ggBypassIdle ? 'checked' : ''}>
-                            Bypass Idle
+                        <label style="display:flex; align-items:center; gap:3px; font-size:0.7em; color:${ggBypassIdle ? '#ff6600' : '#888'}; cursor:pointer; margin-top:2px;">
+                            <input type="checkbox" id="gg-bypass-idle" ${ggBypassIdle ? 'checked' : ''}> No Idle
                         </label>
+                    </div>
+                    <div>
+                        <div style="font-size:0.7em; color:#666; margin-bottom:3px;">Debug</div>
+                        <div style="display:flex; flex-direction:column; gap:3px;">
+                            <button id="gg-reset-practice" style="${ggBtn}" title="Reset AI practice cooldown & count">✨ AI Reset</button>
+                            <button id="gg-clear-missed" style="${ggBtn}" title="Clear missed characters map">🧹 Missed</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -2880,6 +2888,15 @@ function openGameGenie() {
     };
     document.getElementById('gg-bypass-idle').onchange = (e) => {
         ggBypassIdle = e.target.checked;
+    };
+    document.getElementById('gg-reset-practice').onclick = () => {
+        practiceTypingAccumulator = 9999;
+        hasDonePractice = true;
+        alert('AI practice unlocked! Cooldown reset. (Server-side 5/day limit still applies.)');
+    };
+    document.getElementById('gg-clear-missed').onclick = () => {
+        missedCharsMap = {};
+        alert('Missed characters cleared.');
     };
     
     // Return button
@@ -3291,7 +3308,7 @@ async function startPracticeMode() {
     if (isPracticeMode) return;
     
     // Get the problem characters from the current session
-    const entries = Object.entries(missedCharsMap).sort((a,b) => b[1] - a[1]).slice(0, 8);
+    const entries = Object.entries(missedCharsMap).sort((a,b) => b[1] - a[1]).slice(0, 5);
     if (entries.length === 0) return;
     practiceProblemChars = entries.map(([ch]) => ch);
     
