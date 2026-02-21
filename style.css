@@ -1,4 +1,4 @@
-/* TypeThatBook style.css v2.9.1 */ 
+/* TypeThatBook style.css v2.9.2 */
 :root {
     --bg-color: #ffffff;
     --text-color: #333333;
@@ -209,7 +209,7 @@ body {
 }
 #modal-title-bar { text-align: center; font-weight: bold; font-size: 0.95rem; color: var(--black); padding-bottom: 8px; }
 #modal-title-bar.no-title { display: none; }
-#modal-body { flex: 1; display: flex; flex-direction: column; justify-content: center; text-align: center; overflow: hidden; min-height: 0; }
+#modal-body { flex: 1; display: flex; flex-direction: column; justify-content: center; text-align: center; overflow-y: auto; overflow-x: hidden; min-height: 0; scrollbar-width: thin; }
 #modal-footer { text-align: center; padding-top: 8px; flex-shrink: 0; }
 
 /* Keep overlay behavior for admin wizard only */
@@ -464,6 +464,7 @@ button.secondary-btn:hover { border-color: #888; color: #fff; }
 
 /* Leaderboard */
 .stats-with-trophies { display: flex; gap: 0; align-items: stretch; min-height: 0; flex: 1; }
+.stats-balance { flex: 0 0 auto; width: 80px; margin-right: 10px; } /* invisible left spacer to center stats */
 .stats-main { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
 .trophy-panel {
     flex: 0 0 auto; width: 80px;
